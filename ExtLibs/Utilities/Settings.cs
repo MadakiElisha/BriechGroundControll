@@ -46,6 +46,269 @@ namespace MissionPlanner.Utilities
 
         public static string FileName { get; set; } = "config.xml";
 
+        // Current config profile name (stored separately from the config itself)
+        private static string _currentConfigName = null;
+        public static string CurrentConfigName
+        {
+            get
+            {
+                if (_currentConfigName == null)
+                {
+                    _currentConfigName = LoadCurrentConfigName();
+                }
+                return _currentConfigName;
+            }
+            private set
+            {
+                _currentConfigName = value;
+                SaveCurrentConfigName(value);
+            }
+        }
+
+        private static string GetCurrentConfigNameFilePath()
+        {
+            return Path.Combine(GetUserDataDirectory(), "profile.txt");
+        }
+
+        private static string LoadCurrentConfigName()
+        {
+            try
+            {
+                var filePath = GetCurrentConfigNameFilePath();
+                if (File.Exists(filePath))
+                {
+                    var name = File.ReadAllText(filePath).Trim();
+                    if (!string.IsNullOrEmpty(name))
+                        return name;
+                }
+            }
+            catch { }
+            return "Default";
+        }
+
+        private static void SaveCurrentConfigName(string name)
+        {
+            try
+            {
+                var filePath = GetCurrentConfigNameFilePath();
+                var dir = Path.GetDirectoryName(filePath);
+                if (!Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+                File.WriteAllText(filePath, name ?? "Default");
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Get list of available config profiles
+        /// </summary>
+        public static List<string> GetAvailableConfigs()
+        {
+            var configs = new List<string> { "Default" };
+            try
+            {
+                var dir = GetUserDataDirectory();
+                if (Directory.Exists(dir))
+                {
+                    var files = Directory.GetFiles(dir, "config_*.xml");
+                    foreach (var file in files)
+                    {
+                        var name = Path.GetFileNameWithoutExtension(file);
+                        if (name.StartsWith("config_"))
+                        {
+                            configs.Add(name.Substring(7)); // Remove "config_" prefix
+                        }
+                    }
+                }
+            }
+            catch { }
+            return configs;
+        }
+
+        /// <summary>
+        /// Validate config name - only A-Z, 0-9, underscore allowed
+        /// </summary>
+        public static bool IsValidConfigName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            foreach (char c in name)
+            {
+                if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'))
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Load a specific config profile
+        /// </summary>
+        public bool LoadConfig(string configName)
+        {
+            try
+            {
+                string filename;
+                if (configName == "Default")
+                {
+                    filename = Path.Combine(GetUserDataDirectory(), "config.xml");
+                }
+                else
+                {
+                    filename = Path.Combine(GetUserDataDirectory(), $"config_{configName}.xml");
+                }
+
+                if (!File.Exists(filename))
+                    return false;
+
+                // Clear current config
+                config.Clear();
+
+                // Load defaults first
+                try
+                {
+                    if (File.Exists(GetConfigDefaultsFullPath()))
+                        using (XmlTextReader xmlreader = new XmlTextReader(GetConfigDefaultsFullPath()))
+                        {
+                            while (xmlreader.Read())
+                            {
+                                if (xmlreader.NodeType == XmlNodeType.Element)
+                                {
+                                    try
+                                    {
+                                        switch (xmlreader.Name)
+                                        {
+                                            case "Config":
+                                            case "xml":
+                                                break;
+                                            default:
+                                                var key = xmlreader.Name;
+                                                if (key.Contains("____"))
+                                                    key = key.Replace("____", "/");
+                                                config[key] = xmlreader.ReadString();
+                                                break;
+                                        }
+                                    }
+                                    catch { }
+                                }
+                            }
+                        }
+                }
+                catch { }
+
+                // Load the config
+                using (XmlTextReader xmlreader = new XmlTextReader(filename))
+                {
+                    while (xmlreader.Read())
+                    {
+                        if (xmlreader.NodeType == XmlNodeType.Element)
+                        {
+                            try
+                            {
+                                switch (xmlreader.Name)
+                                {
+                                    case "Config":
+                                    case "xml":
+                                        break;
+                                    default:
+                                        config[xmlreader.Name] = xmlreader.ReadString();
+                                        break;
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+
+                CurrentConfigName = configName;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Save current config as a new profile
+        /// </summary>
+        public bool SaveConfigAs(string configName)
+        {
+            if (!IsValidConfigName(configName) && configName != "Default")
+                return false;
+
+            try
+            {
+                string filename;
+                if (configName == "Default")
+                {
+                    filename = Path.Combine(GetUserDataDirectory(), "config.xml");
+                }
+                else
+                {
+                    filename = Path.Combine(GetUserDataDirectory(), $"config_{configName}.xml");
+                }
+
+                using (XmlTextWriter xmlwriter = new XmlTextWriter(filename, Encoding.UTF8))
+                {
+                    xmlwriter.Formatting = Formatting.Indented;
+                    xmlwriter.WriteStartDocument();
+                    xmlwriter.WriteStartElement("Config");
+
+                    foreach (string key2 in config.Keys.OrderBy(a => a))
+                    {
+                        var key = key2;
+                        try
+                        {
+                            if (key.Contains("/"))
+                                key = key.Replace("/", "____");
+
+                            if (key == "" || key.Contains("/") || key.Contains(" ")
+                                || key.Contains("-") || key.Contains(":")
+                                || key.Contains(";") || key.Contains("@")
+                                || key.Contains("!") || key.Contains("#")
+                                || key.Contains("$") || key.Contains("%"))
+                            {
+                                continue;
+                            }
+
+                            xmlwriter.WriteElementString(key, "" + config[key]);
+                        }
+                        catch { }
+                    }
+
+                    xmlwriter.WriteEndElement();
+                    xmlwriter.WriteEndDocument();
+                    xmlwriter.Close();
+                }
+
+                CurrentConfigName = configName;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Delete a config profile
+        /// </summary>
+        public static bool DeleteConfig(string configName)
+        {
+            if (configName == "Default") return false; // Can't delete default
+
+            try
+            {
+                var filename = Path.Combine(GetUserDataDirectory(), $"config_{configName}.xml");
+                if (File.Exists(filename))
+                {
+                    File.Delete(filename);
+                    return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
         public string this[string key]
         {
             get
@@ -426,6 +689,29 @@ namespace MissionPlanner.Utilities
 
         public void Load()
         {
+            // Check if we should load a specific profile
+            var profileName = CurrentConfigName;
+            string configFilePath;
+
+            if (profileName != "Default")
+            {
+                var profilePath = Path.Combine(GetUserDataDirectory(), $"config_{profileName}.xml");
+                if (File.Exists(profilePath))
+                {
+                    configFilePath = profilePath;
+                }
+                else
+                {
+                    // Profile doesn't exist, fall back to default
+                    configFilePath = GetConfigFullPath();
+                    _currentConfigName = "Default";
+                }
+            }
+            else
+            {
+                configFilePath = GetConfigFullPath();
+            }
+
             // load the defaults
             try
             {
@@ -465,12 +751,12 @@ namespace MissionPlanner.Utilities
 
             }
 
-            if (!File.Exists(GetConfigFullPath()))
+            if (!File.Exists(configFilePath))
                 return;
 
             try
             {
-                using (XmlTextReader xmlreader = new XmlTextReader(GetConfigFullPath()))
+                using (XmlTextReader xmlreader = new XmlTextReader(configFilePath))
                 {
                     while (xmlreader.Read())
                     {
@@ -506,7 +792,17 @@ namespace MissionPlanner.Utilities
 
         public void Save()
         {
-            string filename = GetConfigFullPath();
+            // Save to the current profile file
+            var profileName = CurrentConfigName;
+            string filename;
+            if (profileName != "Default")
+            {
+                filename = Path.Combine(GetUserDataDirectory(), $"config_{profileName}.xml");
+            }
+            else
+            {
+                filename = GetConfigFullPath();
+            }
 
             using (XmlTextWriter xmlwriter = new XmlTextWriter(filename, Encoding.UTF8))
             {

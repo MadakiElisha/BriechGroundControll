@@ -124,6 +124,10 @@
             this.BUT_mapCacheDir = new MissionPlanner.Controls.MyButton();
             this.label_customicon = new System.Windows.Forms.Label();
             this.BUT_customicon = new MissionPlanner.Controls.MyButton();
+            this.label_configprofile = new System.Windows.Forms.Label();
+            this.CMB_configprofile = new System.Windows.Forms.ComboBox();
+            this.TXT_newconfigname = new System.Windows.Forms.TextBox();
+            this.BUT_saveconfig = new MissionPlanner.Controls.MyButton();
             this.CHK_rtsresetesp32 = new System.Windows.Forms.CheckBox();
             this.CHK_speechadsb = new System.Windows.Forms.CheckBox();
             this.CHK_autoconnectusb = new System.Windows.Forms.CheckBox();
@@ -904,6 +908,35 @@
             this.BUT_customicon.UseVisualStyleBackColor = true;
             this.BUT_customicon.Click += new System.EventHandler(this.BUT_customicon_Click);
             //
+            // label_configprofile
+            //
+            this.label_configprofile.AutoSize = true;
+            this.label_configprofile.Name = "label_configprofile";
+            this.label_configprofile.Text = "Configuration";
+            //
+            // CMB_configprofile
+            //
+            this.CMB_configprofile.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.CMB_configprofile.FormattingEnabled = true;
+            this.CMB_configprofile.Name = "CMB_configprofile";
+            this.CMB_configprofile.Size = new System.Drawing.Size(150, 21);
+            this.CMB_configprofile.SelectedIndexChanged += new System.EventHandler(this.CMB_configprofile_SelectedIndexChanged);
+            //
+            // TXT_newconfigname
+            //
+            this.TXT_newconfigname.Name = "TXT_newconfigname";
+            this.TXT_newconfigname.Size = new System.Drawing.Size(100, 20);
+            this.TXT_newconfigname.MaxLength = 20;
+            //
+            // BUT_saveconfig
+            //
+            this.BUT_saveconfig.Name = "BUT_saveconfig";
+            this.BUT_saveconfig.Size = new System.Drawing.Size(75, 23);
+            this.BUT_saveconfig.Text = "Save As";
+            this.BUT_saveconfig.TextColorNotEnabled = System.Drawing.Color.FromArgb(((int)(((byte)(64)))), ((int)(((byte)(87)))), ((int)(((byte)(4)))));
+            this.BUT_saveconfig.UseVisualStyleBackColor = true;
+            this.BUT_saveconfig.Click += new System.EventHandler(this.BUT_saveconfig_Click);
+            //
             // CHK_rtsresetesp32
             // 
             resources.ApplyResources(this.CHK_rtsresetesp32, "CHK_rtsresetesp32");
@@ -1139,6 +1172,10 @@
         private Controls.MyButton BUT_mapCacheDir;
         private System.Windows.Forms.Label label_customicon;
         private Controls.MyButton BUT_customicon;
+        private System.Windows.Forms.Label label_configprofile;
+        private System.Windows.Forms.ComboBox CMB_configprofile;
+        private System.Windows.Forms.TextBox TXT_newconfigname;
+        private Controls.MyButton BUT_saveconfig;
         private System.Windows.Forms.CheckBox CHK_rtsresetesp32;
         private System.Windows.Forms.CheckBox CHK_speechadsb;
         private System.Windows.Forms.CheckBox CHK_autoconnectusb;

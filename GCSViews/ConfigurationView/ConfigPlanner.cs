@@ -79,7 +79,6 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             };
             layoutRoot.SizeChanged += (s, e) => ResizeGroupBoxes();
 
-            layoutRoot.Controls.Add(CreateVideoAndHudGroup());
             layoutRoot.Controls.Add(CreateConnectivityGroup());
             layoutRoot.Controls.Add(CreateLayoutAndAppearanceGroup());
             layoutRoot.Controls.Add(CreateMapAndDisplayGroup());
@@ -87,6 +86,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             layoutRoot.Controls.Add(CreateUnitsGroup());
             layoutRoot.Controls.Add(CreateSpeechAndAudioGroup());
             layoutRoot.Controls.Add(CreateUpdatesGroup());
+            layoutRoot.Controls.Add(CreateConfigurationGroup());
 
             Controls.Clear();
             Controls.Add(layoutRoot);
@@ -211,14 +211,16 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             return group;
         }
 
-        private Control CreateVideoAndHudGroup()
+        private Control CreateConfigurationGroup()
         {
-            var group = CreateGroupBox("Video && HUD");
+            var group = CreateGroupBox("Configuration");
             var table = CreateTableLayout(3);
 
-            table.Controls.Add(label92, 0, 0);
-            table.Controls.Add(CMB_videosources, 1, 0);
-            var videoButtons = new FlowLayoutPanel
+            table.Controls.Add(label_configprofile, 0, 0);
+            table.Controls.Add(CMB_configprofile, 1, 0);
+            table.SetColumnSpan(CMB_configprofile, 2);
+
+            var saveFlow = new FlowLayoutPanel
             {
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
@@ -227,20 +229,10 @@ namespace MissionPlanner.GCSViews.ConfigurationView
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0)
             };
-            videoButtons.Controls.Add(BUT_videostart);
-            videoButtons.Controls.Add(BUT_videostop);
-            table.Controls.Add(videoButtons, 2, 0);
-
-            table.Controls.Add(label26, 0, 1);
-            table.Controls.Add(CMB_videoresolutions, 1, 1);
-            table.SetColumnSpan(CMB_videoresolutions, 2);
-
-            table.Controls.Add(label12, 0, 2);
-            table.Controls.Add(CHK_hudshow, 1, 2);
-            table.SetColumnSpan(CHK_hudshow, 2);
-
-            table.Controls.Add(CHK_GDIPlus, 0, 3);
-            table.SetColumnSpan(CHK_GDIPlus, 3);
+            saveFlow.Controls.Add(TXT_newconfigname);
+            saveFlow.Controls.Add(BUT_saveconfig);
+            table.Controls.Add(saveFlow, 1, 1);
+            table.SetColumnSpan(saveFlow, 2);
 
             group.Controls.Add(table);
             return group;
@@ -687,6 +679,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             EnsureVideoSourcesLoaded();
 
             UpdateCustomIconUI();
+            LoadConfigProfiles();
 
             startup = false;
         }
@@ -1729,6 +1722,99 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             catch
             {
                 BUT_customicon.Text = "Set";
+            }
+        }
+
+        private void LoadConfigProfiles()
+        {
+            try
+            {
+                CMB_configprofile.Items.Clear();
+                var configs = Settings.GetAvailableConfigs();
+                foreach (var config in configs)
+                {
+                    CMB_configprofile.Items.Add(config);
+                }
+
+                // Select current config
+                var currentConfig = Settings.CurrentConfigName;
+                var index = CMB_configprofile.Items.IndexOf(currentConfig);
+                if (index >= 0)
+                {
+                    CMB_configprofile.SelectedIndex = index;
+                }
+                else if (CMB_configprofile.Items.Count > 0)
+                {
+                    CMB_configprofile.SelectedIndex = 0;
+                }
+            }
+            catch { }
+        }
+
+        private void CMB_configprofile_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (startup)
+                return;
+
+            var selectedConfig = CMB_configprofile.SelectedItem?.ToString();
+            if (string.IsNullOrEmpty(selectedConfig))
+                return;
+
+            if (selectedConfig != Settings.CurrentConfigName)
+            {
+                // Save current config first
+                Settings.Instance.Save();
+
+                // Load the selected config
+                if (Settings.Instance.LoadConfig(selectedConfig))
+                {
+                    // Apply the theme from the loaded config
+                    var themeName = Settings.Instance["theme"];
+                    if (!string.IsNullOrEmpty(themeName))
+                    {
+                        ThemeManager.LoadTheme(themeName);
+                        ThemeManager.ApplyThemeTo(MainV2.instance);
+                    }
+
+                    // Reload ConfigPlanner to reflect new settings
+                    startup = true;
+                    Visible = false;
+                    SuspendLayout();
+                    BuildLayout();
+                    ResumeLayout(true);
+                    // Apply theme to the newly created controls
+                    ThemeManager.ApplyThemeTo(this);
+                    Visible = true;
+                    startup = false;
+                }
+            }
+        }
+
+        private void BUT_saveconfig_Click(object sender, EventArgs e)
+        {
+            var newName = TXT_newconfigname.Text.Trim();
+
+            if (string.IsNullOrEmpty(newName))
+            {
+                CustomMessageBox.Show("Please enter a configuration name.", "Save Configuration");
+                return;
+            }
+
+            if (!Settings.IsValidConfigName(newName))
+            {
+                CustomMessageBox.Show("Configuration name can only contain letters (A-Z), numbers (0-9), and underscores.", "Save Configuration");
+                return;
+            }
+
+            if (Settings.Instance.SaveConfigAs(newName))
+            {
+                TXT_newconfigname.Text = "";
+                LoadConfigProfiles();
+                CustomMessageBox.Show($"Configuration saved as '{newName}'.", "Save Configuration");
+            }
+            else
+            {
+                CustomMessageBox.Show("Failed to save configuration.", "Save Configuration");
             }
         }
     }
