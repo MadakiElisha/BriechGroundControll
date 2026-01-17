@@ -1510,6 +1510,7 @@ namespace MissionPlanner.Controls
         private SimpleKalmanFilter _kalmanNavBearing = new SimpleKalmanFilter(0.015, 2.0);
         private SimpleKalmanFilter _kalmanGpsHeading = new SimpleKalmanFilter(0.015, 2.0);
         private bool _kalmanInitialized = false;
+        private HashSet<tileInfo> _lastTilesToRender = new HashSet<tileInfo>();
 
         double[] convertCoords(PointLatLngAlt plla)
         {
@@ -1853,6 +1854,16 @@ namespace MissionPlanner.Controls
                         tilesToRender.Add(tile);
                         MarkAreaCovered(tile.point.X, tile.point.Y, tile.zoom, coveredAreas);
                     }
+                }
+
+                // If nothing to render this frame, reuse last good set to prevent flicker
+                if (tilesToRender.Count == 0 && _lastTilesToRender.Count > 0)
+                {
+                    tilesToRender = new HashSet<tileInfo>(_lastTilesToRender);
+                }
+                else if (tilesToRender.Count > 0)
+                {
+                    _lastTilesToRender = new HashSet<tileInfo>(tilesToRender);
                 }
 
                 // ============ PASS 1: TERRAIN ONLY (with larger near plane for depth precision) ============
