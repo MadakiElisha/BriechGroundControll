@@ -662,6 +662,7 @@ namespace MissionPlanner.Controls
                 catch { }
 
                 _stopRequested = true;
+                try { _tileTaskQueue.CompleteAdding(); } catch { }
                 timer1?.Stop();
                 timer1?.Dispose();
 
@@ -1549,6 +1550,8 @@ namespace MissionPlanner.Controls
             var afterwait = DateTime.Now;
             try
             {
+                DrainReadyTiles(3);
+                DrainDisposals(2);
                 double heightscale = 1; //(step/90.0)*5;
                 var campos = convertCoords(_center);
 
@@ -1806,7 +1809,7 @@ namespace MissionPlanner.Controls
 
                 // Get current wanted tiles from tileArea
                 List<tileZoomArea> currentTileArea;
-                lock (tileArea)
+                lock (_tileAreaLock)
                 {
                     currentTileArea = tileArea.ToList();
                 }
