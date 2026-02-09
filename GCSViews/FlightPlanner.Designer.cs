@@ -226,6 +226,9 @@ namespace MissionPlanner.GCSViews
             this.AZ = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.TagData = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.findLoc = new MissionPlanner.Controls.MyButton();
+            this.gDALOpacityToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.editStyleToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.useLegacyOverlayToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.panel5.SuspendLayout();
             this.panel1.SuspendLayout();
             this.panelWaypoints.SuspendLayout();
@@ -1086,7 +1089,9 @@ namespace MissionPlanner.GCSViews
             this.kMLOverlayToolStripMenuItem,
             this.elevationGraphToolStripMenuItem,
             this.reverseWPsToolStripMenuItem,
-            this.gDALOpacityToolStripMenuItem});
+            this.gDALOpacityToolStripMenuItem,
+            this.editStyleToolStripMenuItem,
+            this.useLegacyOverlayToolStripMenuItem});
             this.mapToolToolStripMenuItem.Name = "mapToolToolStripMenuItem";
             resources.ApplyResources(this.mapToolToolStripMenuItem, "mapToolToolStripMenuItem");
             // 
@@ -1433,7 +1438,7 @@ namespace MissionPlanner.GCSViews
             this.Commands.RowsAdded += new System.Windows.Forms.DataGridViewRowsAddedEventHandler(this.Commands_RowsAdded);
             this.Commands.RowsRemoved += new System.Windows.Forms.DataGridViewRowsRemovedEventHandler(this.Commands_RowsRemoved);
             this.Commands.RowValidating += new System.Windows.Forms.DataGridViewCellCancelEventHandler(this.Commands_RowValidating);
-            // 
+            //
             // Command
             // 
             dataGridViewCellStyle4.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(67)))), ((int)(((byte)(68)))), ((int)(((byte)(69)))));
@@ -1574,6 +1579,19 @@ namespace MissionPlanner.GCSViews
             this.findLoc.TextColorNotEnabled = System.Drawing.Color.FromArgb(((int)(((byte)(64)))), ((int)(((byte)(87)))), ((int)(((byte)(4)))));
             this.findLoc.UseVisualStyleBackColor = true;
             this.findLoc.Click += new System.EventHandler(this.findLoc_Click);
+            //
+            // editStyleToolStripMenuItem
+            //
+            this.editStyleToolStripMenuItem.Name = "editStyleToolStripMenuItem";
+            resources.ApplyResources(this.editStyleToolStripMenuItem, "editStyleToolStripMenuItem");
+            this.editStyleToolStripMenuItem.Click += new System.EventHandler(this.editStyleToolStripMenuItem_Click);
+            //
+            // useLegacyOverlayToolStripMenuItem
+            //
+            this.useLegacyOverlayToolStripMenuItem.CheckOnClick = true;
+            this.useLegacyOverlayToolStripMenuItem.Name = "useLegacyOverlayToolStripMenuItem";
+            resources.ApplyResources(this.useLegacyOverlayToolStripMenuItem, "useLegacyOverlayToolStripMenuItem");
+            this.useLegacyOverlayToolStripMenuItem.CheckedChanged += new System.EventHandler(this.useLegacyOverlayToolStripMenuItem_CheckedChanged);
             //
             // FlightPlanner
             // 
@@ -1786,5 +1804,7 @@ namespace MissionPlanner.GCSViews
         private ProgressBar progressBarInjectCustomMap;
         private NumericUpDown Zoomlevel;
         private MyButton findLoc;
+        private ToolStripMenuItem editStyleToolStripMenuItem;
+        private ToolStripMenuItem useLegacyOverlayToolStripMenuItem;
     }
 }
