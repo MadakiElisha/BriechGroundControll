@@ -38,13 +38,6 @@ namespace MissionPlanner.Controls
         private Thread _imageloaderThread;
         private OpenTK.GameWindow _imageLoaderWindow;
         private IGraphicsContext IMGContext;
-        private readonly object _tileAreaLock = new object();
-        private readonly BlockingCollection<LoadTask> _tileTaskQueue = new BlockingCollection<LoadTask>(new ConcurrentQueue<LoadTask>());
-        private readonly ConcurrentQueue<ReadyTile> _readyTiles = new ConcurrentQueue<ReadyTile>();
-        private readonly ConcurrentQueue<tileInfo> _disposeQueue = new ConcurrentQueue<tileInfo>();
-        private readonly ConcurrentDictionary<(long x, long y, int z), byte> _inFlight = new ConcurrentDictionary<(long, long, int), byte>();
-        private List<Thread> _tileWorkers = new List<Thread>();
-        private const int TileWorkerCount = 2;
 
         #endregion
 
@@ -147,47 +140,6 @@ namespace MissionPlanner.Controls
 
         #region Tile Loading Thread
 
-        private void EnsureTileWorkers()
-        {
-            if (_tileWorkers.Count > 0)
-                return;
-
-            for (int i = 0; i < TileWorkerCount; i++)
-            {
-                var worker = new Thread(TileWorkerLoop)
-                {
-                    IsBackground = true,
-                    Name = $"tile-worker-{i}"
-                };
-                _tileWorkers.Add(worker);
-                worker.Start();
-            }
-        }
-
-        private void TileWorkerLoop()
-        {
-            foreach (var task in _tileTaskQueue.GetConsumingEnumerable())
-            {
-                if (_stopRequested)
-                    break;
-
-                try
-                {
-                    var ready = BuildReadyTile(task);
-                    if (ready != null)
-                        _readyTiles.Enqueue(ready);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Tile worker failed for {task.Pos}:{task.Zoom} - {ex.Message}");
-                }
-                finally
-                {
-                    _inFlight.TryRemove((task.Pos.X, task.Pos.Y, task.Zoom), out _);
-                }
-            }
-        }
-
         void imageLoader()
         {
             core.Zoom = minzoom;
@@ -198,7 +150,6 @@ namespace MissionPlanner.Controls
             _imageLoaderWindow.Visible = false;
             IMGContext = _imageLoaderWindow.Context;
             core.Zoom = 20;
-            EnsureTileWorkers();
 
             while (!_stopRequested && !this.IsDisposed)
             {
@@ -215,8 +166,18 @@ namespace MissionPlanner.Controls
                 }
 
                 if (DateTime.Now.Second % 3 == 1 && tileArea != null)
-                    lock(_tileAreaLock)
+                    lock(tileArea)
                         CleanupOldTextures(tileArea);
+
+                if (core.tileLoadQueue.Count > 0)
+                {
+                    System.Threading.Thread.Sleep(100);
+                    continue;
+                }
+
+                if (core.FailedLoads.Count > 0)
+                {
+                }
 
                 generateTextures();
 
@@ -236,7 +197,7 @@ namespace MissionPlanner.Controls
 
             var cameraPos = new utmpos(utmcenter[0] + cameraX, utmcenter[1] + cameraY, utmzone).ToLLA();
 
-            lock (_tileAreaLock)
+            lock (tileArea)
             {
                 tileArea = new List<tileZoomArea>();
 
@@ -266,33 +227,28 @@ namespace MissionPlanner.Controls
                     foreach (var p in tiles.points)
                     {
                         LoadTask task = new LoadTask(p, z);
-                        if (textureid.ContainsKey(p) || _inFlight.ContainsKey((p.X, p.Y, z)))
-                            continue;
+                        if (!core.tileLoadQueue.Contains(task))
+                        {
+                            long tileCenterPxX = (p.X * prj.TileSize.Width) + (prj.TileSize.Width / 2);
+                            long tileCenterPxY = (p.Y * prj.TileSize.Height) + (prj.TileSize.Height / 2);
+                            var tileCenter = prj.FromPixelToLatLng(tileCenterPxX, tileCenterPxY, z);
+                            double dist = cameraPos.GetDistance(new PointLatLngAlt(tileCenter.Lat, tileCenter.Lng));
 
-                        long tileCenterPxX = (p.X * prj.TileSize.Width) + (prj.TileSize.Width / 2);
-                        long tileCenterPxY = (p.Y * prj.TileSize.Height) + (prj.TileSize.Height / 2);
-                        var tileCenter = prj.FromPixelToLatLng(tileCenterPxX, tileCenterPxY, z);
-                        double dist = cameraPos.GetDistance(new PointLatLngAlt(tileCenter.Lat, tileCenter.Lng));
-
-                        allTasks.Add((task, z, dist));
+                            allTasks.Add((task, z, dist));
+                        }
                     }
                 }
 
-                // Prefer highest zoom, then nearest distance
                 allTasks.Sort((a, b) =>
                 {
-                    int zoomCompare = b.zoomLevel.CompareTo(a.zoomLevel);
-                    if (zoomCompare != 0)
-                        return zoomCompare;
-                    return a.dist.CompareTo(b.dist); // nearer first
+                    double priorityA = a.dist / (a.zoomLevel + 1);
+                    double priorityB = b.dist / (b.zoomLevel + 1);
+                    return priorityB.CompareTo(priorityA);
                 });
 
                 foreach (var t in allTasks)
                 {
-                    if (textureid.ContainsKey(t.task.Pos))
-                        continue;
-                    if (_inFlight.TryAdd((t.task.Pos.X, t.task.Pos.Y, t.zoomLevel), 1))
-                        _tileTaskQueue.Add(t.task);
+                    core.tileLoadQueue.Push(t.task);
                 }
 
                 var totaltiles = allTasks.Count;
@@ -301,290 +257,304 @@ namespace MissionPlanner.Controls
                 if (DateTime.Now.Second % 3 == 1)
                     CleanupOldTextures(tileArea);
             }
-        }
 
-        private ReadyTile BuildReadyTile(LoadTask task)
-        {
-            var p = task.Pos;
-            int zoomLevel = task.Zoom;
+            var C = 2 * Math.PI * 6378137.000;
+            var stile = C * Math.Cos(cameraPos.Lat) / Math.Pow(2, zoom);
+            var pxstep = 2;
 
-            long xstart = p.X * prj.TileSize.Width;
-            long ystart = p.Y * prj.TileSize.Width;
-            long xend = (p.X + 1) * prj.TileSize.Width;
-            long yend = (p.Y + 1) * prj.TileSize.Width;
-
-            int pxstep = GetPxStepForZoom(zoomLevel);
-            int gridWidth = (int)((xend - xstart) / pxstep) + 1;
-            int gridHeight = (int)((yend - ystart) / pxstep) + 1;
-
-            Map3DTileCache.CachedTileData cachedTile = null;
-            if (_diskCacheTiles)
+            tileZoomArea[] talist;
+            lock (tileArea)
+                talist = tileArea.ToArray();
+            foreach (var tilearea in talist)
             {
-                try
+                stile = C * Math.Cos(cameraPos.Lat) / Math.Pow(2, tilearea.zoom);
+                pxstep = (int)(stile / 45);
+                pxstep = FloorPowerOf2(pxstep);
+                if (pxstep == int.MinValue) pxstep = 0;
+                if (pxstep == 0)
+                    pxstep = 1;
+                foreach (var p in tilearea.points)
                 {
-                    cachedTile = Map3DTileCache.LoadTileOrBetter(p.X, p.Y, zoomLevel, zoom);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Failed to load tile from cache: {ex.Message}");
-                }
-            }
+                    if (textureid.ContainsKey(p))
+                        continue;
 
-            if (cachedTile != null &&
-                cachedTile.Zoom == zoomLevel &&
-                cachedTile.GridWidth == gridWidth && cachedTile.GridHeight == gridHeight &&
-                cachedTile.PxStep == pxstep &&
-                cachedTile.Altitudes != null && cachedTile.Altitudes.Length == gridWidth * gridHeight &&
-                cachedTile.ImageData != null && cachedTile.ImageData.Length > 0)
-            {
-                try
-                {
-                    Image cachedImage;
-                    using (var ms = new MemoryStream(cachedTile.ImageData))
-                    using (var tempImage = Image.FromStream(ms))
-                    {
-                        cachedImage = new Bitmap(tempImage);
-                    }
+                    long xstart = p.X * prj.TileSize.Width;
+                    long ystart = p.Y * prj.TileSize.Width;
+                    long xend = (p.X + 1) * prj.TileSize.Width;
+                    long yend = (p.Y + 1) * prj.TileSize.Width;
 
-                    var latlngGrid = new PointLatLng[gridWidth, gridHeight];
-                    for (int gx = 0; gx < gridWidth; gx++)
+                    int gridWidth = (int)((xend - xstart) / pxstep) + 1;
+                    int gridHeight = (int)((yend - ystart) / pxstep) + 1;
+
+                    Map3DTileCache.CachedTileData cachedTile = null;
+                    if (_diskCacheTiles)
                     {
-                        long px = xstart + gx * pxstep;
-                        for (int gy = 0; gy < gridHeight; gy++)
+                        try
                         {
-                            long py = ystart + gy * pxstep;
-                            latlngGrid[gx, gy] = prj.FromPixelToLatLng(px, py, zoomLevel);
+                            cachedTile = Map3DTileCache.LoadTileOrBetter(p.X, p.Y, tilearea.zoom, zoom);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Failed to load tile from cache: {ex.Message}");
+                            cachedTile = null;
                         }
                     }
 
-                    var utmCache = new double[gridWidth, gridHeight][];
-                    for (int gx = 0; gx < gridWidth; gx++)
+                    if (cachedTile != null && cachedTile.Zoom == tilearea.zoom &&
+                        cachedTile.GridWidth == gridWidth && cachedTile.GridHeight == gridHeight &&
+                        cachedTile.PxStep == pxstep &&
+                        cachedTile.Altitudes != null && cachedTile.Altitudes.Length == gridWidth * gridHeight &&
+                        cachedTile.ImageData != null && cachedTile.ImageData.Length > 0)
                     {
-                        for (int gy = 0; gy < gridHeight; gy++)
+                        try
                         {
-                            utmCache[gx, gy] = convertCoords(latlngGrid[gx, gy]);
-                            utmCache[gx, gy][2] = cachedTile.Altitudes[gx * gridHeight + gy];
-                        }
-                    }
-
-                    return BuildReadyFromCaches(p, zoomLevel, xstart, xend, ystart, yend, pxstep, utmCache, cachedImage);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Failed to build ready tile from cache: {ex.Message}");
-                }
-            }
-
-            core.tileDrawingListLock.AcquireReaderLock();
-            core.Matrix.EnterReadLock();
-            try
-            {
-                GMap.NET.Internals.Tile t = core.Matrix.GetTileWithNoLock(zoomLevel, p);
-                if (!t.NotEmpty)
-                    return null;
-
-                foreach (var imgPI in t.Overlays)
-                {
-                    var img = (GMapImage)imgPI;
-                    Image clone = null;
-                    try
-                    {
-                        clone = (Image)img.Img.Clone();
-                        var latlngGrid = new PointLatLng[gridWidth, gridHeight];
-                        var altCache = new double[gridWidth, gridHeight];
-                        var utmCache = new double[gridWidth, gridHeight][];
-                        bool hasInvalidAlt = false;
-
-                        for (int gx = 0; gx < gridWidth && !hasInvalidAlt; gx++)
-                        {
-                            long px = xstart + gx * pxstep;
-                            for (int gy = 0; gy < gridHeight; gy++)
+                            Image cachedImage;
+                            using (var ms = new MemoryStream(cachedTile.ImageData))
+                            using (var tempImage = Image.FromStream(ms))
                             {
-                                long py = ystart + gy * pxstep;
-                                latlngGrid[gx, gy] = prj.FromPixelToLatLng(px, py, zoomLevel);
+                                cachedImage = new Bitmap(tempImage);
                             }
-                        }
 
-                        for (int gx = 0; gx < gridWidth && !hasInvalidAlt; gx++)
-                        {
-                            for (int gy = 0; gy < gridHeight; gy++)
+                            var ti = new tileInfo(Context, this.WindowInfo, textureSemaphore)
                             {
-                                var latlng = latlngGrid[gx, gy];
-                                var altResult = srtm.getAltitudeFast(latlng.Lat, latlng.Lng);
-                                if (altResult.currenttype == srtm.tiletype.invalid)
+                                point = p,
+                                zoom = tilearea.zoom,
+                                img = cachedImage
+                            };
+
+                            var latlngGrid = new PointLatLng[gridWidth, gridHeight];
+                            for (int gx = 0; gx < gridWidth; gx++)
+                            {
+                                long px = xstart + gx * pxstep;
+                                for (int gy = 0; gy < gridHeight; gy++)
                                 {
-                                    hasInvalidAlt = true;
-                                    break;
+                                    long py = ystart + gy * pxstep;
+                                    latlngGrid[gx, gy] = prj.FromPixelToLatLng(px, py, tilearea.zoom);
                                 }
-                                altCache[gx, gy] = altResult.alt;
-                                utmCache[gx, gy] = convertCoords(latlng);
-                                utmCache[gx, gy][2] = altResult.alt;
                             }
-                        }
 
-                        if (hasInvalidAlt)
-                        {
-                            clone.Dispose();
-                            return null;
-                        }
+                            var utmCache = new double[gridWidth, gridHeight][];
+                            for (int gx = 0; gx < gridWidth; gx++)
+                            {
+                                for (int gy = 0; gy < gridHeight; gy++)
+                                {
+                                    utmCache[gx, gy] = convertCoords(latlngGrid[gx, gy]);
+                                    utmCache[gx, gy][2] = cachedTile.Altitudes[gx * gridHeight + gy];
+                                }
+                            }
 
-                        if (_diskCacheTiles)
-                        {
+                            var zindexmod = (20 - ti.zoom) * 1.0;
+                            for (int gx = 0; gx < gridWidth - 1; gx++)
+                            {
+                                long x = xstart + gx * pxstep;
+                                long xnext = x + pxstep;
+                                for (int gy = 0; gy < gridHeight - 1; gy++)
+                                {
+                                    long y = ystart + gy * pxstep;
+                                    long ynext = y + pxstep;
+
+                                    var utm1 = utmCache[gx, gy];
+                                    var utm2 = utmCache[gx, gy + 1];
+                                    var utm3 = utmCache[gx + 1, gy];
+                                    var utm4 = utmCache[gx + 1, gy + 1];
+
+                                    var imgx = MPMathHelper.map(xnext, xstart, xend, 0, 1);
+                                    var imgy = MPMathHelper.map(ynext, ystart, yend, 0, 1);
+                                    ti.vertex.Add(new Vertex(utm4[0], utm4[1], utm4[2] - zindexmod, 1, 0, 0, 1, imgx, imgy));
+                                    imgx = MPMathHelper.map(xnext, xstart, xend, 0, 1);
+                                    imgy = MPMathHelper.map(y, ystart, yend, 0, 1);
+                                    ti.vertex.Add(new Vertex(utm3[0], utm3[1], utm3[2] - zindexmod, 0, 1, 0, 1, imgx, imgy));
+                                    imgx = MPMathHelper.map(x, xstart, xend, 0, 1);
+                                    imgy = MPMathHelper.map(y, ystart, yend, 0, 1);
+                                    ti.vertex.Add(new Vertex(utm1[0], utm1[1], utm1[2] - zindexmod, 0, 0, 1, 1, imgx, imgy));
+                                    imgx = MPMathHelper.map(x, xstart, xend, 0, 1);
+                                    imgy = MPMathHelper.map(ynext, ystart, yend, 0, 1);
+                                    ti.vertex.Add(new Vertex(utm2[0], utm2[1], utm2[2] - zindexmod, 1, 1, 0, 1, imgx, imgy));
+                                    var startindex = (uint)ti.vertex.Count - 4;
+                                    ti.indices.AddRange(new[]
+                                    {
+                                        startindex + 0, startindex + 1, startindex + 3,
+                                        startindex + 1, startindex + 2, startindex + 3
+                                    });
+                                }
+                            }
+
                             try
                             {
-                                var altClone = (double[,])altCache.Clone();
-                                var imgClone = (Image)clone.Clone();
-                                var tileX = p.X;
-                                var tileY = p.Y;
-                                var tileZ = zoomLevel;
-                                ThreadPool.QueueUserWorkItem(_ =>
+                                var temp2 = ti.idEBO;
+                                var temp3 = ti.idVBO;
+                            }
+                            catch
+                            {
+                                continue;
+                            }
+
+                            textureid[p] = ti;
+                            continue;
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Failed to load tile from cache: {ex.Message}");
+                        }
+                    }
+
+                    core.tileDrawingListLock.AcquireReaderLock();
+                    core.Matrix.EnterReadLock();
+                    try
+                    {
+                        GMap.NET.Internals.Tile t = core.Matrix.GetTileWithNoLock(tilearea.zoom, p);
+                        if (t.NotEmpty)
+                        {
+                            foreach (var imgPI in t.Overlays)
+                            {
+                                var img = (GMapImage) imgPI;
+                                if (!textureid.ContainsKey(p))
                                 {
                                     try
                                     {
-                                        Map3DTileCache.SaveTile(tileX, tileY, tileZ,
-                                            gridWidth, gridHeight, pxstep, altClone, imgClone);
+                                        var ti = new tileInfo(Context, this.WindowInfo, textureSemaphore)
+                                        {
+                                            point = p,
+                                            zoom = tilearea.zoom,
+                                            img = (Image) img.Img.Clone()
+                                        };
+
+                                        var latlngGrid = new PointLatLng[gridWidth, gridHeight];
+                                        var altCache = new double[gridWidth, gridHeight];
+                                        var utmCache = new double[gridWidth, gridHeight][];
+                                        bool hasInvalidAlt = false;
+
+                                        for (int gx = 0; gx < gridWidth && !hasInvalidAlt; gx++)
+                                        {
+                                            long px = xstart + gx * pxstep;
+                                            for (int gy = 0; gy < gridHeight; gy++)
+                                            {
+                                                long py = ystart + gy * pxstep;
+                                                latlngGrid[gx, gy] = prj.FromPixelToLatLng(px, py, tilearea.zoom);
+                                            }
+                                        }
+
+                                        for (int gx = 0; gx < gridWidth && !hasInvalidAlt; gx++)
+                                        {
+                                            for (int gy = 0; gy < gridHeight; gy++)
+                                            {
+                                                var latlng = latlngGrid[gx, gy];
+                                                var altResult = srtm.getAltitudeFast(latlng.Lat, latlng.Lng);
+                                                if (altResult.currenttype == srtm.tiletype.invalid)
+                                                {
+                                                    hasInvalidAlt = true;
+                                                    break;
+                                                }
+                                                altCache[gx, gy] = altResult.alt;
+                                                utmCache[gx, gy] = convertCoords(latlng);
+                                                utmCache[gx, gy][2] = altResult.alt;
+                                            }
+                                        }
+
+                                        if (hasInvalidAlt)
+                                        {
+                                            ti = null;
+                                        }
+                                        else
+                                        {
+                                            var zindexmod = (20 - ti.zoom) * 1.0;
+                                            for (int gx = 0; gx < gridWidth - 1; gx++)
+                                            {
+                                                long x = xstart + gx * pxstep;
+                                                long xnext = x + pxstep;
+                                                for (int gy = 0; gy < gridHeight - 1; gy++)
+                                                {
+                                                    long y = ystart + gy * pxstep;
+                                                    long ynext = y + pxstep;
+
+                                                    var utm1 = utmCache[gx, gy];
+                                                    var utm2 = utmCache[gx, gy + 1];
+                                                    var utm3 = utmCache[gx + 1, gy];
+                                                    var utm4 = utmCache[gx + 1, gy + 1];
+
+                                                    var imgx = MPMathHelper.map(xnext, xstart, xend, 0, 1);
+                                                    var imgy = MPMathHelper.map(ynext, ystart, yend, 0, 1);
+                                                    ti.vertex.Add(new Vertex(utm4[0], utm4[1], utm4[2] - zindexmod, 1, 0, 0, 1, imgx, imgy));
+                                                    imgx = MPMathHelper.map(xnext, xstart, xend, 0, 1);
+                                                    imgy = MPMathHelper.map(y, ystart, yend, 0, 1);
+                                                    ti.vertex.Add(new Vertex(utm3[0], utm3[1], utm3[2] - zindexmod, 0, 1, 0, 1, imgx, imgy));
+                                                    imgx = MPMathHelper.map(x, xstart, xend, 0, 1);
+                                                    imgy = MPMathHelper.map(y, ystart, yend, 0, 1);
+                                                    ti.vertex.Add(new Vertex(utm1[0], utm1[1], utm1[2] - zindexmod, 0, 0, 1, 1, imgx, imgy));
+                                                    imgx = MPMathHelper.map(x, xstart, xend, 0, 1);
+                                                    imgy = MPMathHelper.map(ynext, ystart, yend, 0, 1);
+                                                    ti.vertex.Add(new Vertex(utm2[0], utm2[1], utm2[2] - zindexmod, 1, 1, 0, 1, imgx, imgy));
+                                                    var startindex = (uint)ti.vertex.Count - 4;
+                                                    ti.indices.AddRange(new[]
+                                                    {
+                                                        startindex + 0, startindex + 1, startindex + 3,
+                                                        startindex + 1, startindex + 2, startindex + 3
+                                                    });
+                                                }
+                                            }
+
+                                            if (_diskCacheTiles)
+                                            {
+                                                try
+                                                {
+                                                    var imgClone = (Image)img.Img.Clone();
+                                                    var altCacheClone = (double[,])altCache.Clone();
+                                                    var tileX = p.X;
+                                                    var tileY = p.Y;
+                                                    var tileZoom = tilearea.zoom;
+                                                    ThreadPool.QueueUserWorkItem(_ =>
+                                                    {
+                                                        try
+                                                        {
+                                                            Map3DTileCache.SaveTile(tileX, tileY, tileZoom,
+                                                                gridWidth, gridHeight, pxstep, altCacheClone, imgClone);
+                                                        }
+                                                        catch (Exception ex)
+                                                        {
+                                                            Debug.WriteLine($"Failed to save tile to cache: {ex.Message}");
+                                                        }
+                                                        finally
+                                                        {
+                                                            imgClone?.Dispose();
+                                                        }
+                                                    });
+                                                }
+                                                catch (Exception ex)
+                                                {
+                                                    Debug.WriteLine($"Failed to queue tile cache save: {ex.Message}");
+                                                }
+                                            }
+                                        }
+
+                                        if (ti != null)
+                                        {
+                                            try
+                                            {
+                                                var temp2 = ti.idEBO;
+                                                var temp3 = ti.idVBO;
+                                            }
+                                            catch
+                                            {
+                                                return;
+                                            }
+
+                                            textureid[p] = ti;
+                                        }
                                     }
-                                    catch (Exception ex2)
+                                    catch
                                     {
-                                        Debug.WriteLine($"Failed to save tile to cache: {ex2.Message}");
+                                        return;
                                     }
-                                    finally
-                                    {
-                                        imgClone?.Dispose();
-                                    }
-                                });
-                            }
-                            catch (Exception ex)
-                            {
-                                Debug.WriteLine($"Failed to queue tile cache save: {ex.Message}");
+                                }
                             }
                         }
-
-                        return BuildReadyFromCaches(p, zoomLevel, xstart, xend, ystart, yend, pxstep, utmCache, clone);
                     }
-                    catch (Exception ex)
+                    finally
                     {
-                        Debug.WriteLine($"Failed building tile {p} z{zoomLevel}: {ex.Message}");
-                        clone?.Dispose();
+                        core.Matrix.LeaveReadLock();
+                        core.tileDrawingListLock.ReleaseReaderLock();
                     }
                 }
-            }
-            finally
-            {
-                core.Matrix.LeaveReadLock();
-                core.tileDrawingListLock.ReleaseReaderLock();
-            }
-
-            return null;
-        }
-
-        private ReadyTile BuildReadyFromCaches(GPoint p, int zoomLevel,
-            long xstart, long xend, long ystart, long yend, int pxstep,
-            double[,][] utmCache, Image img)
-        {
-            var ready = new ReadyTile
-            {
-                Point = p,
-                Zoom = zoomLevel,
-                Image = img,
-                Vertices = new List<Vertex>(),
-                Indices = new List<uint>()
-            };
-
-            var zindexmod = (20 - zoomLevel) * 1.0;
-            for (int gx = 0; gx < utmCache.GetLength(0) - 1; gx++)
-            {
-                long x = xstart + gx * pxstep;
-                long xnext = x + pxstep;
-                for (int gy = 0; gy < utmCache.GetLength(1) - 1; gy++)
-                {
-                    long y = ystart + gy * pxstep;
-                    long ynext = y + pxstep;
-
-                    var utm1 = utmCache[gx, gy];
-                    var utm2 = utmCache[gx, gy + 1];
-                    var utm3 = utmCache[gx + 1, gy];
-                    var utm4 = utmCache[gx + 1, gy + 1];
-
-                    var imgx = MPMathHelper.map(xnext, xstart, xend, 0, 1);
-                    var imgy = MPMathHelper.map(ynext, ystart, yend, 0, 1);
-                    ready.Vertices.Add(new Vertex(utm4[0], utm4[1], utm4[2] - zindexmod, 1, 0, 0, 1, imgx, imgy));
-                    imgx = MPMathHelper.map(xnext, xstart, xend, 0, 1);
-                    imgy = MPMathHelper.map(y, ystart, yend, 0, 1);
-                    ready.Vertices.Add(new Vertex(utm3[0], utm3[1], utm3[2] - zindexmod, 0, 1, 0, 1, imgx, imgy));
-                    imgx = MPMathHelper.map(x, xstart, xend, 0, 1);
-                    imgy = MPMathHelper.map(y, ystart, yend, 0, 1);
-                    ready.Vertices.Add(new Vertex(utm1[0], utm1[1], utm1[2] - zindexmod, 0, 0, 1, 1, imgx, imgy));
-                    imgx = MPMathHelper.map(x, xstart, xend, 0, 1);
-                    imgy = MPMathHelper.map(ynext, ystart, yend, 0, 1);
-                    ready.Vertices.Add(new Vertex(utm2[0], utm2[1], utm2[2] - zindexmod, 1, 1, 0, 1, imgx, imgy));
-                    var startindex = (uint)ready.Vertices.Count - 4;
-                    ready.Indices.AddRange(new[]
-                    {
-                        startindex + 0, startindex + 1, startindex + 3,
-                        startindex + 1, startindex + 2, startindex + 3
-                    });
-                }
-            }
-
-            return ready;
-        }
-
-        private int GetPxStepForZoom(int zoomLevel)
-        {
-            var C = 2 * Math.PI * 6378137.000;
-            var stile = C * Math.Cos(_center.Lat) / Math.Pow(2, zoomLevel);
-            var pxstep = (int)(stile / 45);
-            pxstep = FloorPowerOf2(pxstep);
-            if (pxstep <= 0)
-                pxstep = 1;
-            return pxstep;
-        }
-
-        private void DrainReadyTiles(int budget)
-        {
-            int processed = 0;
-            while (processed < budget && _readyTiles.TryDequeue(out var ready))
-            {
-                try
-                {
-                    var ti = new tileInfo(Context, this.WindowInfo, textureSemaphore)
-                    {
-                        point = ready.Point,
-                        zoom = ready.Zoom,
-                        img = ready.Image
-                    };
-                    ti.vertex.AddRange(ready.Vertices);
-                    ti.indices.AddRange(ready.Indices);
-
-                    // Trigger GL uploads
-                    var _ = ti.idEBO;
-                    var __ = ti.idVBO;
-                    textureid[ready.Point] = ti;
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Failed to upload ready tile {ready.Point}:{ready.Zoom} - {ex.Message}");
-                    try { ready.Image?.Dispose(); } catch { }
-                }
-                processed++;
-            }
-        }
-
-        private void DrainDisposals(int budget)
-        {
-            int processed = 0;
-            while (processed < budget && _disposeQueue.TryDequeue(out var ti))
-            {
-                try
-                {
-                    ti?.Cleanup(true); // we are already holding the render lock
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Failed to cleanup tile: {ex.Message}");
-                }
-                processed++;
             }
         }
 
@@ -646,11 +616,13 @@ namespace MissionPlanner.Controls
         {
             textureid.Where(a => !tileArea.Any(b => b.points.Contains(a.Key))).ForEach(c =>
             {
-                Console.WriteLine(DateTime.Now.Millisecond + " tile cleanup    \r");
-                tileInfo temp;
-                textureid.TryRemove(c.Key, out temp);
-                if (temp != null)
-                    _disposeQueue.Enqueue(temp);
+                this.BeginInvoke((MethodInvoker) delegate
+                {
+                    Console.WriteLine(DateTime.Now.Millisecond + " tile cleanup    \r");
+                    tileInfo temp;
+                    textureid.TryRemove(c.Key, out temp);
+                    temp?.Cleanup();
+                });
             });
         }
 
@@ -740,15 +712,6 @@ namespace MissionPlanner.Controls
             public List<GPoint> points;
             public int zoom;
             public RectLatLng area { get; set; }
-        }
-
-        public class ReadyTile
-        {
-            public GPoint Point { get; set; }
-            public int Zoom { get; set; }
-            public Image Image { get; set; }
-            public List<Vertex> Vertices { get; set; }
-            public List<uint> Indices { get; set; }
         }
 
         public class tileInfo : IDisposable
