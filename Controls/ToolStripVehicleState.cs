@@ -37,8 +37,8 @@ namespace MissionPlanner.Controls
         private List<string> _pinnedModes = new List<string>();
         private List<string> _favoriteModes = new List<string>();
         private Timer _updateTimer;
-        private const string PinnedSettingsKey = "ModeSelectorPinned";
         private const string FavoritesSettingsKey = "ModeSelectorFavorites";
+        private int _fltModeRefreshCounter = 0;
         private int _visiblePinnedCount = 0;
         private MenuStrip _parentMenuStrip = null;
 
@@ -291,7 +291,6 @@ namespace MissionPlanner.Controls
             };
             _modeDropdown.ModeSelected += ModeDropdown_ModeSelected;
             _modeDropdown.FavoriteToggled += ModeDropdown_FavoriteToggled;
-            _modeDropdown.PinToggled += ModeDropdown_PinToggled;
 
             // Pinned modes panel (shows in toolbar)
             _pinnedPanel = new TableLayoutPanel
@@ -519,34 +518,9 @@ namespace MissionPlanner.Controls
             _modeDropdown.SetFavorites(_favoriteModes);
         }
 
-        private void ModeDropdown_PinToggled(object sender, string mode)
-        {
-            if (_pinnedModes.Contains(mode))
-            {
-                _pinnedModes.Remove(mode);
-            }
-            else
-            {
-                _pinnedModes.Add(mode);
-            }
-            SaveSettings();
-            // Reset visible count to show all, then recalculate
-            _visiblePinnedCount = _pinnedModes.Count;
-            UpdatePinnedButtons();
-            AdjustWidthToAvailableSpace();
-            _modeDropdown.SetPinned(_pinnedModes);
-        }
-
         private void LoadSettings()
         {
-            _pinnedModes.Clear();
             _favoriteModes.Clear();
-
-            var savedPinned = Settings.Instance.GetString(PinnedSettingsKey, "");
-            if (!string.IsNullOrEmpty(savedPinned))
-            {
-                _pinnedModes = savedPinned.Split(',').Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
-            }
 
             var savedFavorites = Settings.Instance.GetString(FavoritesSettingsKey, "");
             if (!string.IsNullOrEmpty(savedFavorites))
@@ -555,13 +529,10 @@ namespace MissionPlanner.Controls
             }
 
             _modeDropdown.SetFavorites(_favoriteModes);
-            _modeDropdown.SetPinned(_pinnedModes);
-            UpdatePinnedButtons();
         }
 
         private void SaveSettings()
         {
-            Settings.Instance[PinnedSettingsKey] = string.Join(",", _pinnedModes);
             Settings.Instance[FavoritesSettingsKey] = string.Join(",", _favoriteModes);
         }
 
@@ -705,6 +676,79 @@ namespace MissionPlanner.Controls
             }
         }
 
+        /// <summary>
+        /// Reads FLTMODE1-6 (or MODE1-6 for Rover) from vehicle params and returns
+        /// the distinct mode names configured on the vehicle.
+        /// Returns empty list on any failure.
+        /// </summary>
+        private List<string> GetVehicleFltModes()
+        {
+            try
+            {
+                var param = MainV2.comPort?.MAV?.param;
+                var cs = MainV2.comPort?.MAV?.cs;
+                if (param == null || cs == null || param.Count == 0)
+                    return new List<string>();
+
+                var firmware = cs.firmware;
+                var modesList = ArduPilot.Common.getModesList(firmware);
+                if (modesList == null || modesList.Count == 0)
+                    return new List<string>();
+
+                // Build lookup from mode number to mode name
+                var modeLookup = new Dictionary<int, string>();
+                foreach (var kvp in modesList)
+                {
+                    if (!modeLookup.ContainsKey(kvp.Key))
+                        modeLookup[kvp.Key] = kvp.Value;
+                }
+
+                // Determine param prefix based on firmware
+                string paramPrefix = (firmware == ArduPilot.Firmwares.ArduRover) ? "MODE" : "FLTMODE";
+
+                var result = new List<string>();
+                for (int i = 1; i <= 6; i++)
+                {
+                    string paramName = paramPrefix + i;
+                    if (!param.ContainsKey(paramName))
+                        continue;
+
+                    int modeNum = (int)param[paramName].Value;
+                    if (modeLookup.TryGetValue(modeNum, out string modeName) &&
+                        !result.Contains(modeName))
+                    {
+                        result.Add(modeName);
+                    }
+                }
+
+                return result;
+            }
+            catch
+            {
+                return new List<string>();
+            }
+        }
+
+        /// <summary>
+        /// Refreshes pinned modes from vehicle FLTMODE params.
+        /// Only updates UI if the mode list has changed.
+        /// </summary>
+        private void RefreshVehicleFltModes()
+        {
+            var vehicleModes = GetVehicleFltModes();
+            if (vehicleModes.Count == 0 && _pinnedModes.Count == 0)
+                return;
+
+            // Check if list changed
+            if (vehicleModes.SequenceEqual(_pinnedModes))
+                return;
+
+            _pinnedModes = vehicleModes;
+            _visiblePinnedCount = _pinnedModes.Count;
+            UpdatePinnedButtons();
+            AdjustWidthToAvailableSpace();
+        }
+
         private void SetMode(string mode)
         {
             try
@@ -800,6 +844,17 @@ namespace MissionPlanner.Controls
                         }
                     }
 
+                    // Periodically refresh FLTMODE pins (~every 5 seconds at 200ms interval)
+                    _fltModeRefreshCounter++;
+                    if (_fltModeRefreshCounter >= 25)
+                    {
+                        _fltModeRefreshCounter = 0;
+                        if (_container.InvokeRequired)
+                            _container.BeginInvoke((Action)(() => RefreshVehicleFltModes()));
+                        else
+                            RefreshVehicleFltModes();
+                    }
+
                     // Update GPS status
                     if (cs != null)
                     {
@@ -882,9 +937,8 @@ namespace MissionPlanner.Controls
                 _lastArmedState = isArmed;
                 UpdateArmButtonAppearance(isArmed);
 
-                // Recalculate width when becoming visible
-                _visiblePinnedCount = _pinnedModes.Count; // Reset to show all initially
-                UpdatePinnedButtons();
+                // Load flight modes from vehicle params (FLTMODE1-6 / MODE1-6)
+                RefreshVehicleFltModes();
                 AdjustWidthToAvailableSpace();
             }
             else
@@ -903,7 +957,9 @@ namespace MissionPlanner.Controls
                 _gpsSatsLabel.Text = "Sats: --: ---";
                 _gpsDopLabel.Text = "H: -- | V: --";
                 try { _gpsSatsLabel.ForeColor = ThemeManager.TextColor; } catch { _gpsSatsLabel.ForeColor = Color.White; }
-                // Close any open popup when disconnecting
+                // Clear pinned modes and close popup when disconnecting
+                _pinnedModes.Clear();
+                UpdatePinnedButtons();
                 _modeDropdown.ClosePopup();
             }
         }
@@ -1022,7 +1078,6 @@ namespace MissionPlanner.Controls
         private bool _isDropdownOpen = false;
         private ModeDropdownPopup _popup;
         private List<string> _favorites = new List<string>();
-        private List<string> _pinned = new List<string>();
         private string _currentMode = "---";
 
         public string CurrentMode
@@ -1040,7 +1095,6 @@ namespace MissionPlanner.Controls
 
         public event EventHandler<string> ModeSelected;
         public event EventHandler<string> FavoriteToggled;
-        public event EventHandler<string> PinToggled;
 
         public ModeDropdownButton()
         {
@@ -1065,11 +1119,6 @@ namespace MissionPlanner.Controls
         public void SetFavorites(List<string> favorites)
         {
             _favorites = favorites.ToList();
-        }
-
-        public void SetPinned(List<string> pinned)
-        {
-            _pinned = pinned.ToList();
         }
 
         public void RefreshPopupIfOpen()
@@ -1126,7 +1175,6 @@ namespace MissionPlanner.Controls
 
             _popup = new ModeDropdownPopup();
             _popup.SetFavorites(_favorites);
-            _popup.SetPinned(_pinned);
             _popup.CurrentMode = CurrentMode;
             _popup.ModeSelected += (s, mode) => {
                 ModeSelected?.Invoke(this, mode);
@@ -1135,10 +1183,6 @@ namespace MissionPlanner.Controls
             _popup.FavoriteToggled += (s, mode) => {
                 FavoriteToggled?.Invoke(this, mode);
                 _popup.SetFavorites(_favorites);
-            };
-            _popup.PinToggled += (s, mode) => {
-                PinToggled?.Invoke(this, mode);
-                _popup.SetPinned(_pinned);
             };
             _popup.FormClosed += (s, args) => {
                 _isDropdownOpen = false;
@@ -1225,19 +1269,16 @@ namespace MissionPlanner.Controls
         private Color _currentBgColor;
         private Color _goldColor;
         private Color _grayColor;
-        private Color _greenColor;
 
         private Panel _scrollPanel;
         private FlowLayoutPanel _modesPanel;
         private List<string> _favorites = new List<string>();
-        private List<string> _pinned = new List<string>();
         private List<KeyValuePair<int, string>> _modes = new List<KeyValuePair<int, string>>();
 
         public string CurrentMode { get; set; } = "";
 
         public event EventHandler<string> ModeSelected;
         public event EventHandler<string> FavoriteToggled;
-        public event EventHandler<string> PinToggled;
 
         public ModeDropdownPopup()
         {
@@ -1253,7 +1294,6 @@ namespace MissionPlanner.Controls
                 _bgColor = ThemeManager.BGColor;
                 _hoverColor = ThemeManager.ControlBGColor;
                 _currentBgColor = ThemeManager.ButBG;
-                _greenColor = ThemeManager.ButBG;
                 _goldColor = Color.FromArgb(255, 215, 0); // Gold not in theme
                 _grayColor = Color.FromArgb(128, 128, 128);
                 BackColor = _bgColor;
@@ -1264,7 +1304,6 @@ namespace MissionPlanner.Controls
                 _bgColor = Color.FromArgb(0x26, 0x27, 0x28);
                 _hoverColor = Color.FromArgb(0x43, 0x44, 0x45);
                 _currentBgColor = Color.FromArgb(148, 193, 31);
-                _greenColor = Color.FromArgb(148, 193, 31);
                 _goldColor = Color.FromArgb(255, 215, 0);
                 _grayColor = Color.FromArgb(128, 128, 128);
                 BackColor = _bgColor;
@@ -1296,12 +1335,6 @@ namespace MissionPlanner.Controls
         public void SetFavorites(List<string> favorites)
         {
             _favorites = favorites?.ToList() ?? new List<string>();
-            RefreshModesList();
-        }
-
-        public void SetPinned(List<string> pinned)
-        {
-            _pinned = pinned?.ToList() ?? new List<string>();
             RefreshModesList();
         }
 
@@ -1350,7 +1383,6 @@ namespace MissionPlanner.Controls
 
                 bool isCurrent = mode.Value.Equals(CurrentMode, StringComparison.OrdinalIgnoreCase);
                 bool isFavorite = _favorites.Contains(mode.Value);
-                bool isPinned = _pinned.Contains(mode.Value);
 
                 row.BackColor = isCurrent ? _currentBgColor : _bgColor;
 
@@ -1359,29 +1391,13 @@ namespace MissionPlanner.Controls
                 {
                     Text = displayName,
                     AutoSize = false,
-                    Width = 140,
+                    Width = 180,
                     Height = 28,
                     TextAlign = ContentAlignment.MiddleLeft,
                     ForeColor = _textColor,
                     BackColor = Color.Transparent,
                     Font = isCurrent ? new Font("Segoe UI", 9F, FontStyle.Bold) : new Font("Segoe UI", 9F),
                     Padding = new Padding(8, 0, 0, 0),
-                    Cursor = Cursors.Hand,
-                    Tag = mode.Value // Keep original for mode setting
-                };
-
-                // Pin button - diamond indicator
-                var pinLabel = new Label
-                {
-                    Text = isPinned ? "◆" : "◇",
-                    AutoSize = false,
-                    Width = 28,
-                    Height = 28,
-                    Left = 148,
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    ForeColor = isPinned ? _greenColor : _grayColor,
-                    BackColor = Color.Transparent,
-                    Font = new Font("Segoe UI", 11F),
                     Cursor = Cursors.Hand,
                     Tag = mode.Value
                 };
@@ -1393,7 +1409,7 @@ namespace MissionPlanner.Controls
                     AutoSize = false,
                     Width = 28,
                     Height = 28,
-                    Left = 180,
+                    Left = 184,
                     TextAlign = ContentAlignment.MiddleCenter,
                     ForeColor = isFavorite ? _goldColor : _grayColor,
                     BackColor = Color.Transparent,
@@ -1405,12 +1421,9 @@ namespace MissionPlanner.Controls
                 // Capture values for closures
                 bool isCurrentCaptured = isCurrent;
                 bool isFavoriteCaptured = isFavorite;
-                bool isPinnedCaptured = isPinned;
 
-                // Capture colors for closures
                 var hoverColor = _hoverColor;
                 var bgColor = _bgColor;
-                var greenColor = _greenColor;
                 var grayColor = _grayColor;
                 var goldColor = _goldColor;
 
@@ -1424,14 +1437,6 @@ namespace MissionPlanner.Controls
                 row.MouseLeave += (s, e) => setHover(false);
                 modeLabel.MouseEnter += (s, e) => setHover(true);
                 modeLabel.MouseLeave += (s, e) => setHover(false);
-                pinLabel.MouseEnter += (s, e) => {
-                    setHover(true);
-                    pinLabel.ForeColor = greenColor;
-                };
-                pinLabel.MouseLeave += (s, e) => {
-                    setHover(false);
-                    pinLabel.ForeColor = isPinnedCaptured ? greenColor : grayColor;
-                };
                 starLabel.MouseEnter += (s, e) => {
                     setHover(true);
                     starLabel.ForeColor = goldColor;
@@ -1444,15 +1449,11 @@ namespace MissionPlanner.Controls
                 // Click handlers
                 row.Click += (s, e) => ModeSelected?.Invoke(this, mode.Value);
                 modeLabel.Click += (s, e) => ModeSelected?.Invoke(this, mode.Value);
-                pinLabel.Click += (s, e) => {
-                    PinToggled?.Invoke(this, mode.Value);
-                };
                 starLabel.Click += (s, e) => {
                     FavoriteToggled?.Invoke(this, mode.Value);
                 };
 
                 row.Controls.Add(modeLabel);
-                row.Controls.Add(pinLabel);
                 row.Controls.Add(starLabel);
                 _modesPanel.Controls.Add(row);
             }
