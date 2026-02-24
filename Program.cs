@@ -159,7 +159,7 @@ namespace MissionPlanner
             if (Settings.Instance["td_edition"] == null)
             {
                 // Set Titan Dynamics default theme
-                Settings.Instance["theme"] = "titandynamics.mpsystheme";
+                Settings.Instance["theme"] = "briechuas.mpsystheme";
 
                 // Show tabs by default
                 Settings.Instance["displayParamsTab"] = "true";
@@ -255,7 +255,7 @@ namespace MissionPlanner
                 return;
             }
 
-            name = "Mission Planner - Titan Dynamics Edition";
+            name = "BriechGroundControl";
 
             try
             {
@@ -321,12 +321,13 @@ namespace MissionPlanner
             ThemeManager.thmColor.SetTheme();
 
             // Load user's preferred theme
+            //This can be overridden by setting the "theme" setting to say "briechuas.mpsystheme" so as to enforce our own theme defined in the briechuas.mpsystheme file.
             if (Settings.Instance["theme"] == null)
             {
                 if (File.Exists(Settings.GetRunningDirectory() + "custom.mpsystheme"))
                     Settings.Instance["theme"] = "custom.mpsystheme";
                 else
-                    Settings.Instance["theme"] = "titandynamics.mpsystheme";
+                    Settings.Instance["theme"] = "briechuas.mpsystheme";
             }
             ThemeManager.LoadTheme(Settings.Instance["theme"]);
 
@@ -335,7 +336,7 @@ namespace MissionPlanner
             string strVersion = File.Exists("version.txt")
                 ? File.ReadAllText("version.txt")
                 : System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString();
-            Splash.Text = name + " " + Application.ProductVersion + " build " + strVersion;
+           // Splash.Text = name + " " + Application.ProductVersion + " build " + strVersion; commented out to remove build number from title. can be added back if needed.
             Console.WriteLine("Splash.Show()");
             Splash.Show();
 

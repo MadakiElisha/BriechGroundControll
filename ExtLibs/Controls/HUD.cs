@@ -323,6 +323,8 @@ namespace MissionPlanner.Controls
         private float _verticalspeed = 0;
         private float _accel_air = 0;
         private float _linkqualitygcs = 0;
+        private float _windspeed = 0;
+        private float _winddirection = 0;
         private DateTime _datetime;
         private string _mode = "Manual";
         private DateTime _modechanged = DateTime.MinValue;
@@ -849,7 +851,38 @@ namespace MissionPlanner.Controls
                 }
             }
         }
-
+        /// <summary>
+        /// Wind speed in current speed units (m/s, mph, etc)
+        /// </summary>
+        [System.ComponentModel.Browsable(true), System.ComponentModel.Category("Values")]
+        public float windspeed
+        {
+            get { return _windspeed; }
+            set
+            {
+                if (_windspeed != value)
+                {
+                    _windspeed = value;
+                    this.Invalidate();
+                }
+            }
+        }
+        /// <summary>
+        /// Wind direction in degrees (0-360, where wind is coming FROM)
+        /// </summary>
+        [System.ComponentModel.Browsable(true), System.ComponentModel.Category("Values")]
+        public float winddirection
+        {
+            get { return _winddirection; }
+            set
+            {
+                if (_winddirection != value)
+                {
+                    _winddirection = value;
+                    this.Invalidate();
+                }
+            }
+        }
         [System.ComponentModel.Browsable(true), System.ComponentModel.Category("Values")]
         public DateTime datetime
         {

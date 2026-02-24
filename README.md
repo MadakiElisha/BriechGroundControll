@@ -1,7 +1,7 @@
-# Mission Planner - Titan Dynamics Edition
+# Mission Planner - Titan Dynamics Edition - BriechUAS Modified
 <p align="center">
    <img width="300" height="300" alt="icon" src="https://github.com/user-attachments/assets/b3e67430-0296-4f09-ada2-d01a03e684ae"/><br><br>
-   A customized fork of <a href="https://github.com/ArduPilot/MissionPlanner">Mission Planner</a> with enhanced UI/UX and ease-of-use improvements
+   A customized fork of <a href="https://github.com/ArduPilot/MissionPlanner">Mission Planner</a> with enhanced UI/UX and ease-of-use improvements. Also Modified by the Firmware and Software Team at Briech UAS.
    <br><br>
    <img width="2560" alt="image" src="https://github.com/user-attachments/assets/200dddd2-ea26-425a-8dad-b8b8093fb33a" /><br><br>
    <img width="2560" height="1540" alt="image" src="https://github.com/user-attachments/assets/2fbe5217-4a12-43ab-ae10-1fee7a5ada8a" /><br>

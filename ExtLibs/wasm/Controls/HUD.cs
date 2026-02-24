@@ -75,13 +75,15 @@ namespace MissionPlanner.Controls
         private float _gpshdop = 0;
         private float _gpshdop2 = 0;
         float _greenSSAp = 10;
-        private Color _groundColor1 = Color.FromArgb(0x9b, 0xb8, 0x24);
-        private Color _groundColor2 = Color.FromArgb(0x41, 0x4f, 0x07);
+        private Color _groundColor1 = Color.FromArgb(0x8b, 0x45, 0x13);
+        private Color _groundColor2 = Color.FromArgb(0x8b, 0x45, 0x13);
         private float _groundcourse = 0;
         private float _groundspeed = 0;
         private float _heading = 0;
         private Color _hudcolor = Color.White;
         private float _linkqualitygcs = 0;
+        private float _windspeed = 0;
+        private float _winddirection = 0;
         private bool _lowairspeed = false;
         private bool _lowgroundspeed = false;
         private string _mode = "Manual";
@@ -91,7 +93,7 @@ namespace MissionPlanner.Controls
         float _redSSAp = 90;
         private float _roll = 0;
         private Color _skyColor1 = Color.Blue;
-        private Color _skyColor2 = Color.LightBlue;
+        private Color _skyColor2 = Color.Blue; //changed from lightblue to blue.
         float _SSA = 0;
         private MemoryStream _streamjpg = new MemoryStream();
         private float _targetalt = 0;
@@ -157,6 +159,7 @@ namespace MissionPlanner.Controls
         public event EventHandler vibeclick;
 
         [System.ComponentModel.Browsable(true), System.ComponentModel.Category("Values")]
+
         public float airspeed
         {
             get { return _airspeed; }
@@ -513,6 +516,40 @@ namespace MissionPlanner.Controls
                 }
             }
         }
+        /// <summary>
+        /// Wind speed in current speed units (m/s, mph, etc)
+        /// </summary>
+        [System.ComponentModel.Browsable(true), System.ComponentModel.Category("Values")]
+        public float windspeed
+        {
+            get { return _windspeed; }
+            set
+            {
+                if (_windspeed != value)
+                {
+                    _windspeed = value;
+                    this.Invalidate();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Wind direction in degrees (0-360, where wind is coming FROM)
+        /// </summary>
+        [System.ComponentModel.Browsable(true), System.ComponentModel.Category("Values")]
+        public float winddirection
+        {
+            get { return _winddirection; }
+            set
+            {
+                if (_winddirection != value)
+                {
+                    _winddirection = value;
+                    this.Invalidate();
+                }
+            }
+        }
+
 
         [System.ComponentModel.Browsable(true), System.ComponentModel.Category("Values")]
         public bool lowairspeed
@@ -1828,6 +1865,7 @@ namespace MissionPlanner.Controls
 
                 if (displayconninfo)
                 {
+                    // ── Signal strength bars (3 green bars) ──────────────────
                     graphicsObject.DrawLine(this._greenPen, scrollbg.Left - 5,
                         scrollbg.Top - (int)(fontsize * 2.2) - 2 - 20, scrollbg.Left - 5,
                         scrollbg.Top - (int)(fontsize) - 2 - 20);
@@ -1838,8 +1876,10 @@ namespace MissionPlanner.Controls
                         scrollbg.Top - (int)(fontsize * 2.2) - 2 - 10, scrollbg.Left - 15,
                         scrollbg.Top - (int)(fontsize) - 2 - 20);
 
+                    // Link quality percentage
                     drawstring(_linkqualitygcs.ToString("0") + "%", font, fontsize, _whiteBrush,
                         scrollbg.Left, scrollbg.Top - (int)(fontsize * 2.2) - 2 - 20);
+
                     if (_linkqualitygcs == 0)
                     {
                         graphicsObject.DrawLine(this._redPen, scrollbg.Left,
@@ -1850,10 +1890,68 @@ namespace MissionPlanner.Controls
                             scrollbg.Left + 50, scrollbg.Top - (int)(fontsize * 2.2) - 2 - 20);
                     }
 
+                    // ── Time display ──────────────────────────────────────────
+                    int timeY = scrollbg.Top - fontsize - 2 - 20;
                     drawstring(_datetime.ToString("HH:mm:ss"), font, fontsize, _whiteBrush,
-                        scrollbg.Left - 30, scrollbg.Top - fontsize - 2 - 20);
-                }
+                        scrollbg.Left - 30, timeY);
 
+                    // ── Wind indicator (Briech gold) ──────────────────────────
+                    if (_windspeed > 0.1f)  // Only show if wind is detected
+                    {
+                        int windX = scrollbg.Left - 30;
+                        int windY = timeY + fontsize + 8;  // Below time
+
+                        // Wind speed text
+                        string windText = _windspeed.ToString("0.0") + speedunit;
+
+                        // Color code by wind strength (optional)
+                        SolidBrush windBrush;
+                        if (_windspeed > 15)      // Strong wind (red)
+                            windBrush = new SolidBrush(Color.FromArgb(255, 100, 100));
+                        else if (_windspeed > 8)  // Moderate wind (gold)
+                            windBrush = new SolidBrush(Color.FromArgb(0xC8, 0xA8, 0x65));
+                        else                       // Light wind (white)
+                            windBrush = _whiteBrush;
+
+                        drawstring(windText, font, fontsize, windBrush, windX, windY);
+
+                        // Draw wind direction arrow (gold)
+                        // Arrow points where wind is GOING TO (opposite of wind direction)
+                        int arrowX = windX + 42;  // Position arrow to right of text
+                        int arrowY = windY + fontsize / 2;
+                        int arrowLen = 14;
+
+                        // Convert wind direction: wind reports where it's FROM, 
+                        // but we show where it's GOING (add 180°)
+                        float arrowAngle = (_winddirection + 180) % 360;
+                        float arrowRad = (float)(arrowAngle * Math.PI / 180.0);
+
+                        int tipX = arrowX + (int)(arrowLen * Math.Sin(arrowRad));
+                        int tipY = arrowY - (int)(arrowLen * Math.Cos(arrowRad));
+
+                        Pen windPen = new Pen(Color.FromArgb(0xC8, 0xA8, 0x65), 2f);
+
+                        // Arrow shaft
+                        graphicsObject.DrawLine(windPen, arrowX, arrowY, tipX, tipY);
+
+                        // Arrow head (two barbs)
+                        float barbAngle1 = arrowRad - 2.5f;
+                        float barbAngle2 = arrowRad + 2.5f;
+                        int barbLen = 6;
+
+                        int barb1X = tipX - (int)(barbLen * Math.Sin(barbAngle1));
+                        int barb1Y = tipY + (int)(barbLen * Math.Cos(barbAngle1));
+                        int barb2X = tipX - (int)(barbLen * Math.Sin(barbAngle2));
+                        int barb2Y = tipY + (int)(barbLen * Math.Cos(barbAngle2));
+
+                        graphicsObject.DrawLine(windPen, tipX, tipY, barb1X, barb1Y);
+                        graphicsObject.DrawLine(windPen, tipX, tipY, barb2X, barb2Y);
+
+                        windPen.Dispose();
+                        if (windBrush != _whiteBrush)
+                            windBrush.Dispose();
+                    }
+                }
                 // AOA
                 if (displayAOASSA)
                 {

@@ -11,6 +11,8 @@ namespace MissionPlanner
         {
             InitializeComponent();
 
+            TXT_version.Visible = false; //Added to hide version info on splash screen.
+
             string strVersion = typeof(Splash).GetType().Assembly.GetName().Version.ToString();
 
             TXT_version.Text = "Version: Titan " + Application.ProductVersion; // +" Build " + strVersion;

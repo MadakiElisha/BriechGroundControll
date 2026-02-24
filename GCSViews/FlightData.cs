@@ -4046,8 +4046,8 @@ namespace MissionPlanner.GCSViews
             if (groundColorToolStripMenuItem.Checked)
             {
                 // brown
-                hud1.groundColor1 = Color.FromArgb(147, 78, 1);
-                hud1.groundColor2 = Color.FromArgb(60, 33, 4);
+                hud1.groundColor1 = Color.FromArgb(139, 69, 19);
+                hud1.groundColor2 = Color.FromArgb(139, 69, 19);
             }
             else
             {
@@ -4430,6 +4430,7 @@ namespace MissionPlanner.GCSViews
                     updateBindingSource();
                     // Console.WriteLine(DateTime.Now.Millisecond + " done ");
 
+
                     // Check if params were just loaded and activate configRawParams2 if visible
                     int currentParamCount = MainV2.comPort.MAV.param.Count;
                     if (currentParamCount > 0 && _lastParamCount == 0 && configRawParams2 != null && configRawParams2.Visible)
@@ -4441,7 +4442,9 @@ namespace MissionPlanner.GCSViews
                         }));
                     }
                     _lastParamCount = currentParamCount;
-
+                    //update HUD wind indicator
+                    hud1.windspeed = 8.5f; //MainV2.comPort.MAV.cs.wind_vel;
+                    hud1.winddirection = 270f;  //MainV2.comPort.MAV.cs.wind_dir;
                     // battery warning.
                     // Use speech settings only if the following parameters are not set
                     // BATT_LOW_VOLT

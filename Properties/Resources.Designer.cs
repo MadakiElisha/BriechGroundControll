@@ -19,7 +19,7 @@ namespace MissionPlanner.Properties {
     // class via a tool like ResGen or Visual Studio.
     // To add or remove a member, edit your .ResX file then rerun ResGen
     // with the /str option, or rebuild your VS project.
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "17.0.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "18.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     internal class Resources {
@@ -311,11 +311,57 @@ namespace MissionPlanner.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal -0.733079 0.679631 -0.026393
+        ///outer loop
+        ///vertex -500.616943 -205.000000 101.222382
+        ///vertex -500.887329 -205.307068 100.826370
+        ///vertex -501.000946 -205.414169 101.224457
+        ///endloop
+        ///endfacet
+        ///facet normal -0.787530 0.613381 -0.059672
+        ///outer loop
+        ///vertex -501.000946 -205.414169 101.224457
+        ///vertex -500.887329 -205.307068 100.826370
+        ///vertex -501.113586 -205.631546 100.476418
+        ///endloop
+        ///endfacet
+        ///facet normal -0.777142 0.625975 -0.064857
+        ///outer loop
+        ///vertex -501.000 [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string boat_stl {
+            get {
+                return ResourceManager.GetString("boat_stl", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
         internal static System.Drawing.Bitmap BR_APMPWRDEAN_2 {
             get {
                 object obj = ResourceManager.GetObject("BR-APMPWRDEAN-2", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized resource of type System.Drawing.Bitmap.
+        /// </summary>
+        internal static System.Drawing.Bitmap Briech_logo {
+            get {
+                object obj = ResourceManager.GetObject("Briech_logo", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized resource of type System.Drawing.Bitmap.
+        /// </summary>
+        internal static System.Drawing.Bitmap Briech_logo_light {
+            get {
+                object obj = ResourceManager.GetObject("Briech_logo_light", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
             }
         }
@@ -451,12 +497,64 @@ namespace MissionPlanner.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal -0.469899 0.529200 -0.706500
+        ///outer loop
+        ///vertex 130.948959 123.188995 40.020233
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 130.595413 123.542564 40.520229
+        ///endloop
+        ///endfacet
+        ///facet normal -0.452574 0.531558 -0.715977
+        ///outer loop
+        ///vertex 130.595413 123.542564 40.520229
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 129.961243 123.003822 40.521114
+        ///endloop
+        ///endfacet
+        ///facet normal -0.388898 0.604156 -0.695524
+        ///outer loop
+        ///vertex 129.642151 122.221832 40.0 [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string coaxial_stl {
+            get {
+                return ResourceManager.GetString("coaxial_stl", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
         internal static System.Drawing.Bitmap compass {
             get {
                 object obj = ResourceManager.GetObject("compass", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal -0.469899 0.529200 -0.706500
+        ///outer loop
+        ///vertex 130.948959 123.188995 40.020233
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 130.595413 123.542564 40.520229
+        ///endloop
+        ///endfacet
+        ///facet normal -0.452574 0.531558 -0.715977
+        ///outer loop
+        ///vertex 130.595413 123.542564 40.520229
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 129.961243 123.003822 40.521114
+        ///endloop
+        ///endfacet
+        ///facet normal -0.388898 0.604156 -0.695524
+        ///outer loop
+        ///vertex 129.642151 122.221832 40.0 [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string copter_stl {
+            get {
+                return ResourceManager.GetString("copter_stl", resourceCulture);
             }
         }
         
@@ -547,6 +645,32 @@ namespace MissionPlanner.Properties {
             get {
                 object obj = ResourceManager.GetObject("dark_tuningconfig_icon", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal -0.469899 0.529200 -0.706500
+        ///outer loop
+        ///vertex 130.948959 123.188995 40.020233
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 130.595413 123.542564 40.520229
+        ///endloop
+        ///endfacet
+        ///facet normal -0.452574 0.531558 -0.715977
+        ///outer loop
+        ///vertex 130.595413 123.542564 40.520229
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 129.961243 123.003822 40.521114
+        ///endloop
+        ///endfacet
+        ///facet normal -0.388898 0.604156 -0.695524
+        ///outer loop
+        ///vertex 129.642151 122.221832 40.0 [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string dodecarotor_stl {
+            get {
+                return ResourceManager.GetString("dodecarotor_stl", resourceCulture);
             }
         }
         
@@ -799,7 +923,7 @@ namespace MissionPlanner.Properties {
                 return ((System.Drawing.Bitmap)(obj));
             }
         }
-
+        
         /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
@@ -809,7 +933,7 @@ namespace MissionPlanner.Properties {
                 return ((System.Drawing.Bitmap)(obj));
             }
         }
-
+        
         /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
@@ -819,7 +943,7 @@ namespace MissionPlanner.Properties {
                 return ((System.Drawing.Bitmap)(obj));
             }
         }
-
+        
         /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
@@ -827,6 +951,32 @@ namespace MissionPlanner.Properties {
             get {
                 object obj = ResourceManager.GetObject("heli", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal 0.105252 -0.703177 -0.703181
+        ///outer loop
+        ///vertex 170.696533 -71.619972 -17.210230
+        ///vertex 170.696518 -69.729424 -19.100780
+        ///vertex 518.093506 -23.088806 -13.743027
+        ///endloop
+        ///endfacet
+        ///facet normal 0.105251 -0.703176 -0.703183
+        ///outer loop
+        ///vertex 170.696533 -71.619972 -17.210230
+        ///vertex 518.093506 -23.088806 -13.743027
+        ///vertex 518.093506 -24.979355 -11.852502
+        ///endloop
+        ///endfacet
+        ///facet normal -0.049585 0.258507 0.964736
+        ///outer loop
+        ///vertex 518.093506 -20.506304 [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string helicopter_stl {
+            get {
+                return ResourceManager.GetString("helicopter_stl", resourceCulture);
             }
         }
         
@@ -851,6 +1001,32 @@ namespace MissionPlanner.Properties {
             get {
                 object obj = ResourceManager.GetObject("hexa", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal -0.469899 0.529200 -0.706500
+        ///outer loop
+        ///vertex 130.948959 123.188995 40.020233
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 130.595413 123.542564 40.520229
+        ///endloop
+        ///endfacet
+        ///facet normal -0.452574 0.531558 -0.715977
+        ///outer loop
+        ///vertex 130.595413 123.542564 40.520229
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 129.961243 123.003822 40.521114
+        ///endloop
+        ///endfacet
+        ///facet normal -0.388898 0.604156 -0.695524
+        ///outer loop
+        ///vertex 129.642151 122.221832 40.0 [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string hexarotor_stl {
+            get {
+                return ResourceManager.GetString("hexarotor_stl", resourceCulture);
             }
         }
         
@@ -910,6 +1086,56 @@ namespace MissionPlanner.Properties {
         internal static System.Drawing.Bitmap hilquad {
             get {
                 object obj = ResourceManager.GetObject("hilquad", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized resource of type System.Drawing.Bitmap.
+        /// </summary>
+        internal static System.Drawing.Bitmap icon_config {
+            get {
+                object obj = ResourceManager.GetObject("icon_config", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized resource of type System.Drawing.Bitmap.
+        /// </summary>
+        internal static System.Drawing.Bitmap icon_fly {
+            get {
+                object obj = ResourceManager.GetObject("icon_fly", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized resource of type System.Drawing.Bitmap.
+        /// </summary>
+        internal static System.Drawing.Bitmap icon_plan {
+            get {
+                object obj = ResourceManager.GetObject("icon_plan", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized resource of type System.Drawing.Bitmap.
+        /// </summary>
+        internal static System.Drawing.Bitmap icon_setup {
+            get {
+                object obj = ResourceManager.GetObject("icon_setup", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized resource of type System.Drawing.Bitmap.
+        /// </summary>
+        internal static System.Drawing.Bitmap icon_sitl {
+            get {
+                object obj = ResourceManager.GetObject("icon_sitl", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
             }
         }
@@ -1003,57 +1229,7 @@ namespace MissionPlanner.Properties {
                 return ((System.Drawing.Bitmap)(obj));
             }
         }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.Drawing.Bitmap.
-        /// </summary>
-        internal static System.Drawing.Bitmap icon_fly {
-            get {
-                object obj = ResourceManager.GetObject("icon_fly", resourceCulture);
-                return ((System.Drawing.Bitmap)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.Drawing.Bitmap.
-        /// </summary>
-        internal static System.Drawing.Bitmap icon_plan {
-            get {
-                object obj = ResourceManager.GetObject("icon_plan", resourceCulture);
-                return ((System.Drawing.Bitmap)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.Drawing.Bitmap.
-        /// </summary>
-        internal static System.Drawing.Bitmap icon_setup {
-            get {
-                object obj = ResourceManager.GetObject("icon_setup", resourceCulture);
-                return ((System.Drawing.Bitmap)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.Drawing.Bitmap.
-        /// </summary>
-        internal static System.Drawing.Bitmap icon_config {
-            get {
-                object obj = ResourceManager.GetObject("icon_config", resourceCulture);
-                return ((System.Drawing.Bitmap)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.Drawing.Bitmap.
-        /// </summary>
-        internal static System.Drawing.Bitmap icon_sitl {
-            get {
-                object obj = ResourceManager.GetObject("icon_sitl", resourceCulture);
-                return ((System.Drawing.Bitmap)(obj));
-            }
-        }
-
+        
         /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
@@ -1110,6 +1286,16 @@ namespace MissionPlanner.Properties {
         internal static System.Drawing.Bitmap light_tuningconfig_icon {
             get {
                 object obj = ResourceManager.GetObject("light_tuningconfig_icon", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized resource of type System.Drawing.Bitmap.
+        /// </summary>
+        internal static System.Drawing.Bitmap logo_dark {
+            get {
+                object obj = ResourceManager.GetObject("logo_dark", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
             }
         }
@@ -1317,6 +1503,32 @@ namespace MissionPlanner.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal -0.469899 0.529200 -0.706500
+        ///outer loop
+        ///vertex 130.948959 123.188995 40.020233
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 130.595413 123.542564 40.520229
+        ///endloop
+        ///endfacet
+        ///facet normal -0.452574 0.531558 -0.715977
+        ///outer loop
+        ///vertex 130.595413 123.542564 40.520229
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 129.961243 123.003822 40.521114
+        ///endloop
+        ///endfacet
+        ///facet normal -0.388898 0.604156 -0.695524
+        ///outer loop
+        ///vertex 129.642151 122.221832 40.0 [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string octorotor_stl {
+            get {
+                return ResourceManager.GetString("octorotor_stl", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
         internal static System.Drawing.Bitmap octov {
@@ -1373,6 +1585,32 @@ namespace MissionPlanner.Properties {
             get {
                 object obj = ResourceManager.GetObject("pixhawk2cube", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal -0.462529 0.886428 -0.017668
+        ///outer loop
+        ///vertex -82.253357 213.777756 40.570683
+        ///vertex -82.550934 213.577362 38.306007
+        ///vertex -83.475891 213.131821 40.167847
+        ///endloop
+        ///endfacet
+        ///facet normal -0.969419 0.204115 -0.136250
+        ///outer loop
+        ///vertex -84.991020 208.326782 32.910004
+        ///vertex -84.837891 209.806168 34.036636
+        ///vertex -84.831329 207.866104 31.083696
+        ///endloop
+        ///endfacet
+        ///facet normal -0.959343 0.280675 -0.029709
+        ///outer loop
+        ///vertex -84.988464 210.394073 38.7 [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string plane_stl {
+            get {
+                return ResourceManager.GetString("plane_stl", resourceCulture);
             }
         }
         
@@ -1697,6 +1935,58 @@ namespace MissionPlanner.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal -0.000623 -0.977013 -0.213179
+        ///outer loop
+        ///vertex 113.475410 -313.526215 35.304485
+        ///vertex 124.658485 -313.900787 36.988503
+        ///vertex 91.495171 -313.708649 36.204845
+        ///endloop
+        ///endfacet
+        ///facet normal -0.645655 -0.757765 -0.094449
+        ///outer loop
+        ///vertex -50.196384 -313.013763 39.901405
+        ///vertex -48.536770 -314.584625 41.159321
+        ///vertex -49.934750 -313.374115 41.004070
+        ///endloop
+        ///endfacet
+        ///facet normal -0.903891 -0.427101 -0.023771
+        ///outer loop
+        ///vertex -50.861809 -311.73 [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string quadplane_stl {
+            get {
+                return ResourceManager.GetString("quadplane_stl", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal -0.469899 0.529200 -0.706500
+        ///outer loop
+        ///vertex 130.948959 123.188995 40.020233
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 130.595413 123.542564 40.520229
+        ///endloop
+        ///endfacet
+        ///facet normal -0.452574 0.531558 -0.715977
+        ///outer loop
+        ///vertex 130.595413 123.542564 40.520229
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 129.961243 123.003822 40.521114
+        ///endloop
+        ///endfacet
+        ///facet normal -0.388898 0.604156 -0.695524
+        ///outer loop
+        ///vertex 129.642151 122.221832 40.0 [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string quadrotor_stl {
+            get {
+                return ResourceManager.GetString("quadrotor_stl", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
         internal static System.Drawing.Bitmap quadx {
@@ -1743,6 +2033,32 @@ namespace MissionPlanner.Properties {
             get {
                 object obj = ResourceManager.GetObject("rover_11", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal 0.114214 -0.206677 -0.971720
+        ///outer loop
+        ///vertex -117.211578 -20.733070 20.369612
+        ///vertex -117.211578 -18.569389 19.909412
+        ///vertex -115.211578 -20.526741 20.560801
+        ///endloop
+        ///endfacet
+        ///facet normal -0.169688 -0.462916 -0.870008
+        ///outer loop
+        ///vertex -115.211578 -20.526741 20.560801
+        ///vertex -117.211578 -18.569389 19.909412
+        ///vertex -115.211578 -18.241907 19.345085
+        ///endloop
+        ///endfacet
+        ///facet normal 0.136919 -0.986723 -0.087350
+        ///outer loop
+        ///vertex -117.211578 -18.569 [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string rover_stl {
+            get {
+                return ResourceManager.GetString("rover_stl", resourceCulture);
             }
         }
         
@@ -1797,25 +2113,31 @@ namespace MissionPlanner.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized resource of type System.Drawing.Bitmap.
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal 0.000000 0.998618 0.052551
+        ///outer loop
+        ///vertex -148.527283 20.485769 261.991425
+        ///vertex -123.527275 20.485769 261.991425
+        ///vertex -148.527283 20.595785 259.900818
+        ///endloop
+        ///endfacet
+        ///facet normal 0.000000 0.987724 0.156209
+        ///outer loop
+        ///vertex -148.527283 20.485769 261.991425
+        ///vertex -148.527283 20.158773 264.059052
+        ///vertex -123.527275 20.485769 261.991425
+        ///endloop
+        ///endfacet
+        ///facet normal 0.000000 0.987724 0.156209
+        ///outer loop
+        ///vertex -123.527275 20.485769 261. [rest of string was truncated]&quot;;.
         /// </summary>
-        internal static System.Drawing.Bitmap TD_MP {
+        internal static string sub_stl {
             get {
-                object obj = ResourceManager.GetObject("TD_MP", resourceCulture);
-                return ((System.Drawing.Bitmap)(obj));
+                return ResourceManager.GetString("sub_stl", resourceCulture);
             }
         }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.Drawing.Bitmap.
-        /// </summary>
-        internal static System.Drawing.Bitmap TD_MP_light {
-            get {
-                object obj = ResourceManager.GetObject("TD_MP_light", resourceCulture);
-                return ((System.Drawing.Bitmap)(obj));
-            }
-        }
-
+        
         /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
@@ -1823,6 +2145,32 @@ namespace MissionPlanner.Properties {
             get {
                 object obj = ResourceManager.GetObject("tri", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to solid Exported from Blender-3.6.22
+        ///facet normal -0.469899 0.529200 -0.706500
+        ///outer loop
+        ///vertex 130.948959 123.188995 40.020233
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 130.595413 123.542564 40.520229
+        ///endloop
+        ///endfacet
+        ///facet normal -0.452574 0.531558 -0.715977
+        ///outer loop
+        ///vertex 130.595413 123.542564 40.520229
+        ///vertex 130.432938 122.731209 40.020565
+        ///vertex 129.961243 123.003822 40.521114
+        ///endloop
+        ///endfacet
+        ///facet normal -0.388898 0.604156 -0.695524
+        ///outer loop
+        ///vertex 129.642151 122.221832 40.0 [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string tricopter_stl {
+            get {
+                return ResourceManager.GetString("tricopter_stl", resourceCulture);
             }
         }
         
@@ -1893,136 +2241,6 @@ namespace MissionPlanner.Properties {
             get {
                 object obj = ResourceManager.GetObject("y6b", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string plane_stl {
-            get {
-                object obj = ResourceManager.GetObject("plane_stl", resourceCulture);
-                return ((string)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string copter_stl {
-            get {
-                object obj = ResourceManager.GetObject("copter_stl", resourceCulture);
-                return ((string)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string quadrotor_stl {
-            get {
-                object obj = ResourceManager.GetObject("quadrotor_stl", resourceCulture);
-                return ((string)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string hexarotor_stl {
-            get {
-                object obj = ResourceManager.GetObject("hexarotor_stl", resourceCulture);
-                return ((string)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string octorotor_stl {
-            get {
-                object obj = ResourceManager.GetObject("octorotor_stl", resourceCulture);
-                return ((string)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string tricopter_stl {
-            get {
-                object obj = ResourceManager.GetObject("tricopter_stl", resourceCulture);
-                return ((string)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string coaxial_stl {
-            get {
-                object obj = ResourceManager.GetObject("coaxial_stl", resourceCulture);
-                return ((string)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string helicopter_stl {
-            get {
-                object obj = ResourceManager.GetObject("helicopter_stl", resourceCulture);
-                return ((string)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string dodecarotor_stl {
-            get {
-                object obj = ResourceManager.GetObject("dodecarotor_stl", resourceCulture);
-                return ((string)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string quadplane_stl {
-            get {
-                object obj = ResourceManager.GetObject("quadplane_stl", resourceCulture);
-                return ((string)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string rover_stl {
-            get {
-                object obj = ResourceManager.GetObject("rover_stl", resourceCulture);
-                return ((string)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string boat_stl {
-            get {
-                object obj = ResourceManager.GetObject("boat_stl", resourceCulture);
-                return ((string)(obj));
-            }
-        }
-
-        /// <summary>
-        ///   Looks up a localized resource of type System.String.
-        /// </summary>
-        internal static string sub_stl {
-            get {
-                object obj = ResourceManager.GetObject("sub_stl", resourceCulture);
-                return ((string)(obj));
             }
         }
     }

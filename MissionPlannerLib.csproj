@@ -630,7 +630,7 @@
     <None Update="HighContrast.mpsystheme">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="TitanDynamics.mpsystheme">
+    <None Update="briechuas.mpsystheme">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="hud.html">

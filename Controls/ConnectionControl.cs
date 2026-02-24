@@ -179,5 +179,10 @@ namespace MissionPlanner.Controls
                 }
             }
         }
+
+        private void ConnectionControl_Load(object sender, EventArgs e)
+        {
+
+        }
     }
 }

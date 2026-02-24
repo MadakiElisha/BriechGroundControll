@@ -607,7 +607,9 @@ namespace MissionPlanner
         public void updateLayout(object sender, EventArgs e)
         {
             MenuSimulation.Visible = DisplayConfiguration.displaySimulation;
-            MenuHelp.Visible = false;
+       //GM
+            MenuHelp.Visible = true;
+            MenuHelp.Text = "ABOUT";
             MissionPlanner.Controls.BackstageView.BackstageView.Advanced = DisplayConfiguration.isAdvancedMode;
 
             // force autohide on
@@ -749,14 +751,14 @@ namespace MissionPlanner
             ThemeManager.thmColor
                 .SetTheme(); //Set the colors, this need to handle the case when not all colors are defined in the theme file
 
-
-
+            //This loads the theme set by the user, if not it will load the default theme file.
+            //This can be overridden by setting the "theme" setting to say "briechuas.mpsystheme" so as to enforce our own theme defined in the briechuas.mpsystheme file.
             if (Settings.Instance["theme"] == null)
             {
                 if (File.Exists($"{running_directory}custom.mpsystheme"))
                     Settings.Instance["theme"] = "custom.mpsystheme";
                 else
-                    Settings.Instance["theme"] = "titandynamics.mpsystheme";
+                    Settings.Instance["theme"] = "briechuas.mpsystheme";
             }
 
             ThemeManager.LoadTheme(Settings.Instance["theme"]);
@@ -1143,8 +1145,8 @@ namespace MissionPlanner
             }
 
             var logoImage = ThemeManager.IsDarkTheme
-                ? Properties.Resources.TD_MP
-                : Properties.Resources.TD_MP_light;
+                ? Properties.Resources.Briech_logo
+                : Properties.Resources.Briech_logo_light;
             MenuArduPilot.Image = new Bitmap(logoImage, (int)(200), 31);
             MenuArduPilot.Width = MenuArduPilot.Image.Width;
 
@@ -4310,11 +4312,12 @@ namespace MissionPlanner
             log.Info("this   width " + this.Width + " height " + this.Height);
         }
 
+        // REPLACE WITH:
         private void MenuHelp_Click(object sender, EventArgs e)
         {
-            MyView.ShowScreen("Help");
+            using (var about = new AboutBriech())
+                about.ShowDialog(this);
         }
-
 
         /// <summary>
         /// keyboard shortcuts override
@@ -4328,7 +4331,14 @@ namespace MissionPlanner
             {
                 return false;
             }
-
+            // Show About dialog with Ctrl+Shift+A
+            //newGM 
+                if (keyData == (Keys.Control | Keys.Shift | Keys.A))
+            {
+                using (var about = new AboutBriech())
+                    about.ShowDialog(this);
+                return true;
+            }
             if (keyData == Keys.F12)
             {
                 MenuConnect_Click(null, null);
@@ -4937,7 +4947,7 @@ namespace MissionPlanner
         {
             try
             {
-                System.Diagnostics.Process.Start("https://titandynamics.aero");
+                System.Diagnostics.Process.Start("https://briechuas.com");
             }
             catch
             {
@@ -5081,5 +5091,14 @@ namespace MissionPlanner
             }
         }
 
+        private void MainV2_Load(object sender, EventArgs e)
+        {
+
+        }
+
+        private void toolStripVehicleState_Click(object sender, EventArgs e)
+        {
+
+        }
     }
 }

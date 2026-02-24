@@ -64,7 +64,7 @@ namespace MissionPlanner.Utilities
         {
             iconSet = IconSet.BurnKermitIconSet;
             terminalTheming = true;
-            strThemeName = "titandynamics.mpsystheme";
+            strThemeName = "briechuas.mpsystheme";
 
             colors.Add("Background", Color.FromArgb(0x26, 0x27, 0x28), "BGColor");						// This changes the colour of the main menu background
             colors.Add("Control Background", Color.FromArgb(0x43, 0x44, 0x45), "ControlBGColor");		// This changes the colour of the sub menu backgrounds
@@ -90,10 +90,10 @@ namespace MissionPlanner.Utilities
             colors.Add("BSV Unselected Text", Color.WhiteSmoke, "UnselectedTextColour");			// This changes the colour of unselected text in a BSV button
             colors.Add("Horizontal ProgressBar", Color.FromArgb(148, 193, 31), "HorizontalPBValueColor"); // This changes the colour of the horizontal progressbar
             colors.Add("HUD text and drawings", Color.LightGray, "HudText");                       
-            colors.Add("HUD Ground top", Color.FromArgb(0x9b, 0xb8, 0x24), "HudGroundTop");
-            colors.Add("HUD Ground bottom", Color.FromArgb(0x41, 0x4f, 0x07), "HudGroundBot");
+            colors.Add("HUD Ground top", Color.FromArgb(0x8b, 0x45, 0x13), "HudGroundTop");
+            colors.Add("HUD Ground bottom", Color.FromArgb(0x8b, 0x45, 0x13), "HudGroundBot");
             colors.Add("HUD Sky top", Color.Blue, "HudSkyTop");
-            colors.Add("HUD Sky bottom", Color.LightBlue, "HudSkyBot");
+            colors.Add("HUD Sky bottom", Color.Blue, "HudSkyBot");
 
         }
 
