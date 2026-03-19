@@ -44,6 +44,7 @@ namespace MissionPlanner
             this.connectionOptionsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.connectionListToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.MenuFlightData = new System.Windows.Forms.ToolStripButton();
+            this.MenuModernFlightData = new System.Windows.Forms.ToolStripButton();
             this.MenuFlightPlanner = new System.Windows.Forms.ToolStripButton();
             this.MenuInitConfig = new System.Windows.Forms.ToolStripButton();
             this.MenuConfigTune = new System.Windows.Forms.ToolStripButton();
@@ -60,6 +61,9 @@ namespace MissionPlanner
             this.CTX_mainmenu.SuspendLayout();
             this.panel1.SuspendLayout();
             this.SuspendLayout();
+
+            // Theme is applied in the MainV2 constructor (ApplyBriechUASTheme method)
+            // Do not apply theme here as it would be overridden by subsequent initialization
             // 
             // MainMenu
             // 
@@ -69,6 +73,7 @@ namespace MissionPlanner
             this.MainMenu.ImageScalingSize = new System.Drawing.Size(32, 32);
             this.MainMenu.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.MenuFlightData,
+            this.MenuModernFlightData,
             this.MenuFlightPlanner,
             this.MenuInitConfig,
             this.MenuConfigTune,
@@ -135,6 +140,19 @@ namespace MissionPlanner
             this.MenuFlightData.Margin = new System.Windows.Forms.Padding(0);
             this.MenuFlightData.Name = "MenuFlightData";
             this.MenuFlightData.Click += new System.EventHandler(this.MenuFlightData_Click);
+            // 
+            // MenuModernFlightData
+            // 
+            this.MenuModernFlightData.AutoToolTip = true;
+            this.MenuModernFlightData.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.ImageAndText;
+            this.MenuModernFlightData.ForeColor = System.Drawing.SystemColors.ControlLight;
+            this.MenuModernFlightData.Image = global::MissionPlanner.Properties.Resources.icon_fly;
+            this.MenuModernFlightData.Margin = new System.Windows.Forms.Padding(0);
+            this.MenuModernFlightData.Name = "MenuModernFlightData";
+            this.MenuModernFlightData.Text = "Modern Flight";
+            this.MenuModernFlightData.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
+            this.MenuModernFlightData.ToolTipText = "Modern Pure C# Flight Data Interface (BRIECH UAS)";
+            this.MenuModernFlightData.Click += new System.EventHandler(this.MenuModernFlightData_Click);
             // 
             // MenuFlightPlanner
             // 
@@ -259,6 +277,7 @@ namespace MissionPlanner
         #endregion
 
         public System.Windows.Forms.ToolStripButton MenuFlightData;
+        public System.Windows.Forms.ToolStripButton MenuModernFlightData;
         public System.Windows.Forms.ToolStripButton MenuFlightPlanner;
         public System.Windows.Forms.ToolStripButton MenuInitConfig;
         public System.Windows.Forms.ToolStripButton MenuSimulation;

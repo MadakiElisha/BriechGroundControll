@@ -21,6 +21,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
@@ -589,6 +590,9 @@ namespace MissionPlanner
         /// </summary>
         public GCSViews.FlightData FlightData;
 
+        /// BRIECH UAS: Modern Flight Data Interface (live MAVLink implementation)
+        public GCSViews.ModernFlightDataCSharp ModernFlightData;
+
         public GCSViews.FlightPlanner FlightPlanner;
         GCSViews.SITL Simulation;
 
@@ -775,7 +779,23 @@ namespace MissionPlanner
             menu.Outline = grayColor;
             menu.ColorMouseOver = Color.FromArgb(100, 0x94, 0xc1, 0x1f); // Semi-transparent green on hover
 
-            // define default basestream
+            // Apply professional BRIECH UAS drone GCS theme - AFTER ThemeManager to override defaults
+            // This gives us the dark navy + gold color scheme
+            ApplyBriechUASTheme();
+
+            // Initialize the modern pure C# flight data interface
+            try
+            {
+                // BRIECH UAS: Instantiate the live modern flight screen
+                ModernFlightData = new GCSViews.ModernFlightDataCSharp();
+                log.Info("ModernFlightDataCSharp instance created successfully");
+            }
+            catch (Exception ex)
+            {
+                log.Error("Failed to initialize ModernFlightDataCSharp: " + ex.Message);
+                log.Error("Exception details: " + ex.StackTrace);
+            }
+
             comPort.BaseStream = new SerialPort();
             comPort.BaseStream.BaudRate = 57600;
             ((SerialPort)comPort.BaseStream).espFix = Settings.Instance.GetBoolean("CHK_rtsresetesp32", false);
@@ -1160,6 +1180,301 @@ namespace MissionPlanner
             SaveConfig();
         }
 
+        /// <summary>
+        /// Apply professional BRIECH UAS drone GCS theme styling
+        /// Dark navy background (#1a1f2e) with gold/amber accents (#c9a961)
+        /// Called AFTER ThemeManager to override default theme
+        /// </summary>
+        private void ApplyBriechUASTheme()
+        {
+            log.Info("=== Applying BRIECH UAS Professional Theme ===");
+
+            // Professional color palette for drone GCS
+            Color darkNavy = Color.FromArgb(26, 31, 46);        // #1a1f2e - Main background
+            Color charcoal = Color.FromArgb(40, 45, 60);        // Darker panels
+            Color goldAccent = Color.FromArgb(201, 169, 97);    // #c9a961 - Accent color
+            Color lightGray = Color.FromArgb(220, 220, 220);    // Primary text
+            Color dimGray = Color.FromArgb(150, 150, 150);      // Secondary text
+            Color borderGold = Color.FromArgb(180, 150, 80);    // Slightly darker gold for borders
+
+            // Apply to main form - FORCE THESE COLORS
+            this.BackColor = darkNavy;
+            this.ForeColor = lightGray;
+
+            log.Info($"Form background set to Dark Navy: {darkNavy}");
+            log.Info($"Form foreground set to Light Gray: {lightGray}");
+
+            // Style the main menu strip with custom renderer
+            this.MainMenu.BackColor = darkNavy;
+            this.MainMenu.ForeColor = lightGray;
+            this.MainMenu.Renderer = new ProfessionalToolStripRenderer(darkNavy, goldAccent);
+            ApplyModernToolbarChrome(darkNavy, goldAccent, lightGray, dimGray);
+
+            log.Info("MainMenu styled with ProfessionalToolStripRenderer");
+
+            // Style all toolbar buttons and labels
+            foreach (ToolStripItem item in MainMenu.Items)
+            {
+                if (item is ToolStripButton button)
+                {
+                    button.ForeColor = lightGray;
+                    button.AutoToolTip = true;
+                }
+                else if (item is ToolStripLabel label)
+                {
+                    label.ForeColor = lightGray;
+                }
+                else if (item is ToolStripSeparator sep)
+                {
+                    sep.ForeColor = borderGold;
+                }
+            }
+
+            log.Info("ToolStrip items styled");
+
+            // Style panel1 (contains the menu) - FORCE THESE COLORS
+            if (this.panel1 != null)
+            {
+                this.panel1.BackColor = darkNavy;
+                this.panel1.ForeColor = lightGray;
+                foreach (Control ctrl in this.panel1.Controls)
+                {
+                    try
+                    {
+                        ctrl.BackColor = darkNavy;
+                        ctrl.ForeColor = lightGray;
+                    }
+                    catch { }
+                }
+                log.Info("Panel1 styled");
+            }
+
+            // Style all child controls recursively
+            StyleControlsForTheme(this.Controls, darkNavy, charcoal, lightGray, dimGray, goldAccent);
+
+            // Apply theme to the logo area
+            try
+            {
+                MenuArduPilot.BackColor = darkNavy;
+                MenuArduPilot.ForeColor = lightGray;
+            }
+            catch { }
+
+            log.Info("=== BRIECH UAS Professional Theme Applied Successfully ===");
+            log.Info($"Colors: DarkNavy={darkNavy.Name}, Gold={goldAccent.Name}, Text={lightGray.Name}");
+        }
+
+        private void ApplyModernToolbarChrome(Color darkNavy, Color goldAccent, Color lightGray, Color dimGray)
+        {
+            if (MainMenu == null)
+                return;
+
+            const int toolbarHeight = 72;
+            const int navButtonHeight = 50;
+            const int utilityButtonHeight = 40;
+
+            MainMenu.SuspendLayout();
+            MainMenu.AutoSize = false;
+            MainMenu.Dock = DockStyle.Fill;
+            MainMenu.Height = toolbarHeight;
+            MainMenu.Padding = new Padding(12, 6, 12, 6);
+            MainMenu.ImageScalingSize = new Size(24, 24);
+            MainMenu.BackColor = darkNavy;
+            MainMenu.BackgroundImage = null;
+            MainMenu.LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow;
+            MainMenu.CanOverflow = false;
+
+            if (panel1 != null)
+            {
+                panel1.BackColor = darkNavy;
+                panel1.Padding = new Padding(0);
+                panel1.AutoSize = false;
+                panel1.Height = toolbarHeight;
+                panel1.MinimumSize = new Size(0, toolbarHeight);
+                panel1.MaximumSize = new Size(0, toolbarHeight);
+            }
+
+            ConfigureNavigationButton(MenuFlightData, 82, navButtonHeight, lightGray);
+            ConfigureNavigationButton(MenuModernFlightData, 110, navButtonHeight, lightGray);
+            ConfigureNavigationButton(MenuFlightPlanner, 82, navButtonHeight, lightGray);
+            ConfigureNavigationButton(MenuInitConfig, 82, navButtonHeight, lightGray);
+            ConfigureNavigationButton(MenuConfigTune, 82, navButtonHeight, lightGray);
+            ConfigureNavigationButton(MenuSimulation, 76, navButtonHeight, lightGray);
+            ConfigureNavigationButton(MenuHelp, 76, navButtonHeight, lightGray);
+
+            if (toolStripVehicleState != null)
+            {
+                toolStripVehicleState.BackColor = Color.Transparent;
+                toolStripVehicleState.ForeColor = lightGray;
+                toolStripVehicleState.Margin = new Padding(12, 12, 6, 8);
+            }
+
+            if (MenuConnect != null)
+            {
+                MenuConnect.AutoSize = false;
+                MenuConnect.Size = new Size(112, utilityButtonHeight);
+                MenuConnect.Margin = new Padding(8, 12, 0, 8);
+                MenuConnect.Padding = new Padding(8, 2, 8, 2);
+                MenuConnect.ForeColor = lightGray;
+                MenuConnect.BackColor = Color.Transparent;
+                MenuConnect.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
+                MenuConnect.TextImageRelation = TextImageRelation.ImageBeforeText;
+                MenuConnect.TextAlign = ContentAlignment.MiddleCenter;
+                MenuConnect.ImageAlign = ContentAlignment.MiddleLeft;
+            }
+
+            if (toolStripConnectionControl != null)
+            {
+                toolStripConnectionControl.BackColor = Color.Transparent;
+                toolStripConnectionControl.ForeColor = lightGray;
+                toolStripConnectionControl.AutoSize = false;
+                toolStripConnectionControl.Size = new Size(241, 47);
+                toolStripConnectionControl.Margin = new Padding(8, 10, 10, 7);
+            }
+
+            if (MenuArduPilot != null)
+            {
+                MenuArduPilot.AutoSize = false;
+                MenuArduPilot.Size = new Size(210, 40);
+                MenuArduPilot.Margin = new Padding(16, 12, 2, 8);
+                MenuArduPilot.BackColor = Color.Transparent;
+                MenuArduPilot.ForeColor = lightGray;
+            }
+
+            if (status1 != null)
+            {
+                status1.Visible = false;
+            }
+
+            MainMenu.ResumeLayout();
+        }
+
+        private void ConfigureNavigationButton(ToolStripButton button, int width, int height, Color textColor)
+        {
+            if (button == null)
+                return;
+
+            button.AutoSize = false;
+            button.Size = new Size(width, height);
+            button.Margin = new Padding(3, 9, 3, 7);
+            button.Padding = new Padding(8, 2, 8, 2);
+            button.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
+            button.TextImageRelation = TextImageRelation.ImageAboveText;
+            button.ForeColor = textColor;
+            button.BackColor = Color.Transparent;
+            button.AutoToolTip = true;
+        }
+
+        /// <summary>
+        /// Recursively apply professional theme colors to all controls
+        /// </summary>
+        private void StyleControlsForTheme(Control.ControlCollection controls, Color bgColor, Color panelColor, 
+            Color textColor, Color dimText, Color accentColor)
+        {
+            foreach (Control ctrl in controls)
+            {
+                // Skip specific control types
+                if (ctrl is ToolStrip || ctrl is MenuStrip)
+                    continue;
+
+                try
+                {
+                    // Apply base colors
+                    if (ctrl is Panel || ctrl is GroupBox)
+                    {
+                        ctrl.BackColor = panelColor;
+                        ctrl.ForeColor = textColor;
+                    }
+                    else if (ctrl is Button)
+                    {
+                        ctrl.BackColor = bgColor;
+                        ctrl.ForeColor = textColor;
+                        var btn = ctrl as Button;
+                        if (btn != null)
+                        {
+                            btn.FlatStyle = FlatStyle.Flat;
+                            btn.FlatAppearance.BorderColor = accentColor;
+                            btn.FlatAppearance.BorderSize = 1;
+                            btn.FlatAppearance.MouseDownBackColor = accentColor;
+                            btn.FlatAppearance.MouseOverBackColor = panelColor;
+                        }
+                    }
+                    else if (ctrl is Label)
+                    {
+                        ctrl.BackColor = Color.Transparent;
+                        ctrl.ForeColor = dimText;
+                    }
+                    else if (ctrl is TextBox || ctrl is ComboBox)
+                    {
+                        ctrl.BackColor = panelColor;
+                        ctrl.ForeColor = textColor;
+                    }
+                    else
+                    {
+                        ctrl.BackColor = bgColor;
+                        ctrl.ForeColor = textColor;
+                    }
+                }
+                catch
+                {
+                    // Some controls don't support color changes
+                }
+
+                // Recursively style child controls
+                if (ctrl.HasChildren && !(ctrl is ToolStrip))
+                {
+                    StyleControlsForTheme(ctrl.Controls, bgColor, panelColor, textColor, dimText, accentColor);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Apply professional styling - dark navy with gold accents
+        /// </summary>
+        private void ApplyProfessionalTheme()
+        {
+            // Color scheme for professional drone GCS
+            Color darkNavy = Color.FromArgb(26, 31, 46);      // #1a1f2e - Dark navy background
+            Color goldAccent = Color.FromArgb(201, 169, 97);   // #c9a961 - Gold/amber accent
+            Color lightGray = Color.FromArgb(220, 220, 220);   // Light text
+            Color darkGray = Color.FromArgb(60, 60, 60);       // Dark separators
+
+            // Apply to form
+            this.BackColor = darkNavy;
+            this.ForeColor = lightGray;
+
+            // Style the main menu strip
+            this.MainMenu.BackColor = darkNavy;
+            this.MainMenu.ForeColor = lightGray;
+            this.MainMenu.Renderer = new ProfessionalToolStripRenderer(darkNavy, goldAccent);
+
+            // Style all toolbar buttons
+            foreach (ToolStripItem item in MainMenu.Items)
+            {
+                if (item is ToolStripButton button)
+                {
+                    button.BackColor = darkNavy;
+                    button.ForeColor = lightGray;
+                    button.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
+                }
+                else if (item is ToolStripLabel label)
+                {
+                    label.BackColor = darkNavy;
+                    label.ForeColor = lightGray;
+                }
+            }
+
+            // Style panel1
+            if (this.panel1 != null)
+            {
+                this.panel1.BackColor = darkNavy;
+                this.panel1.ForeColor = lightGray;
+            }
+
+            // Style all child controls
+            StyleControlsForTheme(this.Controls, darkNavy, darkGray, lightGray, lightGray, goldAccent);
+        }
+
         void cmb_sysid_Click(object sender, EventArgs e)
         {
             MainV2._connectionControl.UpdateSysIDS();
@@ -1228,9 +1543,7 @@ namespace MissionPlanner
 
             displayicons = icons;
 
-            MainMenu.BackColor = SystemColors.MenuBar;
-
-            MainMenu.BackgroundImage = displayicons.bg;
+            MainMenu.BackgroundImage = null;
 
             // Use new unified icons with theme recoloring
             MenuFlightData.Image = ThemeManager.RecolorMenuIcon(Properties.Resources.icon_fly);
@@ -1241,6 +1554,12 @@ namespace MissionPlanner
             MenuConnect.Image = displayicons.connect;
             MenuHelp.Image = ThemeManager.RecolorMenuIcon(displayicons.help);
 
+            // Add Modern Flight button icon
+            if (MenuModernFlightData != null)
+            {
+                MenuModernFlightData.Image = ThemeManager.RecolorMenuIcon(Properties.Resources.icon_fly);
+                MenuModernFlightData.ForeColor = ThemeManager.TextColor;
+            }
 
             MenuFlightData.ForeColor = ThemeManager.TextColor;
             MenuFlightPlanner.ForeColor = ThemeManager.TextColor;
@@ -1249,6 +1568,9 @@ namespace MissionPlanner
             MenuConfigTune.ForeColor = ThemeManager.TextColor;
             MenuConnect.ForeColor = ThemeManager.TextColor;
             MenuHelp.ForeColor = ThemeManager.TextColor;
+
+            ApplyModernToolbarChrome(Color.FromArgb(26, 31, 46), Color.FromArgb(201, 169, 97),
+                Color.FromArgb(220, 220, 220), Color.FromArgb(150, 150, 150));
         }
 
         void adsb_UpdatePlanePosition(object sender, MissionPlanner.Utilities.adsb.PointLatLngAltHdg adsb)
@@ -1376,6 +1698,24 @@ namespace MissionPlanner
         private void MenuFlightPlanner_Click(object sender, EventArgs e)
         {
             MyView.ShowScreen("FlightPlanner");
+
+            // save config
+            SaveConfig();
+        }
+
+        private void MenuModernFlightData_Click(object sender, EventArgs e)
+        {
+            if (ModernFlightData != null)
+            {
+                MyView.ShowScreen("ModernFlightData");
+            }
+            else
+            {
+                var message = "Modern Flight failed to initialize. Check the log for the startup error and restart the app.";
+                log.Error(message);
+                CustomMessageBox.Show(message, "Modern Flight unavailable");
+                return;
+            }
 
             // save config
             SaveConfig();
@@ -3358,6 +3698,10 @@ namespace MissionPlanner
             }
 
             MyView.AddScreen(new MainSwitcher.Screen("FlightData", FlightData, true));
+            if (ModernFlightData != null)
+            {
+                MyView.AddScreen(new MainSwitcher.Screen("ModernFlightData", ModernFlightData, true));
+            }
             MyView.AddScreen(new MainSwitcher.Screen("FlightPlanner", FlightPlanner, true));
             MyView.AddScreen(new MainSwitcher.Screen("HWConfig", typeof(GCSViews.InitialSetup), false));
             MyView.AddScreen(new MainSwitcher.Screen("SWConfig", typeof(GCSViews.SoftwareConfig), false));
@@ -3393,10 +3737,20 @@ namespace MissionPlanner
             else
             {
                 this.PerformLayout();
-                log.Info("show FlightData");
-                MenuFlightData_Click(this, e);
-                log.Info("show FlightData... Done");
-                MainMenu_ItemClicked(this, new ToolStripItemClickedEventArgs(MenuFlightData));
+                if (ModernFlightData != null)
+                {
+                    log.Info("show ModernFlightData");
+                    MenuModernFlightData_Click(this, e);
+                    log.Info("show ModernFlightData... Done");
+                    MainMenu_ItemClicked(this, new ToolStripItemClickedEventArgs(MenuModernFlightData));
+                }
+                else
+                {
+                    log.Info("ModernFlightData unavailable, falling back to FlightData");
+                    MenuFlightData_Click(this, e);
+                    log.Info("show FlightData... Done");
+                    MainMenu_ItemClicked(this, new ToolStripItemClickedEventArgs(MenuFlightData));
+                }
             }
 
             // for long running tasks using own threads.
@@ -4899,24 +5253,18 @@ namespace MissionPlanner
         {
             foreach (ToolStripItem item in MainMenu.Items)
             {
-                if (e.ClickedItem == item)
+                if (item is ToolStripButton button && button.Alignment != ToolStripItemAlignment.Right)
                 {
-                    item.BackColor = ThemeManager.ControlBGColor;
-                }
-                else
-                {
-                    try
+                    if (e.ClickedItem == item)
+                    {
+                        item.BackColor = Color.FromArgb(52, 63, 86);
+                    }
+                    else
                     {
                         item.BackColor = Color.Transparent;
-                        item.BackgroundImage = displayicons.bg; //.BackColor = Color.Black;
-                    }
-                    catch
-                    {
                     }
                 }
             }
-            //MainMenu.BackColor = Color.Black;
-            //MainMenu.BackgroundImage = MissionPlanner.Properties.Resources.bgdark;
         }
 
         private void fullScreenToolStripMenuItem_Click(object sender, EventArgs e)
@@ -5105,4 +5453,112 @@ namespace MissionPlanner
 
         }
     }
+
+    /// <summary>
+    /// Professional BRIECH UAS color theme constants
+    /// </summary>
+    public static class BriechUASTheme
+    {
+        // Primary colors
+        public static readonly Color DarkNavy = Color.FromArgb(26, 31, 46);        // #1a1f2e
+        public static readonly Color Charcoal = Color.FromArgb(40, 45, 60);       // Darker panels
+        public static readonly Color GoldAccent = Color.FromArgb(201, 169, 97);   // #c9a961
+
+        // Text colors
+        public static readonly Color LightGray = Color.FromArgb(220, 220, 220);   // Primary text
+        public static readonly Color DimGray = Color.FromArgb(150, 150, 150);     // Secondary text
+        public static readonly Color BorderGold = Color.FromArgb(180, 150, 80);   // Darker gold for borders
+
+        // Status colors
+        public static readonly Color StatusGreen = Color.FromArgb(76, 175, 80);   // Active/good status
+        public static readonly Color StatusYellow = Color.FromArgb(255, 193, 7);  // Caution/warning
+        public static readonly Color StatusRed = Color.FromArgb(244, 67, 54);     // Error/alert
+    }
+
+    /// <summary>
+    /// Custom ToolStrip renderer for professional drone GCS styling
+    /// </summary>
+    public class ProfessionalToolStripRenderer : ToolStripProfessionalRenderer
+    {
+        private readonly Color _darkBackground;
+        private readonly Color _goldAccent;
+        private readonly Color _hoverBackground = Color.FromArgb(36, 47, 66);
+        private readonly Color _activeBackground = Color.FromArgb(52, 63, 86);
+        private readonly Color _borderColor = Color.FromArgb(78, 92, 118);
+
+        public ProfessionalToolStripRenderer(Color darkBackground, Color goldAccent) : base(new ProfessionalColorTable())
+        {
+            _darkBackground = darkBackground;
+            _goldAccent = goldAccent;
+        }
+
+        protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
+        {
+            using (var brush = new LinearGradientBrush(e.AffectedBounds,
+                Color.FromArgb(18, 24, 36), _darkBackground, LinearGradientMode.Vertical))
+            {
+                e.Graphics.FillRectangle(brush, e.AffectedBounds);
+            }
+        }
+
+        protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+        {
+        }
+
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            bool isActive = e.Item.BackColor != Color.Transparent && e.Item.BackColor.A > 0;
+            e.TextColor = isActive ? Color.White : Color.FromArgb(220, 220, 220);
+            base.OnRenderItemText(e);
+        }
+
+        protected override void OnRenderButtonBackground(ToolStripItemRenderEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+            var bounds = new Rectangle(e.Item.Bounds.X + 4, e.Item.Bounds.Y + 5,
+                Math.Max(1, e.Item.Bounds.Width - 8), Math.Max(1, e.Item.Bounds.Height - 10));
+
+            bool isActive = e.Item.BackColor != Color.Transparent && e.Item.BackColor.A > 0;
+            bool isHovered = e.Item.Selected || e.Item.Pressed;
+
+            if (!isActive && !isHovered)
+                return;
+
+            Color fill = isActive ? _activeBackground : _hoverBackground;
+            Color border = isActive ? _goldAccent : _borderColor;
+
+            using (var path = CreateRoundedPath(bounds, 14))
+            using (var fillBrush = new SolidBrush(fill))
+            using (var borderPen = new Pen(border, 1f))
+            {
+                e.Graphics.FillPath(fillBrush, path);
+                e.Graphics.DrawPath(borderPen, path);
+            }
+
+            if (isActive)
+            {
+                var accentBounds = new Rectangle(bounds.X + 14, bounds.Bottom - 6, Math.Max(32, bounds.Width / 3), 3);
+                using (var accentBrush = new SolidBrush(_goldAccent))
+                {
+                    e.Graphics.FillRectangle(accentBrush, accentBounds);
+                }
+            }
+        }
+
+        private static GraphicsPath CreateRoundedPath(Rectangle bounds, int radius)
+        {
+            int diameter = radius * 2;
+            var path = new GraphicsPath();
+
+            path.AddArc(bounds.X, bounds.Y, diameter, diameter, 180, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Y, diameter, diameter, 270, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(bounds.X, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+
+            return path;
+        }
+    }
 }
+

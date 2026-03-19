@@ -10,7 +10,7 @@
     <DebugSymbols>True</DebugSymbols>
     <Description>7zip</Description>
     <NeutralLanguage>en</NeutralLanguage>
-
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
   <ItemGroup>

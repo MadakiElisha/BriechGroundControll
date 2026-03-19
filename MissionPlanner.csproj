@@ -1,42 +1,42 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net472</TargetFramework>
-    <ApplicationIcon>mpdesktop.ico</ApplicationIcon>
-    <OutputType>WinExe</OutputType>
-    <StartupObject>MissionPlanner.Program</StartupObject>
-    <Authors>Michael Oborne</Authors>
-    <Version>1.3.83</Version>
-    <Company>Michael Oborne</Company>
-    <Product>Mission Planner</Product>
-    <Description>Mission Planner ground control station for ardupilot</Description>
-    <Copyright>Copyright © Michael Oborne 2010-2024</Copyright>
-    <ApplicationManifest>Properties\app.manifest</ApplicationManifest>
-    <IsWebBootstrapper>false</IsWebBootstrapper>
-    <RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild>
-    <RunAnalyzersDuringLiveAnalysis>false</RunAnalyzersDuringLiveAnalysis>
-    <RunAnalyzers>false</RunAnalyzers>
-    <PublishUrl>publish\</PublishUrl>
-    <Install>true</Install>
-    <InstallFrom>Disk</InstallFrom>
-    <UpdateEnabled>false</UpdateEnabled>
-    <UpdateMode>Foreground</UpdateMode>
-    <UpdateInterval>7</UpdateInterval>
-    <UpdateIntervalUnits>Days</UpdateIntervalUnits>
-    <UpdatePeriodically>false</UpdatePeriodically>
-    <UpdateRequired>false</UpdateRequired>
-    <MapFileExtensions>true</MapFileExtensions>
-    <ApplicationRevision>0</ApplicationRevision>
-    <ApplicationVersion>1.0.0.%2a</ApplicationVersion>
-    <UseApplicationTrust>false</UseApplicationTrust>
-    <BootstrapperEnabled>true</BootstrapperEnabled>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <UseWindowsForms>true</UseWindowsForms>
-    <ImportWindowsDesktopTargets>true</ImportWindowsDesktopTargets>
+	<TargetFramework>net472</TargetFramework>
+	<ApplicationIcon>mpdesktop.ico</ApplicationIcon>
+	<OutputType>WinExe</OutputType>
+	<StartupObject>MissionPlanner.Program</StartupObject>
+	<Authors>Michael Oborne</Authors>
+	<Version>1.3.83</Version>
+	<Company>Michael Oborne</Company>
+	<Product>Mission Planner</Product>
+	<Description>Mission Planner ground control station for ardupilot</Description>
+	<Copyright>Copyright © Michael Oborne 2010-2024</Copyright>
+	<ApplicationManifest>Properties\app.manifest</ApplicationManifest>
+	<IsWebBootstrapper>false</IsWebBootstrapper>
+	<RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild>
+	<RunAnalyzersDuringLiveAnalysis>false</RunAnalyzersDuringLiveAnalysis>
+	<RunAnalyzers>false</RunAnalyzers>
+	<PublishUrl>publish\</PublishUrl>
+	<Install>true</Install>
+	<InstallFrom>Disk</InstallFrom>
+	<UpdateEnabled>false</UpdateEnabled>
+	<UpdateMode>Foreground</UpdateMode>
+	<UpdateInterval>7</UpdateInterval>
+	<UpdateIntervalUnits>Days</UpdateIntervalUnits>
+	<UpdatePeriodically>false</UpdatePeriodically>
+	<UpdateRequired>false</UpdateRequired>
+	<MapFileExtensions>true</MapFileExtensions>
+	<ApplicationRevision>0</ApplicationRevision>
+	<ApplicationVersion>1.0.0.%2a</ApplicationVersion>
+	<UseApplicationTrust>false</UseApplicationTrust>
+	<BootstrapperEnabled>true</BootstrapperEnabled>
+	<GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+	<UseWindowsForms>true</UseWindowsForms>
+	<ImportWindowsDesktopTargets>true</ImportWindowsDesktopTargets>
 		<Deterministic>False</Deterministic>
 		<PlatformTarget>AnyCPU</PlatformTarget>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-    <Platforms>AnyCPU;x64</Platforms>
+	<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+	<AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+	<Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|AnyCPU'">
     <OutputPath>bin\Debug\net461\</OutputPath>

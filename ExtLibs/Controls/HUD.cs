@@ -1058,22 +1058,24 @@ namespace MissionPlanner.Controls
             set { _groundColor2 = value; }
         }
 
-        private Color _skyColor1 = Color.Blue;
-        private Color _skyColor2 = Color.LightBlue;
-        private Color _groundColor1 = Color.FromArgb(0x9b, 0xb8, 0x24);
-        private Color _groundColor2 = Color.FromArgb(0x41, 0x4f, 0x07);
+        // BRIECH UAS Professional Theme Colors - Professional Drone GCS Aesthetic
+        // Using professional sky (dark navy) and ground (dark brown-gray) instead of bright blue/green
+        private Color _skyColor1 = Color.FromArgb(20, 40, 80);        // Professional deep navy sky
+        private Color _skyColor2 = Color.FromArgb(30, 55, 100);       // Lighter navy for gradient
+        private Color _groundColor1 = Color.FromArgb(80, 70, 50);     // Professional dark brown-gray
+        private Color _groundColor2 = Color.FromArgb(60, 52, 40);     // Darker professional ground
 
-        private Color _hudcolor = Color.White;
-        private Pen _whitePen = new Pen(Color.White, 2);
-        private readonly SolidBrush _whiteBrush = new SolidBrush(Color.White);
-        private readonly SolidBrush _redBrush = new SolidBrush(Color.Red);
-        private readonly SolidBrush _orangeBrush = new SolidBrush(Color.Orange);
+        private Color _hudcolor = Color.FromArgb(220, 220, 220);      // Light gray (BRIECH UAS theme)
+        private Pen _whitePen = new Pen(Color.FromArgb(220, 220, 220), 2);  // Light gray pen
+        private readonly SolidBrush _whiteBrush = new SolidBrush(Color.FromArgb(220, 220, 220));  // Light gray brush
+        private readonly SolidBrush _redBrush = new SolidBrush(Color.FromArgb(201, 169, 97));     // Gold accent (BRIECH UAS theme)
+        private readonly SolidBrush _orangeBrush = new SolidBrush(Color.FromArgb(180, 150, 80)); // Border gold (BRIECH UAS theme)
 
-        private static readonly SolidBrush SlightlyTransparentBrush = new SolidBrush(Color.FromArgb(40, 0, 0, 0));
+        private static readonly SolidBrush SlightlyTransparentBrush = new SolidBrush(Color.FromArgb(40, 20, 40, 80));  // Transparent dark navy
 
-        private static readonly SolidBrush SlightlyTransparentRedBrush = new SolidBrush(Color.FromArgb(100, 255, 0, 0));
+        private static readonly SolidBrush SlightlyTransparentRedBrush = new SolidBrush(Color.FromArgb(100, 244, 67, 54));  // Transparent status red (BRIECH theme)
 
-        private static readonly SolidBrush AltGroundBrush = new SolidBrush(Color.FromArgb(100, Color.BurlyWood));
+        private static readonly SolidBrush AltGroundBrush = new SolidBrush(Color.FromArgb(100, 80, 70, 50));  // Transparent professional ground (BRIECH theme)
 
         private readonly object _bgimagelock = new object();
 
