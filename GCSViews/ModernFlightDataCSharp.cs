@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 using System.Linq;
 using System.Windows.Forms;
 using GMap.NET;
@@ -19,26 +20,43 @@ namespace MissionPlanner.GCSViews
     /// <summary>
     /// Professional drone GCS flight data display - 100% C#
     /// Dark navy + gold professional aesthetic
-    /// 3-panel layout: Telemetry (left), side-by-side HUD and 3D map deck (center), Quick Actions (right)
+    /// 3-panel layout: Telemetry (left), stacked HUD + 3D situational deck with mission map (center), Quick Actions (right)
     /// </summary>
     public partial class ModernFlightDataCSharp : MyUserControl, IActivate, IDeactivate
     {
         private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
         private const int TelemetryMinWidth = 220;
+        private const int TelemetryDefaultWidth = 224;
         private const int CenterContentMinWidth = 620;
-        private const int HudMinWidth = 360;
-        private const int MapDeckMinWidth = 360;
+        private const int HudMinWidth = 300;
+        private const int MapDeckMinWidth = 520;
+        private const int HudDeckMinHeight = 320;
+        private const int PreviewDeckMinHeight = 160;
+        private const int ActionConsoleMinWidth = 208;
+        private const int ActionConsoleMaxWidth = 300;
+        private const int ActionConsoleDefaultWidth = 280;
+        private const double HudColumnDefaultRatio = 0.27;
+        private const double HudDeckDefaultRatio = 0.60;
 
         // Custom controls
         private TopStatusRail statusRail;
         private SplitContainer splitMain;
+        private SplitContainer splitWorkspace;
         private SplitContainer splitCenter;
+        private SplitContainer splitHudStack;
         private PanelTelemetry panelTelemetry;
         private PanelHudDeck panelHudDeck;
+        private PanelSituationalPreviewDeck panelHudPreview;
         private ControlArtificialHorizon hudDisplay;
         private PanelMap3DDeck panelMap3D;
         private PanelQuickActions panelActions;
         private System.Windows.Forms.Timer telemetryTimer;
+        private int? preferredHudWidth;
+        private int? preferredHudDeckHeight;
+        private int? preferredActionWidth;
+        private bool suppressSplitterPreferenceCapture = true;
+        private bool pendingDeferredLayout;
+        private bool deferredLayoutQueued;
         private bool timelineSeeded;
         private bool? lastTimelineConnected;
         private bool? lastTimelineArmed;
@@ -70,7 +88,7 @@ namespace MissionPlanner.GCSViews
             statusRail = new TopStatusRail
             {
                 Dock = DockStyle.Top,
-                Height = 108,
+                Height = 104,
                 BackColor = VeryDarkNavy
             };
 
@@ -96,10 +114,12 @@ namespace MissionPlanner.GCSViews
             {
                 Dock = DockStyle.Fill,
                 Orientation = Orientation.Vertical,
-                SplitterWidth = 1,
+                SplitterWidth = 6,
+                FixedPanel = FixedPanel.Panel1,
                 BorderStyle = BorderStyle.None,
                 BackColor = VeryDarkNavy
             };
+            splitCenter.SplitterMoved += SplitCenter_SplitterMoved;
             hudDisplay = new ControlArtificialHorizon
             {
                 Dock = DockStyle.Fill,
@@ -110,9 +130,27 @@ namespace MissionPlanner.GCSViews
                 Dock = DockStyle.Fill,
                 BackColor = VeryDarkNavy
             };
-            splitCenter.Panel1.Controls.Add(panelHudDeck);
 
-            // 3D situational view (right center)
+            panelHudPreview = new PanelSituationalPreviewDeck
+            {
+                Dock = DockStyle.Fill,
+                BackColor = VeryDarkNavy
+            };
+
+            splitHudStack = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Horizontal,
+                SplitterWidth = 5,
+                BorderStyle = BorderStyle.None,
+                BackColor = VeryDarkNavy
+            };
+            splitHudStack.SplitterMoved += SplitHudStack_SplitterMoved;
+            splitHudStack.Panel1.Controls.Add(panelHudDeck);
+            splitHudStack.Panel2.Controls.Add(panelHudPreview);
+            splitCenter.Panel1.Controls.Add(splitHudStack);
+
+            // Mission map (right center)
             panelMap3D = new PanelMap3DDeck
             {
                 Dock = DockStyle.Fill,
@@ -120,23 +158,34 @@ namespace MissionPlanner.GCSViews
             };
             splitCenter.Panel2.Controls.Add(panelMap3D);
 
-            splitMain.Panel2.Controls.Add(splitCenter);
+            splitWorkspace = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Vertical,
+                SplitterWidth = 6,
+                FixedPanel = FixedPanel.Panel2,
+                BorderStyle = BorderStyle.None,
+                BackColor = VeryDarkNavy
+            };
+            splitWorkspace.SplitterMoved += SplitWorkspace_SplitterMoved;
+            splitWorkspace.Panel1.Controls.Add(splitCenter);
 
             // RIGHT PANEL - Quick Actions
             panelActions = new PanelQuickActions
             {
-                Dock = DockStyle.Right,
-                Width = 232,
-                MinimumSize = new Size(210, 0),
+                Dock = DockStyle.Fill,
+                MinimumSize = new Size(ActionConsoleMinWidth, 0),
                 BackColor = VeryDarkNavy
             };
-            splitMain.Panel2.Controls.Add(panelActions);
+            splitWorkspace.Panel2.Controls.Add(panelActions);
+
+            splitMain.Panel2.Controls.Add(splitWorkspace);
 
             var workspace = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = VeryDarkNavy,
-                Padding = new Padding(16, 6, 16, 16)
+                Padding = new Padding(12, 4, 12, 12)
             };
             workspace.Controls.Add(splitMain);
 
@@ -153,6 +202,7 @@ namespace MissionPlanner.GCSViews
             this.Size = new Size(1400, 800);
 
             this.ResumeLayout(false);
+            UpdateResponsiveLayout();
 
             log.Info("ModernFlightDataCSharp initialized");
         }
@@ -162,28 +212,155 @@ namespace MissionPlanner.GCSViews
             UpdateResponsiveLayout();
         }
 
-        private void UpdateResponsiveLayout()
+        protected override void OnHandleCreated(EventArgs e)
         {
-            if (splitMain == null || splitCenter == null || panelActions == null)
+            base.OnHandleCreated(e);
+            TryRunDeferredLayout();
+        }
+
+        protected override void OnParentChanged(EventArgs e)
+        {
+            base.OnParentChanged(e);
+            TryRunDeferredLayout();
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            TryRunDeferredLayout();
+        }
+
+        private void ScheduleDeferredLayout(bool resetPreferences = false)
+        {
+            if (resetPreferences)
+            {
+                preferredHudWidth = null;
+                preferredHudDeckHeight = null;
+                preferredActionWidth = null;
+            }
+
+            pendingDeferredLayout = true;
+            TryRunDeferredLayout();
+        }
+
+        private void TryRunDeferredLayout()
+        {
+            if (!pendingDeferredLayout || deferredLayoutQueued || IsDisposed || !IsHandleCreated || Parent == null || !Visible)
                 return;
 
-            int viewWidth = Math.Max(ClientSize.Width, 960);
-            if (splitMain.Width > TelemetryMinWidth + CenterContentMinWidth + splitMain.SplitterWidth)
-            {
-                int desiredTelemetryWidth = Math.Max(TelemetryMinWidth, Math.Min(260, viewWidth / 6));
-                int maxTelemetryWidth = splitMain.Width - CenterContentMinWidth - splitMain.SplitterWidth;
-                splitMain.SplitterDistance = Math.Max(TelemetryMinWidth,
-                    Math.Min(desiredTelemetryWidth, maxTelemetryWidth));
-            }
+            deferredLayoutQueued = true;
 
-            panelActions.Width = Math.Max(panelActions.MinimumSize.Width, Math.Min(238, viewWidth / 6));
-
-            if (splitCenter.Width > HudMinWidth + MapDeckMinWidth + splitCenter.SplitterWidth)
+            BeginInvoke((MethodInvoker)delegate
             {
-                int desiredHudWidth = (splitCenter.Width - splitCenter.SplitterWidth) / 2;
-                int maxHudWidth = splitCenter.Width - MapDeckMinWidth - splitCenter.SplitterWidth;
-                splitCenter.SplitterDistance = Math.Max(HudMinWidth, Math.Min(desiredHudWidth, maxHudWidth));
+                deferredLayoutQueued = false;
+
+                if (IsDisposed || !IsHandleCreated || Parent == null || !Visible)
+                    return;
+
+                pendingDeferredLayout = false;
+                UpdateResponsiveLayout();
+
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    if (!IsDisposed && IsHandleCreated && Parent != null && Visible)
+                        UpdateResponsiveLayout();
+                });
+            });
+        }
+
+        private void UpdateResponsiveLayout()
+        {
+            if (splitMain == null || splitCenter == null || splitWorkspace == null || panelActions == null)
+                return;
+
+            suppressSplitterPreferenceCapture = true;
+
+            try
+            {
+                int viewWidth = Math.Max(ClientSize.Width, 960);
+                if (splitMain.Width > TelemetryMinWidth + CenterContentMinWidth + splitMain.SplitterWidth)
+                {
+                    int desiredTelemetryWidth = Math.Max(TelemetryMinWidth, Math.Min(TelemetryDefaultWidth, viewWidth / 6));
+                    int maxTelemetryWidth = splitMain.Width - CenterContentMinWidth - splitMain.SplitterWidth;
+                    splitMain.SplitterDistance = Math.Max(TelemetryMinWidth,
+                        Math.Min(desiredTelemetryWidth, maxTelemetryWidth));
+                }
+
+                int workspaceAvailableWidth = Math.Max(0, splitWorkspace.Width - splitWorkspace.SplitterWidth);
+                if (workspaceAvailableWidth > ActionConsoleMinWidth + CenterContentMinWidth)
+                {
+                    int minActionWidth = ActionConsoleMinWidth;
+                    int minCenterWidth = CenterContentMinWidth;
+                    int maxActionWidth = Math.Max(minActionWidth, workspaceAvailableWidth - minCenterWidth);
+
+                    splitWorkspace.Panel1MinSize = minCenterWidth;
+                    splitWorkspace.Panel2MinSize = minActionWidth;
+
+                    int desiredActionWidth = preferredActionWidth ??
+                                             Math.Max(minActionWidth, Math.Min(ActionConsoleDefaultWidth, ActionConsoleMaxWidth));
+                    desiredActionWidth = Math.Max(minActionWidth, Math.Min(desiredActionWidth, maxActionWidth));
+                    splitWorkspace.SplitterDistance = Math.Max(minCenterWidth,
+                        Math.Min(workspaceAvailableWidth - desiredActionWidth, workspaceAvailableWidth - minActionWidth));
+                }
+
+                if (splitCenter.Width > HudMinWidth + MapDeckMinWidth + splitCenter.SplitterWidth)
+                {
+                    int desiredHudWidth = preferredHudWidth ?? Math.Max(HudMinWidth,
+                        (int)Math.Round((splitCenter.Width - splitCenter.SplitterWidth) * HudColumnDefaultRatio));
+                    int maxHudWidth = splitCenter.Width - MapDeckMinWidth - splitCenter.SplitterWidth;
+                    splitCenter.SplitterDistance = Math.Max(HudMinWidth, Math.Min(desiredHudWidth, maxHudWidth));
+                }
+
+                if (splitHudStack != null)
+                {
+                    int stackAvailableHeight = Math.Max(0, splitHudStack.Height - splitHudStack.SplitterWidth);
+                    if (stackAvailableHeight > HudDeckMinHeight + PreviewDeckMinHeight)
+                    {
+                        splitHudStack.Panel1MinSize = HudDeckMinHeight;
+                        splitHudStack.Panel2MinSize = PreviewDeckMinHeight;
+
+                        int desiredHudHeight = preferredHudDeckHeight ??
+                                               Math.Max(HudDeckMinHeight,
+                                                   (int)Math.Round(stackAvailableHeight * HudDeckDefaultRatio));
+                        int maxHudHeight = stackAvailableHeight - PreviewDeckMinHeight;
+                        splitHudStack.SplitterDistance = Math.Max(HudDeckMinHeight,
+                            Math.Min(desiredHudHeight, maxHudHeight));
+                    }
+                }
             }
+            finally
+            {
+                suppressSplitterPreferenceCapture = false;
+            }
+        }
+
+        private void SplitCenter_SplitterMoved(object sender, SplitterEventArgs e)
+        {
+            if (splitCenter == null || suppressSplitterPreferenceCapture)
+                return;
+
+            preferredHudWidth = splitCenter.SplitterDistance;
+        }
+
+        private void SplitWorkspace_SplitterMoved(object sender, SplitterEventArgs e)
+        {
+            if (splitWorkspace == null || suppressSplitterPreferenceCapture)
+                return;
+
+            preferredActionWidth = splitWorkspace.Panel2.Width;
+        }
+
+        private void SplitHudStack_SplitterMoved(object sender, SplitterEventArgs e)
+        {
+            if (splitHudStack == null || suppressSplitterPreferenceCapture)
+                return;
+
+            preferredHudDeckHeight = splitHudStack.SplitterDistance;
+        }
+
+        public void ResetToDefaultLayout()
+        {
+            ScheduleDeferredLayout(true);
         }
 
         private void TelemetryTimer_Tick(object sender, EventArgs e)
@@ -195,8 +372,29 @@ namespace MissionPlanner.GCSViews
 
                 if (cs == null)
                 {
+                    hudDisplay.Connected = isConnected;
+                    hudDisplay.Armed = false;
+                    hudDisplay.Mode = "STANDBY";
+                    hudDisplay.Pitch = 0;
+                    hudDisplay.Roll = 0;
+                    hudDisplay.Heading = 0;
+                    hudDisplay.GroundCourse = 0;
+                    hudDisplay.TargetHeading = 0;
+                    hudDisplay.Altitude = 0;
+                    hudDisplay.TargetAltitude = 0;
+                    hudDisplay.GroundSpeed = 0;
+                    hudDisplay.AirSpeed = 0;
+                    hudDisplay.TargetSpeed = 0;
+                    hudDisplay.VerticalSpeed = 0;
+                    hudDisplay.DistanceToWaypoint = 0;
+                    hudDisplay.WaypointNumber = 0;
+                    hudDisplay.DistanceToHome = 0;
+                    hudDisplay.AzToMav = 0;
+                    hudDisplay.BatteryRemaining = 0;
+                    hudDisplay.Invalidate();
                     statusRail.SetOffline(isConnected);
                     panelHudDeck.SetOffline(isConnected);
+                    panelHudPreview.SetOffline(isConnected);
                     panelMap3D.SetOffline(isConnected);
                     panelActions.UpdateStatus(false, isConnected, "Awaiting vehicle", "Connect to enable guided actions.");
                     TrackFlightEvents(null, isConnected);
@@ -207,14 +405,25 @@ namespace MissionPlanner.GCSViews
                 hudDisplay.Pitch = (float)cs.pitch;
                 hudDisplay.Roll = (float)cs.roll;
                 hudDisplay.Heading = (float)cs.yaw;
+                hudDisplay.GroundCourse = cs.groundcourse;
+                hudDisplay.TargetHeading = cs.nav_bearing;
                 hudDisplay.Mode = cs.mode;
                 hudDisplay.Armed = cs.armed;
+                hudDisplay.Connected = isConnected;
                 hudDisplay.Altitude = cs.altasl;
+                hudDisplay.TargetAltitude = cs.targetalt;
                 hudDisplay.GroundSpeed = cs.groundspeed;
+                hudDisplay.AirSpeed = cs.airspeed;
+                hudDisplay.TargetSpeed = cs.targetairspeed;
                 hudDisplay.VerticalSpeed = cs.verticalspeed;
+                hudDisplay.DistanceToWaypoint = cs.wp_dist;
+                hudDisplay.WaypointNumber = (int)Math.Round(cs.wpno);
+                hudDisplay.DistanceToHome = cs.DistToHome;
+                hudDisplay.AzToMav = cs.AZToMAV;
                 hudDisplay.BatteryRemaining = cs.battery_remaining;
                 hudDisplay.Invalidate();
                 panelHudDeck.UpdateFlightState(cs.mode, cs.armed, (float)cs.yaw, cs.battery_remaining);
+                panelHudPreview.UpdateTelemetry(cs);
 
                 panelMap3D.UpdateTelemetry(cs);
 
@@ -324,6 +533,7 @@ namespace MissionPlanner.GCSViews
             {
                 telemetryTimer?.Stop();
                 telemetryTimer?.Dispose();
+                panelHudPreview?.DeactivateView();
                 panelMap3D?.DeactivateView();
             }
             base.Dispose(disposing);
@@ -336,7 +546,8 @@ namespace MissionPlanner.GCSViews
         {
             try
             {
-                UpdateResponsiveLayout();
+                ScheduleDeferredLayout();
+                panelHudPreview?.ActivateView();
                 panelMap3D?.ActivateView();
 
                 if (telemetryTimer != null && !telemetryTimer.Enabled)
@@ -364,6 +575,7 @@ namespace MissionPlanner.GCSViews
                     log.Info("ModernFlightData: Telemetry timer stopped");
                 }
 
+                panelHudPreview?.DeactivateView();
                 panelMap3D?.DeactivateView();
             }
             catch (Exception ex)
@@ -502,62 +714,73 @@ namespace MissionPlanner.GCSViews
 
     public class TopStatusRail : Control
     {
+        private const string TopStatusSelectionSettingKey = "ModernFlightTopStatusCards";
+        private static readonly string[] DefaultMetricKeys =
+        {
+            "link",
+            "time_in_air",
+            "distance_travelled",
+            "distance_to_home",
+            "alert"
+        };
+        private static readonly StatusMetricDefinition[] MetricCatalog =
+        {
+            new StatusMetricDefinition("link", "Link"),
+            new StatusMetricDefinition("mode", "Mode"),
+            new StatusMetricDefinition("battery", "Battery"),
+            new StatusMetricDefinition("gps", "GPS"),
+            new StatusMetricDefinition("alert", "Alert"),
+            new StatusMetricDefinition("time_in_air", "Time in Air"),
+            new StatusMetricDefinition("distance_travelled", "Distance Travelled"),
+            new StatusMetricDefinition("distance_to_home", "Distance to Home")
+        };
+
         private readonly Font eyebrowFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
         private readonly Font titleFont = new Font("Segoe UI", 17f, FontStyle.Bold);
         private readonly Font cardLabelFont = new Font("Segoe UI", 8f, FontStyle.Bold);
-        private readonly Font cardValueFont = new Font("Segoe UI", 12f, FontStyle.Bold);
-        private readonly Font cardDetailFont = new Font("Segoe UI", 8f, FontStyle.Regular);
+        private readonly Font cardValueFont = new Font("Segoe UI", 10.75f, FontStyle.Bold);
+        private readonly Font cardDetailFont = new Font("Segoe UI", 7.25f, FontStyle.Regular);
 
         private readonly Color TitleColor = Color.FromArgb(232, 236, 242);
         private readonly Color MutedText = Color.FromArgb(140, 149, 166);
         private readonly Color CardBackground = Color.FromArgb(28, 35, 50);
         private readonly Color CardBorder = Color.FromArgb(48, 58, 78);
+        private readonly Color LinkAccent = Color.FromArgb(88, 193, 232);
+        private readonly Color TimeInAirAccent = Color.FromArgb(224, 183, 77);
+        private readonly Color DistanceTraveledAccent = Color.FromArgb(235, 142, 74);
+        private readonly Color DistanceToHomeAccent = Color.FromArgb(142, 124, 232);
+        private readonly Color AlertNominalAccent = Color.FromArgb(92, 202, 142);
         private readonly StatusCard[] cards = new StatusCard[5];
+        private readonly Rectangle[] cardHitAreas = new Rectangle[5];
+        private readonly List<string> selectedMetricKeys = new List<string>();
+        private readonly ContextMenuStrip cardMenu = new ContextMenuStrip();
+        private CurrentState lastTelemetry;
+        private bool lastConnected;
+        private int activeCardIndex = -1;
 
         public TopStatusRail()
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
             DoubleBuffered = true;
             Padding = new Padding(18, 16, 18, 14);
+            Cursor = Cursors.Default;
+            InitializeCardMenu();
+            LoadMetricSelection();
             SetOffline(false);
         }
 
         public void SetOffline(bool connected)
         {
-            cards[0] = new StatusCard("LINK", connected ? "DETECTED" : "OFFLINE", connected ? "Waiting for telemetry stream" : "No active vehicle connection", ModernUiPainter.GetLinkColor(connected, 0));
-            cards[1] = new StatusCard("MODE", "--", "Vehicle state unavailable", Color.FromArgb(111, 120, 138));
-            cards[2] = new StatusCard("BATTERY", "--", "No power data", Color.FromArgb(111, 120, 138));
-            cards[3] = new StatusCard("GPS", "--", "No navigation data", Color.FromArgb(111, 120, 138));
-            cards[4] = new StatusCard("ALERT", "STANDBY", "Modern flight deck ready", Color.FromArgb(200, 168, 101));
-            Invalidate();
+            lastConnected = connected;
+            lastTelemetry = null;
+            ApplyCards(null, connected);
         }
 
         public void UpdateTelemetry(CurrentState cs, bool connected)
         {
-            int linkQuality = Math.Max(0, Math.Min(100, (int)cs.linkqualitygcs));
-            int battery = Math.Max(0, Math.Min(100, cs.battery_remaining));
-            string mode = string.IsNullOrWhiteSpace(cs.mode) ? "UNKNOWN" : cs.mode.ToUpperInvariant();
-            string alert = string.IsNullOrWhiteSpace(cs.messageHigh) ? "NOMINAL" : cs.messageHigh.ToUpperInvariant();
-
-            cards[0] = new StatusCard("LINK", connected ? $"{linkQuality}%" : "OFFLINE",
-                connected ? "Live MAVLink session" : "Vehicle disconnected",
-                ModernUiPainter.GetLinkColor(connected, linkQuality));
-
-            cards[1] = new StatusCard("MODE", mode, cs.armed ? "Armed and mission-capable" : "Safe state / preflight",
-                cs.armed ? Color.FromArgb(72, 182, 132) : Color.FromArgb(200, 168, 101));
-
-            cards[2] = new StatusCard("BATTERY", $"{battery}%", $"{cs.battery_voltage:F1} V  |  {cs.watts:F0} W",
-                ModernUiPainter.GetBatteryColor(battery));
-
-            cards[3] = new StatusCard("GPS", $"{cs.satcount:F0} SAT", $"Fix {cs.gpsstatus:F0}  |  HDOP {cs.gpshdop:0.0}",
-                ModernUiPainter.GetGpsColor(cs.gpsstatus, cs.satcount));
-
-            cards[4] = new StatusCard("ALERT", alert, $"WP {cs.wpno:F0}  |  {cs.wp_dist:F0} m to waypoint",
-                string.Equals(alert, "NOMINAL", StringComparison.OrdinalIgnoreCase)
-                    ? Color.FromArgb(72, 182, 132)
-                    : Color.FromArgb(228, 84, 71));
-
-            Invalidate();
+            lastTelemetry = cs;
+            lastConnected = connected;
+            ApplyCards(cs, connected);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -578,7 +801,7 @@ namespace MissionPlanner.GCSViews
             {
                 e.Graphics.DrawString("BRIECH UAS", eyebrowFont, eyebrowBrush, eyebrowRect);
                 e.Graphics.DrawString("Mission Control", titleFont, titleBrush, titleRect);
-                e.Graphics.DrawString("Live airframe, nav, power, and alert state", cardDetailFont, subtitleBrush, subtitleRect);
+                e.Graphics.DrawString("Live airframe, mission, distance, and alert state", cardDetailFont, subtitleBrush, subtitleRect);
             }
 
             int gap = 12;
@@ -590,8 +813,34 @@ namespace MissionPlanner.GCSViews
             for (int i = 0; i < cards.Length; i++)
             {
                 var cardRect = new Rectangle(cardStartX + i * (cardWidth + gap), Padding.Top, cardWidth, cardHeight);
+                cardHitAreas[i] = cardRect;
                 DrawCard(e.Graphics, cardRect, cards[i]);
             }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            Cursor = HitTestCardIndex(e.Location) >= 0 ? Cursors.Hand : Cursors.Default;
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            Cursor = Cursors.Default;
+        }
+
+        protected override void OnMouseDoubleClick(MouseEventArgs e)
+        {
+            base.OnMouseDoubleClick(e);
+
+            int cardIndex = HitTestCardIndex(e.Location);
+            if (cardIndex < 0)
+                return;
+
+            activeCardIndex = cardIndex;
+            RebuildCardMenu();
+            cardMenu.Show(this, e.Location);
         }
 
         private void DrawCard(Graphics graphics, Rectangle bounds, StatusCard card)
@@ -612,27 +861,271 @@ namespace MissionPlanner.GCSViews
             float contentWidth = bounds.Width - 28;
             float labelY = bounds.Y + 20;
             float valueY = bounds.Y + 34;
-            float detailY = bounds.Bottom - 20;
+            float detailY = bounds.Y + 52;
+            Color valueColor = Blend(TitleColor, card.Accent, 0.82f);
 
             using (var labelBrush = new SolidBrush(MutedText))
-            using (var valueBrush = new SolidBrush(TitleColor))
+            using (var valueBrush = new SolidBrush(valueColor))
             using (var detailBrush = new SolidBrush(ModernUiPainter.WithAlpha(card.Accent, 215)))
             {
                 graphics.DrawString(card.Label, cardLabelFont, labelBrush,
                     new RectangleF(contentX, labelY, contentWidth, 12), textFormat);
                 graphics.DrawString(card.Value, cardValueFont, valueBrush,
-                    new RectangleF(contentX, valueY, contentWidth, 18), textFormat);
+                    new RectangleF(contentX, valueY, contentWidth, 16), textFormat);
                 graphics.DrawString(card.Detail, cardDetailFont, detailBrush,
-                    new RectangleF(contentX, detailY, contentWidth, 14), textFormat);
+                    new RectangleF(contentX, detailY, contentWidth, 12), textFormat);
             }
 
             textFormat.Dispose();
+        }
+
+        private void InitializeCardMenu()
+        {
+            cardMenu.ShowImageMargin = false;
+            cardMenu.BackColor = Color.FromArgb(23, 29, 41);
+            cardMenu.ForeColor = TitleColor;
+        }
+
+        private void RebuildCardMenu()
+        {
+            cardMenu.Items.Clear();
+
+            for (int i = 0; i < MetricCatalog.Length; i++)
+            {
+                var metric = MetricCatalog[i];
+                int existingIndex = selectedMetricKeys.IndexOf(metric.Key);
+                bool isCurrent = activeCardIndex >= 0 &&
+                    activeCardIndex < selectedMetricKeys.Count &&
+                    selectedMetricKeys[activeCardIndex] == metric.Key;
+
+                string label = metric.Label;
+                if (existingIndex >= 0 && existingIndex != activeCardIndex)
+                    label += "  (Swap)";
+
+                var item = new ToolStripMenuItem(label)
+                {
+                    Checked = isCurrent,
+                    CheckOnClick = false,
+                    Tag = metric.Key
+                };
+                item.Click += CardMenuItem_Click;
+                cardMenu.Items.Add(item);
+            }
+
+            cardMenu.Items.Add(new ToolStripSeparator());
+
+            var resetItem = new ToolStripMenuItem("Reset Top Cards");
+            resetItem.Click += (s, e) =>
+            {
+                selectedMetricKeys.Clear();
+                selectedMetricKeys.AddRange(DefaultMetricKeys);
+                SaveMetricSelection();
+                ApplyCards(lastTelemetry, lastConnected);
+            };
+            cardMenu.Items.Add(resetItem);
+        }
+
+        private void CardMenuItem_Click(object sender, EventArgs e)
+        {
+            if (!(sender is ToolStripMenuItem menuItem) || !(menuItem.Tag is string metricKey))
+                return;
+
+            if (activeCardIndex < 0 || activeCardIndex >= selectedMetricKeys.Count)
+                return;
+
+            int existingIndex = selectedMetricKeys.IndexOf(metricKey);
+            string replacedKey = selectedMetricKeys[activeCardIndex];
+
+            if (existingIndex >= 0 && existingIndex != activeCardIndex)
+                selectedMetricKeys[existingIndex] = replacedKey;
+
+            selectedMetricKeys[activeCardIndex] = metricKey;
+            SaveMetricSelection();
+            ApplyCards(lastTelemetry, lastConnected);
+        }
+
+        private void ApplyCards(CurrentState cs, bool connected)
+        {
+            for (int i = 0; i < cards.Length; i++)
+            {
+                string metricKey = i < selectedMetricKeys.Count ? selectedMetricKeys[i] : DefaultMetricKeys[Math.Min(i, DefaultMetricKeys.Length - 1)];
+                cards[i] = BuildCard(metricKey, cs, connected);
+            }
+
+            Invalidate();
+        }
+
+        private StatusCard BuildCard(string key, CurrentState cs, bool connected)
+        {
+            switch (key)
+            {
+                case "link":
+                    int linkQuality = cs == null ? 0 : Math.Max(0, Math.Min(100, (int)cs.linkqualitygcs));
+                    return new StatusCard(
+                        "LINK",
+                        connected ? $"{linkQuality}%" : "OFFLINE",
+                        connected ? "Live MAVLink session" : "Vehicle disconnected",
+                        connected ? ModernUiPainter.GetLinkColor(true, linkQuality) : LinkAccent);
+
+                case "mode":
+                    string mode = cs == null || string.IsNullOrWhiteSpace(cs.mode) ? "UNKNOWN" : cs.mode.ToUpperInvariant();
+                    return new StatusCard(
+                        "MODE",
+                        mode,
+                        cs != null && cs.armed ? "Armed and mission-capable" : "Safe state / preflight",
+                        Color.FromArgb(102, 164, 229));
+
+                case "battery":
+                    int battery = cs == null ? 0 : Math.Max(0, Math.Min(100, cs.battery_remaining));
+                    return new StatusCard(
+                        "BATTERY",
+                        cs == null ? "--" : $"{battery}%",
+                        cs == null ? "No power data" : $"{cs.battery_voltage:F1} V  |  {cs.watts:F0} W",
+                        Color.FromArgb(230, 99, 83));
+
+                case "gps":
+                    return new StatusCard(
+                        "GPS",
+                        cs == null ? "--" : $"{cs.satcount:F0} SAT",
+                        cs == null ? "No navigation data" : $"Fix {cs.gpsstatus:F0}  |  HDOP {cs.gpshdop:0.0}",
+                        Color.FromArgb(74, 201, 176));
+
+                case "time_in_air":
+                    return new StatusCard(
+                        "TIME IN AIR",
+                        cs == null ? "--" : ModernUiPainter.FormatDuration(cs.timeInAir),
+                        connected
+                            ? (cs != null && cs.armed ? "Mission timer active" : "Preflight timer ready")
+                            : "Waiting for vehicle link",
+                        TimeInAirAccent);
+
+                case "distance_travelled":
+                    return new StatusCard(
+                        "DIST. TRAVELLED",
+                        cs == null ? "--" : $"{cs.distTraveled:F0} m",
+                        connected && cs != null
+                            ? $"{cs.groundspeed:F1} m/s groundspeed"
+                            : "Awaiting position telemetry",
+                        DistanceTraveledAccent);
+
+                case "distance_to_home":
+                    return new StatusCard(
+                        "DIST. TO HOME",
+                        cs == null ? "--" : $"{cs.DistToHome:F0} m",
+                        connected && cs != null
+                            ? $"WP {cs.wpno:F0}  |  {cs.wp_dist:F0} m to waypoint"
+                            : "Awaiting home reference",
+                        DistanceToHomeAccent);
+
+                case "alert":
+                default:
+                    string alert = cs == null || string.IsNullOrWhiteSpace(cs.messageHigh) ? "NOMINAL" : cs.messageHigh.ToUpperInvariant();
+                    return new StatusCard(
+                        "ALERT",
+                        connected ? alert : "STANDBY",
+                        connected && cs != null
+                            ? $"WP {cs.wpno:F0}  |  {cs.wp_dist:F0} m to waypoint"
+                            : "Modern flight deck ready",
+                        string.Equals(alert, "NOMINAL", StringComparison.OrdinalIgnoreCase)
+                            ? AlertNominalAccent
+                            : Color.FromArgb(228, 84, 71));
+            }
+        }
+
+        private void LoadMetricSelection()
+        {
+            selectedMetricKeys.Clear();
+
+            try
+            {
+                var rawValue = Settings.Instance[TopStatusSelectionSettingKey];
+                if (rawValue != null)
+                {
+                    foreach (string token in rawValue.ToString().Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        string key = token.Trim();
+                        if (MetricCatalog.Any(metric => metric.Key == key) && !selectedMetricKeys.Contains(key))
+                            selectedMetricKeys.Add(key);
+
+                        if (selectedMetricKeys.Count == cards.Length)
+                            break;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            foreach (string key in DefaultMetricKeys)
+            {
+                if (selectedMetricKeys.Count == cards.Length)
+                    break;
+
+                if (!selectedMetricKeys.Contains(key))
+                    selectedMetricKeys.Add(key);
+            }
+
+            foreach (var metric in MetricCatalog)
+            {
+                if (selectedMetricKeys.Count == cards.Length)
+                    break;
+
+                if (!selectedMetricKeys.Contains(metric.Key))
+                    selectedMetricKeys.Add(metric.Key);
+            }
+        }
+
+        private void SaveMetricSelection()
+        {
+            try
+            {
+                Settings.Instance[TopStatusSelectionSettingKey] = string.Join(",", selectedMetricKeys);
+                Settings.Instance.Save();
+            }
+            catch
+            {
+            }
+        }
+
+        private int HitTestCardIndex(Point location)
+        {
+            for (int i = 0; i < cardHitAreas.Length; i++)
+            {
+                if (cardHitAreas[i].Contains(location))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static Color Blend(Color baseColor, Color accentColor, float amount)
+        {
+            amount = Math.Max(0f, Math.Min(1f, amount));
+
+            return Color.FromArgb(
+                255,
+                (int)(baseColor.R + ((accentColor.R - baseColor.R) * amount)),
+                (int)(baseColor.G + ((accentColor.G - baseColor.G) * amount)),
+                (int)(baseColor.B + ((accentColor.B - baseColor.B) * amount)));
+        }
+
+        private sealed class StatusMetricDefinition
+        {
+            public StatusMetricDefinition(string key, string label)
+            {
+                Key = key;
+                Label = label;
+            }
+
+            public string Key { get; }
+            public string Label { get; }
         }
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                cardMenu?.Dispose();
                 eyebrowFont?.Dispose();
                 titleFont?.Dispose();
                 cardLabelFont?.Dispose();
@@ -644,253 +1137,27 @@ namespace MissionPlanner.GCSViews
         }
     }
 
-    /// <summary>
-    /// Artificial Horizon Control - Shows pitch and roll attitude
-    /// </summary>
-    public class ControlArtificialHorizon : Control
-    {
-        public float Pitch { get; set; } = 0; // -90 to +90 degrees
-        public float Roll { get; set; } = 0;  // -180 to +180 degrees
-        public float Heading { get; set; } = 0; // 0 to 360 degrees
-        public string Mode { get; set; } = "STANDBY";
-        public bool Armed { get; set; }
-        public float Altitude { get; set; }
-        public float GroundSpeed { get; set; }
-        public float VerticalSpeed { get; set; }
-        public int BatteryRemaining { get; set; }
-
-        private readonly Color SkyColor = Color.FromArgb(0, 60, 150);      // Professional sky blue
-        private readonly Color GroundColor = Color.FromArgb(100, 80, 60);  // Professional ground brown
-        private readonly Color HorizonLineColor = Color.FromArgb(200, 168, 101); // Gold horizon
-        private readonly Color TextColor = Color.FromArgb(220, 220, 220);  // Light gray text
-        private readonly Color AircraftColor = Color.Red;                   // Red aircraft symbol
-        private readonly Color PanelSurface = Color.FromArgb(136, 11, 18, 30);
-        private readonly Color SafeColor = Color.FromArgb(228, 84, 71);
-        private readonly Color ArmedColor = Color.FromArgb(72, 182, 132);
-
-        private Pen horizonPen;
-        private Pen gridPen;
-        private SolidBrush skyBrush;
-        private SolidBrush groundBrush;
-        private SolidBrush textBrush;
-        private Font font;
-        private Font metricFont;
-        private Font chipFont;
-        private Font detailFont;
-
-        public ControlArtificialHorizon()
-        {
-            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.Opaque, true);
-            DoubleBuffered = true;
-            BackColor = Color.FromArgb(10, 14, 20);
-
-            horizonPen = new Pen(HorizonLineColor, 2);
-            gridPen = new Pen(HorizonLineColor, 1) { DashStyle = DashStyle.Dash };
-            skyBrush = new SolidBrush(SkyColor);
-            groundBrush = new SolidBrush(GroundColor);
-            textBrush = new SolidBrush(TextColor);
-            font = new Font("Segoe UI", 10, FontStyle.Bold);
-            metricFont = new Font("Segoe UI", 18, FontStyle.Bold);
-            chipFont = new Font("Segoe UI", 9, FontStyle.Bold);
-            detailFont = new Font("Segoe UI", 8.5f, FontStyle.Regular);
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            e.Graphics.Clear(BackColor);
-            e.Graphics.SmoothingMode = SmoothingMode.HighQuality;
-
-            int w = Width;
-            int h = Height;
-            int chipWidth = Math.Max(110, Math.Min(138, w / 5));
-            int chipHeight = 32;
-            int sideMetricWidth = Math.Max(112, Math.Min(134, w / 5));
-            int sideMetricHeight = 72;
-            int centerMetricWidth = Math.Max(156, Math.Min(182, w / 4));
-            int centerMetricHeight = 54;
-            int maxHudWidth = Math.Max(190, w - (sideMetricWidth * 2) - 72);
-            int maxHudHeight = Math.Max(190, h - 108);
-            int diameter = Math.Max(210, Math.Min(maxHudWidth, maxHudHeight));
-            diameter = Math.Min(diameter, Math.Min(w - 44, h - 28));
-            int hudTop = Math.Max(20, (h - diameter) / 2 - 2);
-            var hudRect = new Rectangle((w - diameter) / 2, hudTop, diameter, diameter);
-            int centerX = hudRect.Left + hudRect.Width / 2;
-            int centerY = hudRect.Top + hudRect.Height / 2;
-            int radius = hudRect.Width / 2;
-
-            // Draw background
-            e.Graphics.Clear(BackColor);
-
-            // Create a clipping region for the circular display
-            using (var clipPath = new GraphicsPath())
-            {
-                clipPath.AddEllipse(hudRect);
-                e.Graphics.SetClip(clipPath);
-
-                // Calculate pitch line position (1 pixel = 1 degree)
-                float pitchPixels = -Pitch * 2.8f;
-
-                // Save graphics state for rotation
-                var state = e.Graphics.Save();
-                e.Graphics.TranslateTransform(centerX, centerY);
-                e.Graphics.RotateTransform(-Roll);
-
-                // Draw sky
-                var skyRect = new RectangleF(-radius * 2f, -radius * 2f + pitchPixels, radius * 4f, radius * 4f);
-                e.Graphics.FillRectangle(skyBrush, skyRect);
-
-                // Draw ground
-                var groundRect = new RectangleF(-radius * 2f, pitchPixels, radius * 4f, radius * 4f);
-                e.Graphics.FillRectangle(groundBrush, groundRect);
-
-                // Draw horizon line
-                e.Graphics.DrawLine(horizonPen, -radius * 2f, (int)pitchPixels, radius * 2f, (int)pitchPixels);
-
-                // Draw pitch ladder
-                for (int pitch = -40; pitch <= 40; pitch += 10)
-                {
-                    if (pitch == 0) continue;
-                    float y = (pitch - Pitch) * 2.8f;
-                    int lineLen = 40;
-                    e.Graphics.DrawLine(gridPen, -lineLen, (int)y, lineLen, (int)y);
-                    
-                    // Draw pitch angle numbers
-                    if (pitch % 20 == 0)
-                    {
-                        string label = Math.Abs(pitch).ToString();
-                        var size = e.Graphics.MeasureString(label, font);
-                        e.Graphics.DrawString(label, font, textBrush, 
-                            new PointF(lineLen + 5, (int)y - size.Height / 2));
-                        e.Graphics.DrawString(label, font, textBrush,
-                            new PointF(-lineLen - size.Width - 5, (int)y - size.Height / 2));
-                    }
-                }
-
-                // Restore graphics state
-                e.Graphics.Restore(state);
-
-                // Draw aircraft symbol (fixed in center)
-                int symbolSize = 34;
-                using (var aircraftBrush = new SolidBrush(AircraftColor))
-                using (var aircraftPen = new Pen(AircraftColor, 2))
-                {
-                    e.Graphics.FillEllipse(aircraftBrush, centerX - 3, centerY - symbolSize / 2, 6, 10);
-                    e.Graphics.DrawLine(aircraftPen, centerX - 15, centerY, centerX + 15, centerY);
-                }
-
-            }
-
-            // Draw circular border
-            using (var borderPen = new Pen(HorizonLineColor, 3))
-            {
-                e.Graphics.DrawEllipse(borderPen, hudRect);
-            }
-
-            int chipY = 18;
-            DrawOverlayChip(e.Graphics, new Rectangle(24, chipY, chipWidth, chipHeight),
-                string.IsNullOrWhiteSpace(Mode) ? "STANDBY" : Mode.ToUpperInvariant(), HorizonLineColor);
-
-            DrawOverlayChip(e.Graphics, new Rectangle(w - chipWidth - 24, chipY, chipWidth, chipHeight),
-                Armed ? "ARMED" : "SAFE", Armed ? ArmedColor : SafeColor);
-
-            int footerY = h - sideMetricHeight - 16;
-            DrawMetricPanel(e.Graphics, new Rectangle(24, footerY, sideMetricWidth, sideMetricHeight),
-                "GROUND SPEED", $"{GroundSpeed:F1}", "m/s", Color.FromArgb(66, 194, 226));
-
-            DrawMetricPanel(e.Graphics, new Rectangle(w - sideMetricWidth - 24, footerY, sideMetricWidth, sideMetricHeight),
-                "ALTITUDE", $"{Altitude:F0}", "m", HorizonLineColor);
-
-            DrawMetricPanel(e.Graphics, new Rectangle(centerX - centerMetricWidth / 2, h - centerMetricHeight - 12, centerMetricWidth, centerMetricHeight),
-                "VERTICAL SPEED", $"{VerticalSpeed:+0.0;-0.0;0.0}", "m/s",
-                ModernUiPainter.GetBatteryColor(BatteryRemaining), true);
-
-            using (var infoBrush = new SolidBrush(TextColor))
-            {
-                e.Graphics.DrawString($"Pitch {Pitch:F1} deg", detailFont, infoBrush, new RectangleF(24, footerY - 20, 120, 16));
-                e.Graphics.DrawString($"Roll {Roll:F1} deg", detailFont, infoBrush, new RectangleF(w - 144, footerY - 20, 120, 16));
-                e.Graphics.DrawString($"Heading {Heading:F0} deg", detailFont, infoBrush, new RectangleF(centerX - 70, chipY + chipHeight + 10, 140, 16));
-            }
-        }
-
-        private void DrawOverlayChip(Graphics graphics, Rectangle bounds, string text, Color accent)
-        {
-            ModernUiPainter.FillRoundedRectangle(graphics, PanelSurface, bounds, 14);
-            ModernUiPainter.DrawRoundedRectangle(graphics, ModernUiPainter.WithAlpha(accent, 180), 1.2f, bounds, 14);
-
-            using (var accentBrush = new SolidBrush(accent))
-            using (var textBrushLocal = new SolidBrush(TextColor))
-            {
-                graphics.FillEllipse(accentBrush, bounds.X + 12, bounds.Y + 12, 10, 10);
-                graphics.DrawString(text, chipFont, textBrushLocal, new RectangleF(bounds.X + 30, bounds.Y + 8, bounds.Width - 36, 18));
-            }
-        }
-
-        private void DrawMetricPanel(Graphics graphics, Rectangle bounds, string label, string value, string unit, Color accent, bool compact = false)
-        {
-            ModernUiPainter.FillRoundedRectangle(graphics, PanelSurface, bounds, 16);
-            ModernUiPainter.DrawRoundedRectangle(graphics, ModernUiPainter.WithAlpha(accent, 170), 1.1f, bounds, 16);
-
-            using (var labelBrush = new SolidBrush(ModernUiPainter.WithAlpha(TextColor, 190)))
-            using (var valueBrush = new SolidBrush(TextColor))
-            using (var unitBrush = new SolidBrush(accent))
-            {
-                graphics.DrawString(label, detailFont, labelBrush, new RectangleF(bounds.X + 14, bounds.Y + 10, bounds.Width - 28, 14));
-                graphics.DrawString(value, compact ? font : metricFont, valueBrush, new RectangleF(bounds.X + 14, bounds.Y + 24, bounds.Width - 28, compact ? 20 : 26));
-                graphics.DrawString(unit, detailFont, unitBrush, new RectangleF(bounds.X + 14, bounds.Bottom - 20, bounds.Width - 28, 14));
-            }
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                horizonPen?.Dispose();
-                gridPen?.Dispose();
-                skyBrush?.Dispose();
-                groundBrush?.Dispose();
-                textBrush?.Dispose();
-                font?.Dispose();
-                metricFont?.Dispose();
-                chipFont?.Dispose();
-                detailFont?.Dispose();
-            }
-            base.Dispose(disposing);
-        }
-    }
+    // ControlArtificialHorizon moved to its own file for maintainability.
 
     public class PanelHudDeck : Panel
     {
-        private readonly Font eyebrowFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
-        private readonly Font titleFont = new Font("Segoe UI", 12, FontStyle.Bold);
-        private readonly Font subtitleFont = new Font("Segoe UI", 8.5f, FontStyle.Regular);
-        private readonly Font badgeFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
-
         private readonly Color Surface = Color.FromArgb(24, 31, 44);
         private readonly Color Border = Color.FromArgb(44, 54, 73);
         private readonly Color Gold = Color.FromArgb(200, 168, 101);
-        private readonly Color LightGray = Color.FromArgb(235, 239, 245);
-        private readonly Color MutedGray = Color.FromArgb(138, 149, 168);
-        private readonly Color LiveAccent = Color.FromArgb(74, 190, 225);
         private readonly Color ArmedAccent = Color.FromArgb(72, 182, 132);
         private readonly Color SafeAccent = Color.FromArgb(228, 84, 71);
         private readonly Color StandbyAccent = Color.FromArgb(110, 118, 136);
 
         private readonly ControlArtificialHorizon hudControl;
-        private Panel headerPanel;
         private Panel hudBorderPanel;
         private Panel hudHostPanel;
-        private Label lblEyebrow;
-        private Label lblTitle;
-        private Label lblSubtitle;
-        private Label lblStatus;
-        private Panel statusDot;
 
         public PanelHudDeck(ControlArtificialHorizon hudControl)
         {
             this.hudControl = hudControl ?? throw new ArgumentNullException(nameof(hudControl));
 
             BackColor = Color.FromArgb(10, 14, 20);
-            Padding = new Padding(14, 12, 14, 14);
+            Padding = new Padding(6);
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
             InitializeControls();
@@ -911,17 +1178,122 @@ namespace MissionPlanner.GCSViews
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(6, 10, 18),
-                Padding = new Padding(10, 8, 10, 10)
+                Padding = new Padding(1)
             };
             hudBorderPanel.Controls.Add(hudHostPanel);
 
             hudControl.Dock = DockStyle.Fill;
             hudHostPanel.Controls.Add(hudControl);
+        }
+
+        protected override void OnResize(EventArgs eventargs)
+        {
+            base.OnResize(eventargs);
+        }
+
+        public void SetOffline(bool connected)
+        {
+            ApplyDeckState(connected ? Gold : StandbyAccent);
+        }
+
+        public void UpdateFlightState(string mode, bool armed, float heading, int batteryRemaining)
+        {
+            ApplyDeckState(armed ? ArmedAccent : SafeAccent);
+        }
+
+        private void ApplyDeckState(Color accent)
+        {
+            hudBorderPanel.BackColor = accent == ArmedAccent
+                ? Color.FromArgb(44, 79, 68)
+                : accent == SafeAccent
+                    ? Color.FromArgb(88, 48, 52)
+                    : accent == Gold
+                        ? Color.FromArgb(86, 72, 40)
+                        : Border;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+        }
+    }
+
+    public class PanelSituationalPreviewDeck : Panel
+    {
+        private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+
+        private readonly Font eyebrowFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+        private readonly Font titleFont = new Font("Segoe UI", 11.5f, FontStyle.Bold);
+        private readonly Font subtitleFont = new Font("Segoe UI", 8.5f, FontStyle.Regular);
+        private readonly Font badgeFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+        private readonly Font stateFont = new Font("Segoe UI", 9.25f, FontStyle.Regular);
+
+        private readonly Color Surface = Color.FromArgb(24, 31, 44);
+        private readonly Color Border = Color.FromArgb(44, 54, 73);
+        private readonly Color Gold = Color.FromArgb(200, 168, 101);
+        private readonly Color LightGray = Color.FromArgb(235, 239, 245);
+        private readonly Color MutedGray = Color.FromArgb(138, 149, 168);
+        private readonly Color LiveAccent = Color.FromArgb(74, 190, 225);
+        private readonly Color StandbyAccent = Color.FromArgb(110, 118, 136);
+        private readonly Color PreviewSurface = Color.FromArgb(18, 22, 30);
+        private readonly Color PreviewSyncSurface = Color.FromArgb(25, 29, 42);
+
+        private Panel headerPanel;
+        private Panel previewBorderPanel;
+        private Panel previewHostPanel;
+        private Label lblEyebrow;
+        private Label lblTitle;
+        private Label lblSubtitle;
+        private Label lblStatus;
+        private Panel statusDot;
+        private Label lblState;
+        private Map3D mapView;
+        private bool previewAvailable;
+        private string previewInitError = "";
+
+        public PanelSituationalPreviewDeck()
+        {
+            BackColor = Color.FromArgb(10, 14, 20);
+            Padding = new Padding(10, 0, 10, 10);
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+
+            InitializeControls();
+            SetOffline(false);
+        }
+
+        private void InitializeControls()
+        {
+            previewBorderPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Border,
+                Padding = new Padding(1)
+            };
+            Controls.Add(previewBorderPanel);
+
+            previewHostPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = PreviewSurface
+            };
+            previewBorderPanel.Controls.Add(previewHostPanel);
+
+            lblState = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = stateFont,
+                ForeColor = LightGray,
+                BackColor = PreviewSyncSurface,
+                Padding = new Padding(18),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Text = "Connect vehicle\r\nfor 3D situational view"
+            };
+            previewHostPanel.Controls.Add(lblState);
 
             headerPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 68,
+                Height = 56,
                 BackColor = Surface
             };
             Controls.Add(headerPanel);
@@ -931,7 +1303,7 @@ namespace MissionPlanner.GCSViews
                 Font = eyebrowFont,
                 ForeColor = Gold,
                 BackColor = Surface,
-                Text = "ATTITUDE DECK",
+                Text = "3D SITUATIONAL",
                 AutoEllipsis = true
             };
             headerPanel.Controls.Add(lblEyebrow);
@@ -941,7 +1313,7 @@ namespace MissionPlanner.GCSViews
                 Font = titleFont,
                 ForeColor = LightGray,
                 BackColor = Surface,
-                Text = "HUD standing by",
+                Text = "3D view standing by",
                 AutoEllipsis = true
             };
             headerPanel.Controls.Add(lblTitle);
@@ -951,7 +1323,7 @@ namespace MissionPlanner.GCSViews
                 Font = subtitleFont,
                 ForeColor = MutedGray,
                 BackColor = Surface,
-                Text = "Awaiting flight telemetry.",
+                Text = "Live terrain-relative situational view.",
                 AutoEllipsis = true
             };
             headerPanel.Controls.Add(lblSubtitle);
@@ -973,7 +1345,32 @@ namespace MissionPlanner.GCSViews
             };
             headerPanel.Controls.Add(lblStatus);
 
+            TryInitializeMapView();
             LayoutHeader();
+        }
+
+        private void TryInitializeMapView()
+        {
+            try
+            {
+                mapView = new Map3D
+                {
+                    Dock = DockStyle.Fill,
+                    BackColor = Color.Black,
+                    Name = "modernHudSituationalMap3D",
+                    Visible = false
+                };
+
+                previewHostPanel.Controls.Add(mapView);
+                mapView.SendToBack();
+                previewAvailable = true;
+            }
+            catch (Exception ex)
+            {
+                previewInitError = ex.Message;
+                previewAvailable = false;
+                log.Error("Modern flight left-stack 3D map failed to initialize", ex);
+            }
         }
 
         protected override void OnResize(EventArgs eventargs)
@@ -988,12 +1385,12 @@ namespace MissionPlanner.GCSViews
                 return;
 
             int badgeWidth = 112;
-            int badgeHeight = 28;
-            int rightInset = 18;
+            int badgeHeight = 26;
             int topInset = 18;
+            int rightInset = 18;
 
             lblStatus.Bounds = new Rectangle(
-                Math.Max(136, headerPanel.ClientSize.Width - badgeWidth - rightInset),
+                Math.Max(130, headerPanel.ClientSize.Width - badgeWidth - rightInset),
                 topInset,
                 badgeWidth,
                 badgeHeight);
@@ -1004,65 +1401,160 @@ namespace MissionPlanner.GCSViews
                 statusDot.Width,
                 statusDot.Height);
 
-            int textWidth = Math.Max(180, statusDot.Left - 28);
+            int textWidth = Math.Max(160, statusDot.Left - 28);
             lblEyebrow.Bounds = new Rectangle(18, 10, textWidth, 14);
-            lblTitle.Bounds = new Rectangle(18, 24, textWidth, 20);
-            lblSubtitle.Bounds = new Rectangle(18, 44, textWidth, 16);
+            lblTitle.Bounds = new Rectangle(18, 23, textWidth, 18);
+            lblSubtitle.Bounds = new Rectangle(18, 40, textWidth, 15);
+        }
+
+        public void ActivateView()
+        {
+            if (!previewAvailable || mapView == null)
+                return;
+
+            try
+            {
+                mapView.Activate();
+            }
+            catch (Exception ex)
+            {
+                log.Debug($"Modern flight stacked 3D activation error: {ex.Message}");
+            }
+        }
+
+        public void DeactivateView()
+        {
+            try
+            {
+                mapView?.Deactivate();
+            }
+            catch (Exception ex)
+            {
+                log.Debug($"Modern flight stacked 3D deactivation error: {ex.Message}");
+            }
         }
 
         public void SetOffline(bool connected)
         {
             ApplyDeckState(
                 connected ? "SYNCING" : "OFFLINE",
-                connected ? "HUD synchronizing" : "HUD standing by",
+                connected ? "3D view syncing" : "3D view standing by",
                 connected
-                    ? "Vehicle link detected. Waiting for live flight attitude."
-                    : "Connect a vehicle to begin the live flight deck.",
+                    ? "Vehicle link detected. Waiting for live position and attitude."
+                    : "Connect a vehicle to begin the live 3D situational view.",
                 connected ? Gold : StandbyAccent,
-                connected ? Color.FromArgb(78, 62, 28) : Color.FromArgb(44, 49, 59));
+                connected ? Color.FromArgb(78, 62, 28) : Color.FromArgb(44, 49, 59),
+                connected ? PreviewSyncSurface : PreviewSurface,
+                connected
+                    ? "Waiting for valid position\r\nand attitude telemetry"
+                    : "Connect vehicle\r\nfor 3D situational view",
+                false);
         }
 
-        public void UpdateFlightState(string mode, bool armed, float heading, int batteryRemaining)
+        public void UpdateTelemetry(CurrentState cs)
         {
-            string modeLabel = string.IsNullOrWhiteSpace(mode) ? "STANDBY" : mode.ToUpperInvariant();
-            Color accent = armed ? ArmedAccent : SafeAccent;
+            bool connected = MainV2.comPort?.BaseStream?.IsOpen == true;
+            bool hasPosition = HasValidCoordinate(cs.lat, cs.lng);
+            string mode = string.IsNullOrWhiteSpace(cs.mode) ? "STANDBY" : cs.mode.ToUpperInvariant();
+            bool livePreview = previewAvailable && connected && hasPosition && mapView != null;
 
             ApplyDeckState(
-                armed ? "ARMED" : "SAFE",
-                armed ? "Live flight attitude deck" : "Flight attitude deck",
-                $"{modeLabel}  |  Heading {heading:F0} deg  |  Battery {Math.Max(0, batteryRemaining)}%",
-                accent,
-                armed ? Color.FromArgb(24, 66, 52) : Color.FromArgb(74, 36, 34));
+                livePreview ? "LIVE 3D" : connected ? "SYNCING" : "OFFLINE",
+                livePreview ? "3D situational - live" : connected ? "3D view syncing" : "3D view standing by",
+                livePreview
+                    ? $"{mode}  |  Alt {cs.altasl:F0} m  |  GS {cs.groundspeed:F1} m/s"
+                    : connected
+                        ? "Vehicle linked. Waiting for valid position and attitude telemetry."
+                        : "Connect a vehicle to begin the live 3D situational view.",
+                livePreview ? LiveAccent : connected ? Gold : StandbyAccent,
+                livePreview ? Color.FromArgb(26, 60, 78) : connected ? Color.FromArgb(78, 62, 28) : Color.FromArgb(44, 49, 59),
+                livePreview ? Color.Black : connected ? PreviewSyncSurface : PreviewSurface,
+                !previewAvailable
+                    ? (string.IsNullOrWhiteSpace(previewInitError)
+                        ? "3D view unavailable."
+                        : $"3D view unavailable.\r\n{previewInitError}")
+                    : !connected
+                        ? "Connect vehicle\r\nfor 3D situational view"
+                        : !hasPosition
+                            ? "Waiting for valid position\r\nand attitude telemetry"
+                            : $"{mode}\r\nAlt {cs.altasl:F0} m  |  GS {cs.groundspeed:F1} m/s",
+                livePreview);
+
+            if (!livePreview)
+                return;
+
+            try
+            {
+                mapView.rpy = new MissionPlanner.Utilities.Vector3(cs.roll, cs.pitch, cs.yaw);
+
+                double terrainAlt = srtm.getAltitude(cs.lat, cs.lng).alt;
+                double relativeAlt = CurrentState.multiplieralt == 0
+                    ? cs.alt
+                    : cs.alt / CurrentState.multiplieralt;
+
+                mapView.LocationCenter = new PointLatLngAlt(cs.lat, cs.lng, terrainAlt + relativeAlt, "here");
+                mapView.Velocity = new MissionPlanner.Utilities.Vector3(cs.vx, cs.vy, cs.vz);
+
+                var waypoints = MainV2.comPort?.MAV?.wps?.Values;
+                mapView.WPs = waypoints != null
+                    ? waypoints.Select(item => (Locationwp)item).ToList()
+                    : new List<Locationwp>();
+            }
+            catch (Exception ex)
+            {
+                log.Debug($"Modern flight stacked 3D update error: {ex.Message}");
+            }
         }
 
-        private void ApplyDeckState(string badgeText, string title, string subtitle, Color accent, Color pillBackColor)
+        private void ApplyDeckState(string badgeText, string title, string subtitle, Color accent,
+            Color pillBackColor, Color previewBackColor, string stateMessage, bool livePreview)
         {
-            lblStatus.Text = badgeText;
+            lblStatus.Text = !previewAvailable ? "3D OFF" : badgeText;
             lblTitle.Text = title;
             lblSubtitle.Text = subtitle;
-            lblStatus.BackColor = pillBackColor;
-            statusDot.BackColor = accent;
-            hudBorderPanel.BackColor = accent == ArmedAccent
-                ? Color.FromArgb(44, 79, 68)
-                : accent == SafeAccent
-                    ? Color.FromArgb(88, 48, 52)
+            lblStatus.BackColor = !previewAvailable ? Color.FromArgb(64, 59, 86) : pillBackColor;
+            statusDot.BackColor = !previewAvailable ? StandbyAccent : accent;
+
+            previewBorderPanel.BackColor = !previewAvailable
+                ? Color.FromArgb(94, 88, 118)
+                : livePreview
+                    ? Color.FromArgb(56, 107, 130)
                     : accent == Gold
                         ? Color.FromArgb(86, 72, 40)
                         : Border;
+
+            previewHostPanel.BackColor = previewBackColor;
+            lblState.BackColor = previewBackColor;
+            lblState.Text = stateMessage;
+            lblState.Visible = !livePreview;
+
+            if (mapView != null)
+            {
+                mapView.BackColor = Color.Black;
+                mapView.Visible = livePreview;
+            }
+        }
+
+        private static bool HasValidCoordinate(double latitude, double longitude)
+        {
+            return Math.Abs(latitude) > 0.00001 || Math.Abs(longitude) > 0.00001;
         }
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                DeactivateView();
                 eyebrowFont?.Dispose();
                 titleFont?.Dispose();
                 subtitleFont?.Dispose();
                 badgeFont?.Dispose();
+                stateFont?.Dispose();
             }
 
             base.Dispose(disposing);
         }
+
     }
 
     /// <summary>
@@ -1071,11 +1563,10 @@ namespace MissionPlanner.GCSViews
     public class ModernTelemetryCard : Control
     {
         private readonly Font labelFont = new Font("Segoe UI", 8.25f, FontStyle.Bold);
-        private readonly Font valueFont = new Font("Segoe UI", 15.5f, FontStyle.Bold);
-        private readonly Font detailFont = new Font("Segoe UI", 8.25f, FontStyle.Regular);
+        private readonly Font valueFont = new Font("Segoe UI", 16f, FontStyle.Bold);
+        private readonly Font detailFont = new Font("Segoe UI", 8f, FontStyle.Regular);
 
         private readonly Color Surface = Color.FromArgb(27, 33, 46);
-        private readonly Color Border = Color.FromArgb(46, 56, 74);
         private readonly Color TextPrimary = Color.FromArgb(235, 239, 245);
         private readonly Color TextMuted = Color.FromArgb(138, 149, 168);
 
@@ -1100,43 +1591,63 @@ namespace MissionPlanner.GCSViews
             e.Graphics.Clear(BackColor);
 
             var bounds = new Rectangle(0, 0, Width - 1, Height - 1);
+            Color readingColor = Blend(TextPrimary, AccentColor, 0.88f);
+            Color borderColor = ModernUiPainter.WithAlpha(readingColor, 165);
             ModernUiPainter.FillRoundedRectangle(e.Graphics, Surface, bounds, 18);
-            ModernUiPainter.DrawRoundedRectangle(e.Graphics, Border, 1f, bounds, 18);
+            ModernUiPainter.DrawRoundedRectangle(e.Graphics, borderColor, 1f, bounds, 18);
 
-            var accentRect = new Rectangle(12, 12, Math.Max(34, Width / 4), 4);
+            var accentRect = new Rectangle(16, 12, Math.Max(40, Width / 4), 4);
             ModernUiPainter.FillRoundedRectangle(e.Graphics, AccentColor, accentRect, 2);
 
             using (var titleBrush = new SolidBrush(TextMuted))
-            using (var valueBrush = new SolidBrush(TextPrimary))
+            using (var valueBrush = new SolidBrush(readingColor))
             using (var detailBrush = new SolidBrush(ModernUiPainter.WithAlpha(AccentColor, 220)))
-            using (var textFormat = new StringFormat
+            using (var singleLineFormat = new StringFormat
             {
                 FormatFlags = StringFormatFlags.NoWrap,
                 Trimming = StringTrimming.EllipsisCharacter
             })
+            using (var detailFormat = new StringFormat
             {
-                float contentX = 14;
-                float contentWidth = Width - 28;
-                float labelY = 21;
-                float valueY = 39;
-                float detailY = Height - 31;
+                FormatFlags = StringFormatFlags.LineLimit,
+                Trimming = StringTrimming.EllipsisWord
+            })
+            {
+                float contentX = 16;
+                float contentWidth = Width - 32;
+                float labelY = accentRect.Bottom + 9;
+                float valueY = labelY + 17;
+                float progressTop = Height - 15;
+                float detailY = valueY + 28;
+                float detailHeight = Math.Max(16, progressTop - detailY - 8);
 
                 e.Graphics.DrawString(Title, labelFont, titleBrush,
-                    new RectangleF(contentX, labelY, contentWidth, 12), textFormat);
+                    new RectangleF(contentX, labelY, contentWidth, 13), singleLineFormat);
                 e.Graphics.DrawString(Value, valueFont, valueBrush,
-                    new RectangleF(contentX, valueY, contentWidth, 22), textFormat);
+                    new RectangleF(contentX, valueY, contentWidth, 24), singleLineFormat);
                 e.Graphics.DrawString(Detail, detailFont, detailBrush,
-                    new RectangleF(contentX, detailY, contentWidth, 14), textFormat);
+                    new RectangleF(contentX, detailY, contentWidth, detailHeight), detailFormat);
             }
 
-            int progressWidth = (int)((Width - 28) * Math.Max(0f, Math.Min(1f, Progress)));
+            int progressWidth = (int)((Width - 32) * Math.Max(0f, Math.Min(1f, Progress)));
             if (progressWidth > 0)
             {
-                var progressTrack = new Rectangle(14, Height - 14, Width - 28, 4);
-                var progressFill = new Rectangle(14, Height - 14, progressWidth, 4);
+                var progressTrack = new Rectangle(16, Height - 15, Width - 32, 4);
+                var progressFill = new Rectangle(16, Height - 15, progressWidth, 4);
                 ModernUiPainter.FillRoundedRectangle(e.Graphics, Color.FromArgb(42, 54, 76), progressTrack, 2);
                 ModernUiPainter.FillRoundedRectangle(e.Graphics, AccentColor, progressFill, 2);
             }
+        }
+
+        private static Color Blend(Color baseColor, Color accentColor, float amount)
+        {
+            amount = Math.Max(0f, Math.Min(1f, amount));
+
+            return Color.FromArgb(
+                255,
+                (int)(baseColor.R + ((accentColor.R - baseColor.R) * amount)),
+                (int)(baseColor.G + ((accentColor.G - baseColor.G) * amount)),
+                (int)(baseColor.B + ((accentColor.B - baseColor.B) * amount)));
         }
 
         protected override void Dispose(bool disposing)
@@ -1155,7 +1666,6 @@ namespace MissionPlanner.GCSViews
     public class PanelTelemetry : Panel
     {
         private const string TelemetrySelectionSettingKey = "ModernFlightTelemetryCards";
-        private const int MinimumVisibleMetricCount = 4;
         private static readonly string[] DefaultMetricKeys =
         {
             "altitude",
@@ -1174,6 +1684,9 @@ namespace MissionPlanner.GCSViews
             new TelemetryMetricDefinition("battery_used", "Battery Used"),
             new TelemetryMetricDefinition("gps", "GPS Lock"),
             new TelemetryMetricDefinition("navigation", "Navigation"),
+            new TelemetryMetricDefinition("time_in_air", "Time in Air"),
+            new TelemetryMetricDefinition("distance_travelled", "Distance Travelled"),
+            new TelemetryMetricDefinition("distance_to_home", "Distance to Home"),
             new TelemetryMetricDefinition("fuel_system", "Fuel System"),
             new TelemetryMetricDefinition("flight_mode", "Flight Mode")
         };
@@ -1194,12 +1707,14 @@ namespace MissionPlanner.GCSViews
         private readonly List<ModernTelemetryCard> cards = new List<ModernTelemetryCard>();
         private readonly List<string> selectedMetricKeys = new List<string>();
         private CurrentState lastTelemetry;
+        private int activeTelemetryCardIndex = -1;
 
         public PanelTelemetry()
         {
             BackColor = Color.FromArgb(10, 14, 20);
             Padding = new Padding(10, 12, 10, 10);
-            AutoScroll = true;
+            AutoScroll = false;
+            AutoScrollMinSize = Size.Empty;
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
             LoadMetricSelection();
@@ -1220,11 +1735,12 @@ namespace MissionPlanner.GCSViews
 
             lblSubtitle = new Label
             {
-                Text = "Power, nav, and airframe telemetry at a glance",
+                Text = "Double-click any card to replace its parameter",
                 Font = subtitleFont,
                 ForeColor = MutedText,
                 BackColor = Color.Transparent,
-                AutoSize = false
+                AutoSize = false,
+                AutoEllipsis = true
             };
             Controls.Add(lblSubtitle);
 
@@ -1242,6 +1758,8 @@ namespace MissionPlanner.GCSViews
             btnCustomize.FlatAppearance.MouseDownBackColor = Color.FromArgb(39, 48, 66);
             btnCustomize.FlatAppearance.MouseOverBackColor = Color.FromArgb(34, 42, 58);
             btnCustomize.Click += (s, e) => ShowTelemetryMenu();
+            btnCustomize.Visible = false;
+            btnCustomize.Enabled = false;
             Controls.Add(btnCustomize);
 
             telemetryMenu = new ContextMenuStrip
@@ -1265,24 +1783,26 @@ namespace MissionPlanner.GCSViews
 
         private void UpdateLayoutMetrics()
         {
-            int contentWidth = Math.Max(200, ClientSize.Width - Padding.Horizontal);
+            if (ClientSize.Width <= 0 || ClientSize.Height <= 0)
+                return;
+
+            int gap = 8;
+            int contentWidth = Math.Max(176, ClientSize.Width - Padding.Horizontal);
             int currentTop = Padding.Top;
-            int buttonWidth = Math.Min(84, Math.Max(70, contentWidth / 3));
+            int titleHeight = 28;
+            int subtitleHeight = 18;
 
-            btnCustomize.Bounds = new Rectangle(
-                Padding.Left + contentWidth - buttonWidth,
-                currentTop,
-                buttonWidth,
-                28);
+            lblHeader.Bounds = new Rectangle(Padding.Left, currentTop, contentWidth, titleHeight);
+            currentTop += titleHeight - 2;
 
-            lblHeader.Bounds = new Rectangle(Padding.Left, currentTop + 1, contentWidth - buttonWidth - 8, 24);
-            currentTop += 24;
+            lblSubtitle.Bounds = new Rectangle(Padding.Left, currentTop, contentWidth, subtitleHeight);
+            currentTop += subtitleHeight + 10;
 
-            lblSubtitle.Bounds = new Rectangle(Padding.Left, currentTop, contentWidth, 18);
-            currentTop += 24;
-
-            int gap = 10;
-            int cardHeight = contentWidth < 240 ? 100 : 96;
+            int availableHeight = Math.Max(0, ClientSize.Height - currentTop - Padding.Bottom);
+            int cardCount = Math.Max(1, cards.Count);
+            int totalGapHeight = Math.Max(0, cardCount - 1) * gap;
+            int cardHeight = (availableHeight - totalGapHeight) / cardCount;
+            cardHeight = Math.Max(86, Math.Min(contentWidth < 240 ? 110 : 104, cardHeight));
 
             for (int i = 0; i < cards.Count; i++)
             {
@@ -1324,11 +1844,14 @@ namespace MissionPlanner.GCSViews
                 var rawValue = Settings.Instance[TelemetrySelectionSettingKey];
                 if (rawValue != null)
                 {
-                    foreach (var token in rawValue.ToString().Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                    foreach (string token in rawValue.ToString().Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
                     {
                         string key = token.Trim();
                         if (MetricCatalog.Any(option => option.Key == key) && !selectedMetricKeys.Contains(key))
                             selectedMetricKeys.Add(key);
+
+                        if (selectedMetricKeys.Count == DefaultMetricKeys.Length)
+                            break;
                     }
                 }
             }
@@ -1336,16 +1859,22 @@ namespace MissionPlanner.GCSViews
             {
             }
 
-            if (selectedMetricKeys.Count == 0)
-                selectedMetricKeys.AddRange(DefaultMetricKeys);
-
-            foreach (var key in DefaultMetricKeys)
+            foreach (string key in DefaultMetricKeys)
             {
-                if (selectedMetricKeys.Count >= MinimumVisibleMetricCount)
+                if (selectedMetricKeys.Count == DefaultMetricKeys.Length)
                     break;
 
                 if (!selectedMetricKeys.Contains(key))
                     selectedMetricKeys.Add(key);
+            }
+
+            foreach (var metric in MetricCatalog)
+            {
+                if (selectedMetricKeys.Count == DefaultMetricKeys.Length)
+                    break;
+
+                if (!selectedMetricKeys.Contains(metric.Key))
+                    selectedMetricKeys.Add(metric.Key);
             }
         }
 
@@ -1353,7 +1882,8 @@ namespace MissionPlanner.GCSViews
         {
             while (cards.Count < selectedMetricKeys.Count)
             {
-                var card = new ModernTelemetryCard { BackColor = BackColor };
+                var card = new ModernTelemetryCard { BackColor = BackColor, Cursor = Cursors.Hand };
+                card.MouseDoubleClick += TelemetryCard_MouseDoubleClick;
                 cards.Add(card);
                 Controls.Add(card);
             }
@@ -1377,6 +1907,13 @@ namespace MissionPlanner.GCSViews
             telemetryMenu?.Show(btnCustomize, new Point(0, btnCustomize.Height + 4));
         }
 
+        private void ShowTelemetryMenu(int cardIndex, Control source, Point location)
+        {
+            activeTelemetryCardIndex = cardIndex;
+            RebuildTelemetryMenu();
+            telemetryMenu?.Show(source, location);
+        }
+
         private void RebuildTelemetryMenu()
         {
             if (telemetryMenu == null)
@@ -1386,13 +1923,20 @@ namespace MissionPlanner.GCSViews
 
             foreach (var metric in MetricCatalog)
             {
-                bool isSelected = selectedMetricKeys.Contains(metric.Key);
-                var item = new ToolStripMenuItem(metric.Label)
+                int existingIndex = selectedMetricKeys.IndexOf(metric.Key);
+                bool isCurrent = activeTelemetryCardIndex >= 0 &&
+                    activeTelemetryCardIndex < selectedMetricKeys.Count &&
+                    selectedMetricKeys[activeTelemetryCardIndex] == metric.Key;
+
+                string label = metric.Label;
+                if (existingIndex >= 0 && existingIndex != activeTelemetryCardIndex)
+                    label += "  (Swap)";
+
+                var item = new ToolStripMenuItem(label)
                 {
-                    Checked = isSelected,
+                    Checked = isCurrent,
                     CheckOnClick = false,
-                    Tag = metric.Key,
-                    Enabled = !isSelected || selectedMetricKeys.Count > MinimumVisibleMetricCount
+                    Tag = metric.Key
                 };
                 item.Click += TelemetryMetricMenuItem_Click;
                 telemetryMenu.Items.Add(item);
@@ -1410,17 +1954,16 @@ namespace MissionPlanner.GCSViews
             if (!(sender is ToolStripMenuItem menuItem) || !(menuItem.Tag is string metricKey))
                 return;
 
-            if (selectedMetricKeys.Contains(metricKey))
-            {
-                if (selectedMetricKeys.Count <= MinimumVisibleMetricCount)
-                    return;
+            if (activeTelemetryCardIndex < 0 || activeTelemetryCardIndex >= selectedMetricKeys.Count)
+                return;
 
-                selectedMetricKeys.Remove(metricKey);
-            }
-            else
-            {
-                selectedMetricKeys.Add(metricKey);
-            }
+            int existingIndex = selectedMetricKeys.IndexOf(metricKey);
+            string replacedKey = selectedMetricKeys[activeTelemetryCardIndex];
+
+            if (existingIndex >= 0 && existingIndex != activeTelemetryCardIndex)
+                selectedMetricKeys[existingIndex] = replacedKey;
+
+            selectedMetricKeys[activeTelemetryCardIndex] = metricKey;
 
             SaveMetricSelection();
             SyncCardControls();
@@ -1455,9 +1998,43 @@ namespace MissionPlanner.GCSViews
             }
         }
 
+        private static Color GetMetricAccent(string key)
+        {
+            switch (key)
+            {
+                case "altitude":
+                    return Color.FromArgb(66, 194, 226);
+                case "ground_speed":
+                    return Color.FromArgb(93, 141, 255);
+                case "battery":
+                    return Color.FromArgb(236, 96, 86);
+                case "endurance":
+                    return Color.FromArgb(230, 174, 68);
+                case "battery_used":
+                    return Color.FromArgb(198, 136, 98);
+                case "gps":
+                    return Color.FromArgb(82, 201, 150);
+                case "navigation":
+                    return Color.FromArgb(152, 214, 96);
+                case "time_in_air":
+                    return Color.FromArgb(110, 129, 234);
+                case "distance_travelled":
+                    return Color.FromArgb(230, 139, 74);
+                case "distance_to_home":
+                    return Color.FromArgb(162, 110, 232);
+                case "fuel_system":
+                    return Color.FromArgb(202, 150, 88);
+                case "flight_mode":
+                    return Color.FromArgb(214, 118, 184);
+                default:
+                    return Color.FromArgb(111, 120, 138);
+            }
+        }
+
         private static TelemetryMetricSnapshot BuildMetricSnapshot(string key, CurrentState cs)
         {
             int battery = Math.Max(0, Math.Min(100, cs.battery_remaining));
+            Color accent = GetMetricAccent(key);
 
             switch (key)
             {
@@ -1466,7 +2043,7 @@ namespace MissionPlanner.GCSViews
                         "ALTITUDE",
                         $"{cs.altasl:F0} m",
                         $"Home {cs.DistToHome:F0} m",
-                        Color.FromArgb(66, 194, 226),
+                        accent,
                         Clamp01(cs.altasl / 150f));
 
                 case "ground_speed":
@@ -1474,7 +2051,7 @@ namespace MissionPlanner.GCSViews
                         "GROUND SPEED",
                         $"{cs.groundspeed:F1} m/s",
                         $"Climb {cs.verticalspeed:+0.0;-0.0;0.0} m/s",
-                        Color.FromArgb(66, 194, 226),
+                        accent,
                         Clamp01(cs.groundspeed / 30f));
 
                 case "battery":
@@ -1482,7 +2059,7 @@ namespace MissionPlanner.GCSViews
                         "BATTERY",
                         $"{battery}%",
                         $"{cs.battery_voltage:F1} V  |  {cs.watts:F0} W",
-                        ModernUiPainter.GetBatteryColor(battery),
+                        accent,
                         battery / 100f);
 
                 case "endurance":
@@ -1499,7 +2076,7 @@ namespace MissionPlanner.GCSViews
                         "EST. REMAINING",
                         remainingValue,
                         remainingDetail,
-                        Color.FromArgb(230, 174, 68),
+                        accent,
                         battery / 100f);
 
                 case "battery_used":
@@ -1507,7 +2084,7 @@ namespace MissionPlanner.GCSViews
                         "BATTERY USED",
                         $"{cs.battery_usedmah:F0} mAh",
                         $"{cs.current:0.0} A draw  |  {cs.watts:F0} W",
-                        Color.FromArgb(198, 136, 98),
+                        accent,
                         Clamp01(1f - battery / 100f));
 
                 case "gps":
@@ -1515,7 +2092,7 @@ namespace MissionPlanner.GCSViews
                         "GPS LOCK",
                         $"{cs.satcount:F0} sats",
                         $"Fix {cs.gpsstatus:F0}  |  HDOP {cs.gpshdop:0.0}",
-                        ModernUiPainter.GetGpsColor(cs.gpsstatus, cs.satcount),
+                        accent,
                         Clamp01(cs.satcount / 16f));
 
                 case "navigation":
@@ -1523,8 +2100,32 @@ namespace MissionPlanner.GCSViews
                         "NAVIGATION",
                         $"WP {cs.wpno:F0}",
                         $"WP {cs.wp_dist:F0} m  |  Track {cs.distTraveled:F0} m",
-                        Color.FromArgb(114, 192, 115),
+                        accent,
                         Math.Max(0.08f, 1f - Clamp01(cs.wp_dist / 1200f)));
+
+                case "time_in_air":
+                    return new TelemetryMetricSnapshot(
+                        "TIME IN AIR",
+                        ModernUiPainter.FormatDuration(cs.timeInAir),
+                        cs.armed ? "Mission timer active" : "Preflight timer ready",
+                        accent,
+                        Clamp01(cs.timeInAir / 1800f));
+
+                case "distance_travelled":
+                    return new TelemetryMetricSnapshot(
+                        "DIST. TRAVELLED",
+                        $"{cs.distTraveled:F0} m",
+                        $"{cs.groundspeed:F1} m/s groundspeed",
+                        accent,
+                        Clamp01(cs.distTraveled / 5000f));
+
+                case "distance_to_home":
+                    return new TelemetryMetricSnapshot(
+                        "DIST. TO HOME",
+                        $"{cs.DistToHome:F0} m",
+                        $"{cs.nav_bearing:F0} deg bearing",
+                        accent,
+                        Math.Max(0.08f, 1f - Clamp01(cs.DistToHome / 3000f)));
 
                 case "fuel_system":
                     bool hasFuelTelemetry = cs.efi_fuelflow > 0 || cs.efi_fuelconsumed > 0 || cs.efi_fuelpressure > 0;
@@ -1532,11 +2133,11 @@ namespace MissionPlanner.GCSViews
                         "FUEL SYSTEM",
                         hasFuelTelemetry
                             ? cs.efi_fuelflow > 0 ? $"{cs.efi_fuelflow:F0} cc/min" : $"{cs.efi_fuelconsumed:F0} cc"
-                            : "--",
+                        : "--",
                         hasFuelTelemetry
                             ? cs.efi_fuelflow > 0 ? $"Used {cs.efi_fuelconsumed:F0} cc" : $"Pressure {cs.efi_fuelpressure:F0} kPa"
                             : "No EFI fuel telemetry",
-                        Color.FromArgb(200, 168, 101),
+                        accent,
                         hasFuelTelemetry ? 0.72f : 0.08f);
 
                 case "flight_mode":
@@ -1544,7 +2145,7 @@ namespace MissionPlanner.GCSViews
                         "FLIGHT MODE",
                         string.IsNullOrWhiteSpace(cs.mode) ? "UNKNOWN" : cs.mode.ToUpperInvariant(),
                         $"Air time {ModernUiPainter.FormatDuration(cs.timeInAir)}",
-                        cs.armed ? Color.FromArgb(72, 182, 132) : Color.FromArgb(200, 168, 101),
+                        accent,
                         cs.armed ? 1f : 0.25f);
 
                 default:
@@ -1617,6 +2218,18 @@ namespace MissionPlanner.GCSViews
             public Color AccentColor { get; }
             public float Progress { get; }
         }
+
+        private void TelemetryCard_MouseDoubleClick(object sender, MouseEventArgs e)
+        {
+            if (!(sender is ModernTelemetryCard card))
+                return;
+
+            int cardIndex = cards.IndexOf(card);
+            if (cardIndex < 0)
+                return;
+
+            ShowTelemetryMenu(cardIndex, card, new Point(Math.Min(card.Width - 8, e.X), Math.Min(card.Height - 8, e.Y)));
+        }
     }
 
     public class PanelMap3DDeck : Panel
@@ -1627,6 +2240,11 @@ namespace MissionPlanner.GCSViews
         private readonly Font titleFont = new Font("Segoe UI", 12, FontStyle.Bold);
         private readonly Font subtitleFont = new Font("Segoe UI", 8.5f, FontStyle.Regular);
         private readonly Font badgeFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+        private readonly Font overlayTitleFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+        private readonly Font overlayDetailFont = new Font("Segoe UI", 8f, FontStyle.Regular);
+        private readonly Font mapButtonFont = new Font("Segoe UI", 8f, FontStyle.Bold);
+        private readonly Font previewTitleFont = new Font("Segoe UI", 8f, FontStyle.Bold);
+        private readonly Font previewStateFont = new Font("Segoe UI", 8.5f, FontStyle.Regular);
 
         private readonly Color Surface = Color.FromArgb(24, 31, 44);
         private readonly Color Border = Color.FromArgb(44, 54, 73);
@@ -1635,29 +2253,68 @@ namespace MissionPlanner.GCSViews
         private readonly Color MutedGray = Color.FromArgb(138, 149, 168);
         private readonly Color LiveAccent = Color.FromArgb(74, 190, 225);
         private readonly Color StandbyAccent = Color.FromArgb(110, 118, 136);
+        private readonly Color MapSurface = Color.FromArgb(10, 18, 17);
+        private readonly Color MapOverlaySurface = Color.FromArgb(24, 31, 44);
+        private readonly Color PreviewSurface = Color.FromArgb(101, 87, 156);
+        private readonly Color PreviewBorder = Color.FromArgb(141, 126, 198);
+        private readonly bool showEmbeddedPreview;
 
         private Panel headerPanel;
         private Panel mapBorderPanel;
         private Panel mapHostPanel;
+        private Panel mapChromePanel;
+        private FlowLayoutPanel mapButtonBar;
         private Label lblEyebrow;
         private Label lblTitle;
         private Label lblSubtitle;
         private Label lblStatus;
         private Panel statusDot;
-        private Label lblFallback;
+        private Label lblMapOverlayTitle;
+        private Label lblMapOverlaySubtitle;
+        private Button btnSatellite;
+        private Button btnTerrain;
+        private Button btnZoomIn;
+        private Button btnZoomOut;
+        private Panel previewBorderPanel;
+        private Panel previewPanel;
+        private Panel previewHeaderPanel;
+        private Panel previewContentPanel;
+        private Panel previewResizeHandle;
+        private Button btnPreviewMaximize;
+        private Label lblPreviewTitle;
+        private Label lblPreviewBadge;
+        private Label lblPreviewState;
+        private myGMAP tacticalMap;
+        private TacticalMapGlassOverlay tacticalGlassOverlay;
+        private GMapOverlay mapOverlay;
+        private GMapRoute breadcrumbRoute;
+        private GMapRoute homeRoute;
+        private GMarkerGoogle homeMarker;
+        private GMapMarkerPlane aircraftMarker;
+        private readonly List<PointLatLng> breadcrumbPoints = new List<PointLatLng>();
         private Map3D mapView;
-        private bool mapAvailable;
-        private string initError = "";
+        private bool previewAvailable;
+        private string previewInitError = "";
+        private GMapProvider selectedMapProvider;
+        private Size preferredPreviewSize = new Size(280, 180);
+        private Size appliedPreviewSize = new Size(280, 180);
+        private Size previewRestoreSize = new Size(280, 180);
+        private bool previewExpanded;
+        private bool resizingPreview;
+        private Point previewResizeStartCursor;
+        private Size previewResizeStartSize;
 
-        public PanelMap3DDeck()
+        public PanelMap3DDeck(bool showEmbeddedPreview = false)
         {
+            this.showEmbeddedPreview = showEmbeddedPreview;
             BackColor = Color.FromArgb(10, 14, 20);
-            Padding = new Padding(14, 12, 14, 14);
+            Padding = new Padding(10, 8, 10, 10);
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
             InitializeControls();
-            ApplyDeckState(false, false, "STANDBY",
-                "Connect a vehicle to begin the live terrain-aware 3D view.");
+            ApplyDeckState(false, false, "OFFLINE",
+                "Connect a vehicle to begin the live mission map.");
+            ApplyPreviewState(false, false, "STANDBY", null);
         }
 
         private void InitializeControls()
@@ -1673,14 +2330,14 @@ namespace MissionPlanner.GCSViews
             mapHostPanel = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(6, 10, 18)
+                BackColor = MapSurface
             };
             mapBorderPanel.Controls.Add(mapHostPanel);
 
             headerPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 68,
+                Height = 58,
                 BackColor = Surface
             };
             Controls.Add(headerPanel);
@@ -1690,7 +2347,7 @@ namespace MissionPlanner.GCSViews
                 Font = eyebrowFont,
                 ForeColor = Gold,
                 BackColor = Surface,
-                Text = "3D SITUATIONAL VIEW",
+                Text = "2D MAP VIEW",
                 AutoEllipsis = true
             };
             headerPanel.Controls.Add(lblEyebrow);
@@ -1700,7 +2357,7 @@ namespace MissionPlanner.GCSViews
                 Font = titleFont,
                 ForeColor = LightGray,
                 BackColor = Surface,
-                Text = "3D map standing by",
+                Text = "Mission map standing by",
                 AutoEllipsis = true
             };
             headerPanel.Controls.Add(lblTitle);
@@ -1727,13 +2384,305 @@ namespace MissionPlanner.GCSViews
                 Font = badgeFont,
                 ForeColor = LightGray,
                 BackColor = Color.FromArgb(44, 49, 59),
-                Text = "STANDBY",
+                Text = "OFFLINE",
                 TextAlign = ContentAlignment.MiddleCenter
             };
             headerPanel.Controls.Add(lblStatus);
 
-            TryInitializeMapView();
+            InitializeTacticalMap();
+            InitializeMapChrome();
+
+            if (showEmbeddedPreview)
+            {
+                InitializePreviewPanel();
+                TryInitializeMapView();
+            }
+
             LayoutHeader();
+            LayoutMapChrome();
+        }
+
+        private void InitializeTacticalMap()
+        {
+            tacticalMap = new myGMAP
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(8, 12, 20),
+                EmptyTileColor = Color.FromArgb(20, 24, 33),
+                CanDragMap = true,
+                DisableFocusOnMouseEnter = true,
+                GrayScaleMode = false,
+                HelperLineOption = HelperLineOptions.DontShow,
+                HoldInvalidation = false,
+                LevelsKeepInMemmory = 5,
+                MarkersEnabled = true,
+                MaxZoom = 22,
+                MinZoom = 2,
+                MouseWheelZoomType = GMap.NET.MouseWheelZoomType.MousePositionWithoutCenter,
+                NegativeMode = false,
+                PolygonsEnabled = false,
+                RetryLoadTile = 0,
+                RoutesEnabled = true,
+                ScaleMode = ScaleModes.Fractional,
+                SelectedAreaFillColor = Color.FromArgb(33, 65, 105, 225),
+                ShowTileGridLines = false,
+                Zoom = 16
+            };
+
+            tacticalMap.CacheLocation = Settings.GetDataDirectory() + "gmapcache" + System.IO.Path.DirectorySeparatorChar;
+
+            mapOverlay = new GMapOverlay("modern-flight-map");
+
+            breadcrumbRoute = new GMapRoute("breadcrumb")
+            {
+                Stroke = new Pen(Color.FromArgb(235, 90, 210, 204), 2.8f)
+                {
+                    LineJoin = LineJoin.Round,
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round,
+                    DashPattern = new[] { 6f, 4f }
+                },
+                IsHitTestVisible = false,
+                ArrowMode = GMapRoute.ArrowDrawMode.SinglePerRoute
+            };
+
+            homeRoute = new GMapRoute("home-vector")
+            {
+                Stroke = new Pen(Color.FromArgb(200, 214, 180, 101), 1.8f)
+                {
+                    DashStyle = DashStyle.Dash,
+                    DashPattern = new[] { 4f, 4f }
+                },
+                IsHitTestVisible = false
+            };
+
+            homeMarker = new GMarkerGoogle(PointLatLng.Empty, GMarkerGoogleType.blue_dot)
+            {
+                IsVisible = false,
+                ToolTipText = "Home"
+            };
+
+            aircraftMarker = new GMapMarkerPlane(0, PointLatLng.Empty, 0, 0, 0, 0, 0)
+            {
+                IsVisible = false
+            };
+
+            mapOverlay.Routes.Add(homeRoute);
+            mapOverlay.Routes.Add(breadcrumbRoute);
+            mapOverlay.Markers.Add(homeMarker);
+            mapOverlay.Markers.Add(aircraftMarker);
+            tacticalMap.Overlays.Add(mapOverlay);
+
+            if (FlightData.mymap?.MapProvider == GMapProviders.GoogleSatelliteMap)
+            {
+                selectedMapProvider = GMapProviders.GoogleSatelliteMap;
+            }
+            else
+            {
+                selectedMapProvider = GMapProviders.GoogleTerrainMap;
+            }
+
+            tacticalMap.MapProvider = selectedMapProvider;
+            LoadSavedMapView();
+
+            mapHostPanel.Controls.Add(tacticalMap);
+            tacticalMap.SendToBack();
+
+            tacticalGlassOverlay = new TacticalMapGlassOverlay
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.Transparent,
+                Enabled = false
+            };
+            tacticalMap.Controls.Add(tacticalGlassOverlay);
+            tacticalGlassOverlay.BringToFront();
+        }
+
+        private void InitializeMapChrome()
+        {
+            mapChromePanel = new Panel
+            {
+                BackColor = Color.FromArgb(19, 27, 38)
+            };
+            mapHostPanel.Controls.Add(mapChromePanel);
+
+            mapButtonBar = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = false,
+                FlowDirection = FlowDirection.LeftToRight,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty,
+                BackColor = Color.Transparent
+            };
+            mapChromePanel.Controls.Add(mapButtonBar);
+
+            lblMapOverlayTitle = new Label
+            {
+                Font = overlayTitleFont,
+                ForeColor = LightGray,
+                BackColor = MapOverlaySurface,
+                Text = "Mission map",
+                AutoEllipsis = true
+            };
+            mapChromePanel.Controls.Add(lblMapOverlayTitle);
+
+            lblMapOverlaySubtitle = new Label
+            {
+                Font = overlayDetailFont,
+                ForeColor = MutedGray,
+                BackColor = MapOverlaySurface,
+                Text = "Waiting for vehicle link",
+                AutoEllipsis = true
+            };
+            mapChromePanel.Controls.Add(lblMapOverlaySubtitle);
+
+            btnSatellite = CreateMapButton("Satellite");
+            btnSatellite.Click += (s, e) => SetMapProvider(GMapProviders.GoogleSatelliteMap);
+            mapButtonBar.Controls.Add(btnSatellite);
+
+            btnTerrain = CreateMapButton("Terrain");
+            btnTerrain.Click += (s, e) => SetMapProvider(GMapProviders.GoogleTerrainMap);
+            mapButtonBar.Controls.Add(btnTerrain);
+
+            btnZoomIn = CreateMapButton("+");
+            btnZoomIn.Click += (s, e) =>
+            {
+                if (tacticalMap != null && tacticalMap.Zoom < tacticalMap.MaxZoom)
+                    tacticalMap.Zoom += 1;
+            };
+            mapButtonBar.Controls.Add(btnZoomIn);
+
+            btnZoomOut = CreateMapButton("-");
+            btnZoomOut.Click += (s, e) =>
+            {
+                if (tacticalMap != null && tacticalMap.Zoom > tacticalMap.MinZoom)
+                    tacticalMap.Zoom -= 1;
+            };
+            mapButtonBar.Controls.Add(btnZoomOut);
+
+            ApplyMapProviderButtonState();
+        }
+
+        private void InitializePreviewPanel()
+        {
+            previewBorderPanel = new Panel
+            {
+                BackColor = PreviewBorder,
+                Padding = new Padding(1)
+            };
+            mapHostPanel.Controls.Add(previewBorderPanel);
+
+            previewPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = PreviewSurface
+            };
+            previewBorderPanel.Controls.Add(previewPanel);
+
+            previewHeaderPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 28,
+                BackColor = Color.FromArgb(90, 76, 140)
+            };
+            previewPanel.Controls.Add(previewHeaderPanel);
+
+            lblPreviewTitle = new Label
+            {
+                Font = previewTitleFont,
+                ForeColor = LightGray,
+                BackColor = previewHeaderPanel.BackColor,
+                Text = "3D Situational",
+                AutoEllipsis = true
+            };
+            previewHeaderPanel.Controls.Add(lblPreviewTitle);
+
+            lblPreviewBadge = new Label
+            {
+                Font = badgeFont,
+                ForeColor = LightGray,
+                BackColor = Color.FromArgb(73, 65, 110),
+                Text = "OFFLINE",
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            previewHeaderPanel.Controls.Add(lblPreviewBadge);
+
+            btnPreviewMaximize = CreateMapButton("MAX");
+            btnPreviewMaximize.BackColor = Color.FromArgb(73, 65, 110);
+            btnPreviewMaximize.Click += (s, e) => TogglePreviewExpanded();
+            previewHeaderPanel.Controls.Add(btnPreviewMaximize);
+
+            previewContentPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = PreviewSurface
+            };
+            previewPanel.Controls.Add(previewContentPanel);
+
+            lblPreviewState = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = previewStateFont,
+                ForeColor = Color.FromArgb(232, 235, 245),
+                BackColor = PreviewSurface,
+                Padding = new Padding(16),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Text = "Connect vehicle for 3D view"
+            };
+            previewContentPanel.Controls.Add(lblPreviewState);
+
+            previewResizeHandle = new Panel
+            {
+                Size = new Size(18, 18),
+                BackColor = Color.FromArgb(126, 112, 182),
+                Cursor = Cursors.SizeNWSE,
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Right
+            };
+            previewResizeHandle.Paint += PreviewResizeHandle_Paint;
+            previewResizeHandle.MouseDown += PreviewResizeHandle_MouseDown;
+            previewResizeHandle.MouseMove += PreviewResizeHandle_MouseMove;
+            previewResizeHandle.MouseUp += PreviewResizeHandle_MouseUp;
+            previewPanel.Controls.Add(previewResizeHandle);
+            previewResizeHandle.BringToFront();
+        }
+
+        private Button CreateMapButton(string text)
+        {
+            var button = new Button
+            {
+                Text = text,
+                FlatStyle = FlatStyle.Flat,
+                Font = mapButtonFont,
+                BackColor = Color.FromArgb(18, 22, 30),
+                ForeColor = LightGray,
+                TabStop = false,
+                UseVisualStyleBackColor = false,
+                AutoSize = false,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+
+            button.FlatAppearance.BorderSize = 1;
+            button.FlatAppearance.BorderColor = Color.FromArgb(46, 58, 76);
+            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(27, 36, 48);
+            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(34, 44, 58);
+            return button;
+        }
+
+        private int GetMapButtonWidth(Button button, int minimumWidth, int horizontalPadding = 18)
+        {
+            if (button == null)
+                return minimumWidth;
+
+            Size preferredSize = button.GetPreferredSize(new Size(int.MaxValue, 22));
+            Size measured = TextRenderer.MeasureText(
+                button.Text ?? string.Empty,
+                button.Font,
+                new Size(int.MaxValue, int.MaxValue),
+                TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+
+            return Math.Max(minimumWidth, Math.Max(preferredSize.Width, measured.Width + horizontalPadding));
         }
 
         private void TryInitializeMapView()
@@ -1744,29 +2693,19 @@ namespace MissionPlanner.GCSViews
                 {
                     Dock = DockStyle.Fill,
                     BackColor = Color.Black,
-                    Name = "modernMap3DView"
+                    Name = "modernMap3DPreview",
+                    Visible = false
                 };
 
-                mapHostPanel.Controls.Add(mapView);
-                mapAvailable = true;
+                previewContentPanel.Controls.Add(mapView);
+                mapView.SendToBack();
+                previewAvailable = true;
             }
             catch (Exception ex)
             {
-                initError = ex.Message;
-                mapAvailable = false;
+                previewInitError = ex.Message;
+                previewAvailable = false;
                 log.Error("Modern flight 3D map failed to initialize", ex);
-
-                lblFallback = new Label
-                {
-                    Dock = DockStyle.Fill,
-                    BackColor = mapHostPanel.BackColor,
-                    ForeColor = LightGray,
-                    Font = subtitleFont,
-                    Padding = new Padding(28),
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    Text = "3D map renderer unavailable.\r\nModern Flight remains usable without it."
-                };
-                mapHostPanel.Controls.Add(lblFallback);
             }
         }
 
@@ -1804,9 +2743,172 @@ namespace MissionPlanner.GCSViews
             lblSubtitle.Bounds = new Rectangle(18, 44, textWidth, 16);
         }
 
+        private void LayoutMapChrome()
+        {
+            if (mapHostPanel == null || mapChromePanel == null)
+                return;
+
+            mapChromePanel.Bounds = new Rectangle(
+                14,
+                14,
+                Math.Max(220, mapHostPanel.ClientSize.Width - 28),
+                38);
+
+            int right = mapChromePanel.ClientSize.Width - 10;
+            int buttonTop = 8;
+            int zoomButtonWidth = 28;
+            int terrainButtonWidth = GetMapButtonWidth(btnTerrain, 84, 24);
+            int satelliteButtonWidth = GetMapButtonWidth(btnSatellite, 96, 24);
+
+            btnSatellite.Margin = new Padding(0, 0, 6, 0);
+            btnTerrain.Margin = new Padding(0, 0, 6, 0);
+            btnZoomIn.Margin = new Padding(0, 0, 4, 0);
+            btnZoomOut.Margin = Padding.Empty;
+
+            btnSatellite.Size = new Size(satelliteButtonWidth, 22);
+            btnTerrain.Size = new Size(terrainButtonWidth, 22);
+            btnZoomIn.Size = new Size(zoomButtonWidth, 22);
+            btnZoomOut.Size = new Size(zoomButtonWidth, 22);
+
+            mapButtonBar?.PerformLayout();
+
+            int buttonBarWidth = mapButtonBar?.GetPreferredSize(Size.Empty).Width ?? 0;
+            if (mapButtonBar != null)
+            {
+                mapButtonBar.Bounds = new Rectangle(
+                    Math.Max(12, right - buttonBarWidth),
+                    buttonTop,
+                    buttonBarWidth,
+                    22);
+                mapButtonBar.BringToFront();
+            }
+
+            int textWidth = Math.Max(120, (mapButtonBar?.Left ?? (mapChromePanel.ClientSize.Width - 12)) - 18);
+            lblMapOverlayTitle.Bounds = new Rectangle(12, 5, textWidth, 14);
+            lblMapOverlaySubtitle.Bounds = new Rectangle(12, 18, textWidth, 14);
+
+            mapChromePanel.BringToFront();
+
+            if (!showEmbeddedPreview || previewBorderPanel == null)
+                return;
+
+            int previewWidth = Math.Max(220, Math.Min(preferredPreviewSize.Width, Math.Max(260, mapHostPanel.ClientSize.Width / 2)));
+            int previewHeight = Math.Max(130, Math.Min(preferredPreviewSize.Height, Math.Max(150, mapHostPanel.ClientSize.Height / 2)));
+
+            if (previewExpanded)
+            {
+                int expandedLeft = 18;
+                int expandedTop = mapChromePanel.Bottom + 12;
+                int expandedWidth = Math.Max(340, mapHostPanel.ClientSize.Width - 36);
+                int expandedHeight = Math.Max(220, mapHostPanel.ClientSize.Height - expandedTop - 18);
+                appliedPreviewSize = new Size(expandedWidth, expandedHeight);
+                previewBorderPanel.Bounds = new Rectangle(expandedLeft, expandedTop, expandedWidth, expandedHeight);
+            }
+            else
+            {
+                appliedPreviewSize = new Size(previewWidth, previewHeight);
+                previewBorderPanel.Bounds = new Rectangle(
+                    Math.Max(18, mapHostPanel.ClientSize.Width - previewWidth - 18),
+                    Math.Max(mapChromePanel.Bottom + 12, mapHostPanel.ClientSize.Height - previewHeight - 18),
+                    previewWidth,
+                    previewHeight);
+            }
+
+            btnPreviewMaximize.Text = previewExpanded ? "RESTORE" : "MAX";
+            btnPreviewMaximize.Bounds = new Rectangle(
+                Math.Max(102, previewHeaderPanel.ClientSize.Width - 160),
+                4,
+                68,
+                20);
+
+            lblPreviewBadge.Bounds = new Rectangle(
+                Math.Max(92, btnPreviewMaximize.Left - 82),
+                4,
+                76,
+                20);
+
+            lblPreviewTitle.Bounds = new Rectangle(10, 7, Math.Max(80, lblPreviewBadge.Left - 18), 14);
+
+            previewResizeHandle.Location = new Point(
+                Math.Max(0, previewPanel.ClientSize.Width - previewResizeHandle.Width - 4),
+                Math.Max(previewHeaderPanel.Bottom + 4, previewPanel.ClientSize.Height - previewResizeHandle.Height - 4));
+            previewResizeHandle.Visible = !previewExpanded;
+            previewBorderPanel.BringToFront();
+        }
+
+        private void PreviewResizeHandle_Paint(object sender, PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+            using (var pen = new Pen(Color.FromArgb(210, 228, 233, 245), 1.4f))
+            {
+                e.Graphics.DrawLine(pen, 5, 13, 13, 5);
+                e.Graphics.DrawLine(pen, 8, 13, 13, 8);
+                e.Graphics.DrawLine(pen, 11, 13, 13, 11);
+            }
+        }
+
+        private void PreviewResizeHandle_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || previewExpanded)
+                return;
+
+            resizingPreview = true;
+            previewResizeStartCursor = System.Windows.Forms.Cursor.Position;
+            previewResizeStartSize = appliedPreviewSize;
+            previewResizeHandle.Capture = true;
+        }
+
+        private void PreviewResizeHandle_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!resizingPreview || mapHostPanel == null || previewExpanded)
+                return;
+
+            Point currentCursor = System.Windows.Forms.Cursor.Position;
+            int deltaX = currentCursor.X - previewResizeStartCursor.X;
+            int deltaY = currentCursor.Y - previewResizeStartCursor.Y;
+
+            preferredPreviewSize = new Size(
+                previewResizeStartSize.Width + deltaX,
+                previewResizeStartSize.Height + deltaY);
+
+            LayoutMapChrome();
+        }
+
+        private void PreviewResizeHandle_MouseUp(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left)
+                return;
+
+            resizingPreview = false;
+            previewResizeHandle.Capture = false;
+        }
+
+        private void TogglePreviewExpanded()
+        {
+            if (!showEmbeddedPreview)
+                return;
+
+            if (!previewExpanded)
+            {
+                previewRestoreSize = appliedPreviewSize;
+                previewExpanded = true;
+            }
+            else
+            {
+                previewExpanded = false;
+                preferredPreviewSize = previewRestoreSize;
+            }
+
+            LayoutMapChrome();
+        }
+
         public void ActivateView()
         {
-            if (!mapAvailable || mapView == null)
+            if (!showEmbeddedPreview)
+                return;
+
+            if (!previewAvailable || mapView == null)
                 return;
 
             try
@@ -1821,25 +2923,27 @@ namespace MissionPlanner.GCSViews
 
         public void DeactivateView()
         {
-            if (!mapAvailable || mapView == null)
-                return;
-
             try
             {
-                mapView.Deactivate();
+                if (showEmbeddedPreview)
+                    mapView?.Deactivate();
             }
             catch (Exception ex)
             {
                 log.Debug($"Modern flight 3D deactivation error: {ex.Message}");
             }
+
+            SaveMapView();
         }
 
         public void SetOffline(bool connected)
         {
             ApplyDeckState(connected, false, connected ? "SYNCING" : "OFFLINE",
                 connected
-                    ? "Vehicle link detected. Waiting for valid telemetry before centering the 3D view."
-                    : "Connect a vehicle to begin the live terrain-aware 3D view.");
+                    ? "Vehicle link detected. Waiting for a valid position fix."
+                    : "Connect a vehicle to begin the live mission map.");
+            ApplyPreviewState(connected, false, "STANDBY", null);
+            UpdateTacticalOverlayState(connected, false, false, "STANDBY", 0, 0, 0, 0, 0);
         }
 
         public void UpdateTelemetry(CurrentState cs)
@@ -1849,14 +2953,17 @@ namespace MissionPlanner.GCSViews
             string mode = string.IsNullOrWhiteSpace(cs.mode) ? "STANDBY" : cs.mode.ToUpperInvariant();
 
             ApplyDeckState(connected, hasPosition,
-                connected && hasPosition ? "LIVE 3D" : connected ? "SYNCING" : "OFFLINE",
+                connected && hasPosition ? "LIVE MAP" : connected ? "SYNCING" : "OFFLINE",
                 hasPosition
                     ? $"{mode}  |  {cs.lat:F5}, {cs.lng:F5}  |  Alt {cs.altasl:F0} m"
                     : connected
-                        ? "Vehicle linked. Waiting for a stable position fix for the 3D scene."
-                        : "Connect a vehicle to begin the live terrain-aware 3D view.");
+                        ? "Vehicle linked. Waiting for a stable position fix for the mission map."
+                        : "Connect a vehicle to begin the live mission map.");
 
-            if (!mapAvailable || mapView == null || !connected || !hasPosition)
+            UpdateTacticalMap(cs);
+            ApplyPreviewState(connected, hasPosition, mode, cs);
+
+            if (!previewAvailable || mapView == null || !connected || !hasPosition)
                 return;
 
             try
@@ -1884,50 +2991,320 @@ namespace MissionPlanner.GCSViews
 
         private void ApplyDeckState(bool connected, bool hasPosition, string badgeText, string subtitle)
         {
-            Color accent = !mapAvailable
-                ? StandbyAccent
-                : hasPosition
-                    ? LiveAccent
-                    : connected
-                        ? Gold
-                        : StandbyAccent;
+            Color accent = hasPosition
+                ? LiveAccent
+                : connected
+                    ? Gold
+                    : StandbyAccent;
 
-            lblTitle.Text = !mapAvailable
-                ? "3D renderer unavailable"
-                : hasPosition
-                    ? "Live terrain-aware pursuit map"
-                    : connected
-                        ? "3D scene synchronizing"
-                        : "3D map standing by";
+            lblTitle.Text = hasPosition
+                ? "Mission map - live"
+                : connected
+                    ? "Mission map syncing"
+                    : "Mission map standing by";
 
-            lblSubtitle.Text = mapAvailable
-                ? subtitle
-                : $"OpenGL initialization failed for the 3D renderer. {initError}";
+            lblSubtitle.Text = subtitle;
 
-            lblStatus.Text = mapAvailable ? badgeText : "UNAVAILABLE";
-            lblStatus.BackColor = !mapAvailable
-                ? Color.FromArgb(52, 58, 69)
-                : hasPosition
-                    ? Color.FromArgb(26, 60, 78)
-                    : connected
-                        ? Color.FromArgb(78, 62, 28)
-                        : Color.FromArgb(44, 49, 59);
+            lblStatus.Text = badgeText;
+            lblStatus.BackColor = hasPosition
+                ? Color.FromArgb(26, 60, 78)
+                : connected
+                    ? Color.FromArgb(78, 62, 28)
+                    : Color.FromArgb(44, 49, 59);
 
             statusDot.BackColor = accent;
-            mapBorderPanel.BackColor = !mapAvailable
-                ? Border
-                : hasPosition
-                    ? Color.FromArgb(56, 86, 106)
-                    : connected
-                        ? Color.FromArgb(86, 72, 40)
-                        : Border;
+            mapBorderPanel.BackColor = hasPosition
+                ? Color.FromArgb(55, 102, 114)
+                : connected
+                    ? Color.FromArgb(92, 78, 46)
+                    : Border;
 
-            if (lblFallback != null)
+            mapChromePanel.BackColor = hasPosition
+                ? Color.FromArgb(18, 29, 36)
+                : connected
+                    ? Color.FromArgb(20, 28, 36)
+                    : Color.FromArgb(19, 27, 38);
+
+            lblMapOverlayTitle.Text = hasPosition ? "Mission map - live" : "Mission map";
+            lblMapOverlaySubtitle.Text = hasPosition
+                ? subtitle
+                : connected
+                    ? "Waiting for stable telemetry"
+                    : "Waiting for vehicle link";
+            lblMapOverlaySubtitle.ForeColor = hasPosition
+                ? Color.FromArgb(141, 222, 214)
+                : connected
+                    ? Color.FromArgb(214, 188, 128)
+                    : MutedGray;
+        }
+
+        private void ApplyPreviewState(bool connected, bool hasPosition, string mode, CurrentState cs)
+        {
+            if (!showEmbeddedPreview || previewBorderPanel == null || lblPreviewBadge == null ||
+                previewPanel == null || previewContentPanel == null || lblPreviewState == null)
             {
-                lblFallback.Text = !mapAvailable
-                    ? $"3D map renderer unavailable.\r\n{initError}"
-                    : "Waiting for the 3D renderer.";
+                return;
             }
+
+            bool livePreview = previewAvailable && connected && hasPosition && mapView != null;
+
+            lblPreviewBadge.Text = !previewAvailable
+                ? "3D OFF"
+                : livePreview
+                    ? "LIVE 3D"
+                    : connected
+                        ? "SYNCING"
+                        : "OFFLINE";
+
+            lblPreviewBadge.BackColor = !previewAvailable
+                ? Color.FromArgb(83, 74, 120)
+                : livePreview
+                    ? Color.FromArgb(33, 93, 126)
+                    : connected
+                        ? Color.FromArgb(111, 90, 48)
+                        : Color.FromArgb(73, 65, 110);
+
+            if (btnPreviewMaximize != null)
+            {
+                btnPreviewMaximize.BackColor = livePreview
+                    ? Color.FromArgb(29, 83, 112)
+                    : connected
+                        ? Color.FromArgb(95, 81, 144)
+                        : Color.FromArgb(73, 65, 110);
+                btnPreviewMaximize.ForeColor = LightGray;
+            }
+
+            previewBorderPanel.BackColor = !previewAvailable
+                ? PreviewBorder
+                : livePreview
+                    ? Color.FromArgb(79, 129, 168)
+                    : PreviewBorder;
+
+            previewPanel.BackColor = livePreview ? Color.FromArgb(18, 22, 30) : PreviewSurface;
+            previewContentPanel.BackColor = livePreview ? Color.Black : PreviewSurface;
+            lblPreviewState.BackColor = previewContentPanel.BackColor;
+
+            if (!previewAvailable)
+            {
+                lblPreviewState.Text = string.IsNullOrWhiteSpace(previewInitError)
+                    ? "3D preview unavailable."
+                    : $"3D preview unavailable.\r\n{previewInitError}";
+                lblPreviewState.Visible = true;
+                if (mapView != null)
+                    mapView.Visible = false;
+                return;
+            }
+
+            if (!connected)
+            {
+                lblPreviewState.Text = "Connect vehicle\r\nfor 3D view";
+                lblPreviewState.Visible = true;
+                mapView.Visible = false;
+                return;
+            }
+
+            if (!hasPosition)
+            {
+                lblPreviewState.Text = "Waiting for valid position\r\nand attitude telemetry";
+                lblPreviewState.Visible = true;
+                mapView.Visible = false;
+                return;
+            }
+
+            lblPreviewState.Text = $"{mode}\r\nAlt {cs.altasl:F0} m  |  GS {cs.groundspeed:F1} m/s";
+            lblPreviewState.Visible = false;
+            mapView.Visible = true;
+        }
+
+        private void UpdateTacticalMap(CurrentState cs)
+        {
+            if (tacticalMap == null)
+                return;
+
+            bool hasAircraft = HasValidCoordinate(cs.lat, cs.lng);
+            bool hasHome = HasValidCoordinate(cs.HomeLocation.Lat, cs.HomeLocation.Lng);
+
+            if (!hasHome && HasValidCoordinate(cs.PlannedHomeLocation.Lat, cs.PlannedHomeLocation.Lng))
+            {
+                hasHome = true;
+            }
+
+            aircraftMarker.IsVisible = hasAircraft;
+            homeMarker.IsVisible = hasHome;
+
+            if (hasAircraft)
+            {
+                var currentPoint = new PointLatLng(cs.lat, cs.lng);
+                aircraftMarker.Position = currentPoint;
+                aircraftMarker.Heading = cs.yaw;
+                aircraftMarker.Cog = cs.groundcourse > 0 ? cs.groundcourse : cs.yaw;
+                aircraftMarker.Nav_bearing = cs.nav_bearing;
+                aircraftMarker.Target = cs.target_bearing;
+
+                if (!tacticalMap.IsDragging)
+                {
+                    if (tacticalMap.Position.IsEmpty ||
+                        GMapProviders.EmptyProvider.Projection.GetDistance(tacticalMap.Position, currentPoint) > 0.05)
+                    {
+                        tacticalMap.Position = currentPoint;
+                    }
+                }
+
+                if (breadcrumbPoints.Count == 0 ||
+                    GMapProviders.EmptyProvider.Projection.GetDistance(
+                        breadcrumbPoints[breadcrumbPoints.Count - 1], currentPoint) > 0.008)
+                {
+                    breadcrumbPoints.Add(currentPoint);
+                    if (breadcrumbPoints.Count > 120)
+                        breadcrumbPoints.RemoveAt(0);
+
+                    breadcrumbRoute.Points.Clear();
+                    breadcrumbRoute.Points.AddRange(breadcrumbPoints);
+                    tacticalMap.UpdateRouteLocalPosition(breadcrumbRoute);
+                }
+            }
+
+            if (hasHome)
+            {
+                double homeLat = HasValidCoordinate(cs.HomeLocation.Lat, cs.HomeLocation.Lng)
+                    ? cs.HomeLocation.Lat
+                    : cs.PlannedHomeLocation.Lat;
+                double homeLng = HasValidCoordinate(cs.HomeLocation.Lat, cs.HomeLocation.Lng)
+                    ? cs.HomeLocation.Lng
+                    : cs.PlannedHomeLocation.Lng;
+
+                var homePoint = new PointLatLng(homeLat, homeLng);
+                homeMarker.Position = homePoint;
+
+                homeRoute.Points.Clear();
+                if (hasAircraft)
+                {
+                    homeRoute.Points.Add(new PointLatLng(cs.lat, cs.lng));
+                    homeRoute.Points.Add(homePoint);
+                }
+
+                tacticalMap.UpdateRouteLocalPosition(homeRoute);
+
+                if (!hasAircraft && tacticalMap.Position.IsEmpty)
+                {
+                    tacticalMap.Position = homePoint;
+                }
+            }
+            else
+            {
+                homeRoute.Points.Clear();
+                tacticalMap.UpdateRouteLocalPosition(homeRoute);
+            }
+
+            UpdateTacticalOverlayState(
+                MainV2.comPort?.BaseStream?.IsOpen == true,
+                hasAircraft,
+                hasHome,
+                cs.mode,
+                (float)cs.yaw,
+                cs.DistToHome,
+                cs.linkqualitygcs,
+                cs.lat,
+                cs.lng);
+
+            tacticalMap.Invalidate();
+            tacticalGlassOverlay?.Invalidate();
+        }
+
+        private void UpdateTacticalOverlayState(bool connected, bool hasPosition, bool hasHome, string mode,
+            float heading, float distanceToHome, float linkQuality, double latitude, double longitude)
+        {
+            if (tacticalGlassOverlay == null)
+                return;
+
+            tacticalGlassOverlay.IsConnected = connected;
+            tacticalGlassOverlay.HasPosition = hasPosition;
+            tacticalGlassOverlay.HasHome = hasHome;
+            tacticalGlassOverlay.Mode = string.IsNullOrWhiteSpace(mode) ? "STANDBY" : mode.ToUpperInvariant();
+            tacticalGlassOverlay.Heading = heading;
+            tacticalGlassOverlay.DistanceToHome = distanceToHome;
+            tacticalGlassOverlay.LinkQuality = linkQuality;
+            tacticalGlassOverlay.PositionLabel = hasPosition
+                ? $"{latitude:F4}, {longitude:F4}"
+                : "Awaiting position";
+        }
+
+        private void LoadSavedMapView()
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(Settings.Instance["maplast_lat"]))
+                {
+                    tacticalMap.Position = new PointLatLng(
+                        Settings.Instance.GetDouble("maplast_lat"),
+                        Settings.Instance.GetDouble("maplast_lng"));
+
+                    if (Math.Round(Settings.Instance.GetDouble("maplast_lat"), 1) == 0)
+                    {
+                        tacticalMap.Zoom = 3;
+                    }
+                    else
+                    {
+                        tacticalMap.Zoom = Math.Max(tacticalMap.MinZoom,
+                            Math.Min(tacticalMap.MaxZoom, Settings.Instance.GetFloat("maplast_zoom")));
+                    }
+
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                log.Debug($"Modern flight map restore error: {ex.Message}");
+            }
+
+            tacticalMap.Position = new PointLatLng(0, 0);
+            tacticalMap.Zoom = 3;
+        }
+
+        private void SaveMapView()
+        {
+            if (tacticalMap == null || tacticalMap.Position.IsEmpty)
+                return;
+
+            try
+            {
+                Settings.Instance["maplast_lat"] = tacticalMap.Position.Lat.ToString();
+                Settings.Instance["maplast_lng"] = tacticalMap.Position.Lng.ToString();
+                Settings.Instance["maplast_zoom"] = tacticalMap.Zoom.ToString();
+                Settings.Instance.Save();
+            }
+            catch (Exception ex)
+            {
+                log.Debug($"Modern flight map save error: {ex.Message}");
+            }
+        }
+
+        private void SetMapProvider(GMapProvider provider)
+        {
+            if (tacticalMap == null || provider == null)
+                return;
+
+            selectedMapProvider = provider;
+            tacticalMap.MapProvider = provider;
+            ApplyMapProviderButtonState();
+        }
+
+        private void ApplyMapProviderButtonState()
+        {
+            if (btnSatellite == null || btnTerrain == null)
+                return;
+
+            ApplyMapButtonStyle(btnSatellite, selectedMapProvider == GMapProviders.GoogleSatelliteMap);
+            ApplyMapButtonStyle(btnTerrain, selectedMapProvider == GMapProviders.GoogleTerrainMap);
+        }
+
+        private void ApplyMapButtonStyle(Button button, bool selected)
+        {
+            button.BackColor = selected ? Color.FromArgb(34, 88, 108) : Color.FromArgb(18, 24, 33);
+            button.ForeColor = selected ? Color.FromArgb(234, 242, 247) : LightGray;
+            button.FlatAppearance.BorderColor = selected
+                ? Color.FromArgb(118, 208, 199)
+                : Color.FromArgb(46, 58, 76);
         }
 
         private static bool HasValidCoordinate(double latitude, double longitude)
@@ -1940,10 +3317,190 @@ namespace MissionPlanner.GCSViews
             if (disposing)
             {
                 DeactivateView();
+                breadcrumbRoute?.Stroke?.Dispose();
+                homeRoute?.Stroke?.Dispose();
                 eyebrowFont?.Dispose();
                 titleFont?.Dispose();
                 subtitleFont?.Dispose();
                 badgeFont?.Dispose();
+                overlayTitleFont?.Dispose();
+                overlayDetailFont?.Dispose();
+                mapButtonFont?.Dispose();
+                previewTitleFont?.Dispose();
+                previewStateFont?.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
+
+    internal sealed class TacticalMapGlassOverlay : Control
+    {
+        private readonly Font chipFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+        private readonly Font detailFont = new Font("Segoe UI", 7.8f, FontStyle.Regular);
+        private readonly Color LiveAccent = Color.FromArgb(90, 210, 204);
+        private readonly Color GoldAccent = Color.FromArgb(214, 188, 128);
+        private readonly Color StandbyAccent = Color.FromArgb(116, 126, 145);
+        private readonly Color Surface = Color.FromArgb(132, 13, 19, 28);
+
+        public bool IsConnected { get; set; }
+        public bool HasPosition { get; set; }
+        public bool HasHome { get; set; }
+        public string Mode { get; set; } = "STANDBY";
+        public float Heading { get; set; }
+        public float DistanceToHome { get; set; }
+        public float LinkQuality { get; set; }
+        public string PositionLabel { get; set; } = "Awaiting position";
+
+        public TacticalMapGlassOverlay()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
+                ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
+            DoubleBuffered = true;
+            BackColor = Color.Transparent;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+
+            if (ClientSize.Width < 80 || ClientSize.Height < 80)
+                return;
+
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+            Color accent = HasPosition
+                ? LiveAccent
+                : IsConnected
+                    ? GoldAccent
+                    : StandbyAccent;
+
+            DrawVignette(e.Graphics);
+            DrawGrid(e.Graphics, accent);
+            DrawCornerFrame(e.Graphics, accent);
+            DrawCenterReticle(e.Graphics, accent);
+
+            DrawChip(e.Graphics,
+                new Rectangle(18, Height - 46, 178, 28),
+                IsConnected ? Mode : "MAP OFFLINE",
+                HasPosition ? $"HDG {Heading:000}°" : "Awaiting telemetry",
+                accent);
+
+            DrawChip(e.Graphics,
+                new Rectangle(Math.Max(18, Width - 206), Height - 46, 188, 28),
+                HasHome ? $"HOME {DistanceToHome:0} m" : "HOME --",
+                PositionLabel,
+                GoldAccent);
+        }
+
+        private void DrawVignette(Graphics graphics)
+        {
+            using (var topBrush = new LinearGradientBrush(
+                       new Rectangle(0, 0, Width, 96),
+                       Color.FromArgb(168, 9, 14, 21),
+                       Color.FromArgb(0, 9, 14, 21),
+                       LinearGradientMode.Vertical))
+            using (var bottomBrush = new LinearGradientBrush(
+                       new Rectangle(0, Height - 110, Width, 110),
+                       Color.FromArgb(0, 9, 14, 21),
+                       Color.FromArgb(176, 9, 14, 21),
+                       LinearGradientMode.Vertical))
+            using (var leftBrush = new LinearGradientBrush(
+                       new Rectangle(0, 0, 96, Height),
+                       Color.FromArgb(116, 9, 14, 21),
+                       Color.FromArgb(0, 9, 14, 21),
+                       LinearGradientMode.Horizontal))
+            using (var rightBrush = new LinearGradientBrush(
+                       new Rectangle(Width - 96, 0, 96, Height),
+                       Color.FromArgb(0, 9, 14, 21),
+                       Color.FromArgb(116, 9, 14, 21),
+                       LinearGradientMode.Horizontal))
+            {
+                graphics.FillRectangle(topBrush, 0, 0, Width, 96);
+                graphics.FillRectangle(bottomBrush, 0, Height - 110, Width, 110);
+                graphics.FillRectangle(leftBrush, 0, 0, 96, Height);
+                graphics.FillRectangle(rightBrush, Width - 96, 0, 96, Height);
+            }
+        }
+
+        private void DrawGrid(Graphics graphics, Color accent)
+        {
+            using (var gridPen = new Pen(Color.FromArgb(38, accent.R, accent.G, accent.B), 1f))
+            using (var majorPen = new Pen(Color.FromArgb(58, accent.R, accent.G, accent.B), 1.1f))
+            {
+                int[] verticals = { Width / 4, Width / 2, Width * 3 / 4 };
+                int[] horizontals = { Height / 4, Height / 2, Height * 3 / 4 };
+
+                foreach (int x in verticals)
+                {
+                    graphics.DrawLine(x == Width / 2 ? majorPen : gridPen, x, 0, x, Height);
+                }
+
+                foreach (int y in horizontals)
+                {
+                    graphics.DrawLine(y == Height / 2 ? majorPen : gridPen, 0, y, Width, y);
+                }
+            }
+        }
+
+        private void DrawCornerFrame(Graphics graphics, Color accent)
+        {
+            using (var pen = new Pen(Color.FromArgb(168, accent.R, accent.G, accent.B), 1.6f))
+            {
+                int m = 14;
+                int len = 18;
+
+                graphics.DrawLine(pen, m, m, m + len, m);
+                graphics.DrawLine(pen, m, m, m, m + len);
+
+                graphics.DrawLine(pen, Width - m - len, m, Width - m, m);
+                graphics.DrawLine(pen, Width - m, m, Width - m, m + len);
+
+                graphics.DrawLine(pen, m, Height - m, m + len, Height - m);
+                graphics.DrawLine(pen, m, Height - m - len, m, Height - m);
+
+                graphics.DrawLine(pen, Width - m - len, Height - m, Width - m, Height - m);
+                graphics.DrawLine(pen, Width - m, Height - m - len, Width - m, Height - m);
+            }
+        }
+
+        private void DrawCenterReticle(Graphics graphics, Color accent)
+        {
+            int cx = Width / 2;
+            int cy = Height / 2;
+
+            using (var pen = new Pen(Color.FromArgb(148, accent.R, accent.G, accent.B), 1.4f))
+            using (var ringPen = new Pen(Color.FromArgb(92, accent.R, accent.G, accent.B), 1f))
+            {
+                graphics.DrawEllipse(ringPen, cx - 14, cy - 14, 28, 28);
+                graphics.DrawLine(pen, cx - 20, cy, cx - 6, cy);
+                graphics.DrawLine(pen, cx + 6, cy, cx + 20, cy);
+                graphics.DrawLine(pen, cx, cy - 20, cx, cy - 6);
+                graphics.DrawLine(pen, cx, cy + 6, cx, cy + 20);
+            }
+        }
+
+        private void DrawChip(Graphics graphics, Rectangle bounds, string title, string detail, Color accent)
+        {
+            ModernUiPainter.FillRoundedRectangle(graphics, Surface, bounds, 14);
+            ModernUiPainter.DrawRoundedRectangle(graphics, Color.FromArgb(132, accent.R, accent.G, accent.B), 1f, bounds, 14);
+
+            using (var titleBrush = new SolidBrush(Color.FromArgb(236, 240, 245)))
+            using (var detailBrush = new SolidBrush(Color.FromArgb(198, accent.R, accent.G, accent.B)))
+            {
+                graphics.DrawString(title, chipFont, titleBrush,
+                    new RectangleF(bounds.X + 12, bounds.Y + 5, bounds.Width - 24, 12));
+                graphics.DrawString(detail, detailFont, detailBrush,
+                    new RectangleF(bounds.X + 12, bounds.Y + 15, bounds.Width - 24, 10));
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                chipFont?.Dispose();
+                detailFont?.Dispose();
             }
 
             base.Dispose(disposing);
@@ -2433,23 +3990,236 @@ namespace MissionPlanner.GCSViews
         public DateTime Timestamp { get; }
     }
 
-    public class EventTimelineControl : Control
+    public class ActionCommandButton : Control
     {
+        private readonly Font titleFont = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+        private readonly Font detailFont = new Font("Segoe UI", 8.25f, FontStyle.Regular);
+        private readonly Font chipFont = new Font("Segoe UI", 7.5f, FontStyle.Bold);
+        private readonly Color TextPrimary = Color.FromArgb(232, 236, 243);
+        private readonly Color TextMuted = Color.FromArgb(150, 160, 177);
+        private readonly Color InactiveText = Color.FromArgb(176, 184, 198);
+        private readonly Color InactiveDetail = Color.FromArgb(118, 128, 144);
+
+        private string commandTitle = "";
+        private string commandDetail = "";
+        private string stateText = "";
+        private Color accentColor = Color.FromArgb(74, 190, 225);
+        private bool commandAvailable = true;
+        private bool hovered;
+        private bool pressed;
+
+        public ActionCommandButton()
+        {
+            DoubleBuffered = true;
+            Cursor = Cursors.Hand;
+            BackColor = Color.FromArgb(22, 28, 40);
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
+            Size = new Size(180, 62);
+        }
+
+        public string CommandTitle
+        {
+            get => commandTitle;
+            set
+            {
+                commandTitle = value ?? "";
+                Invalidate();
+            }
+        }
+
+        public string CommandDetail
+        {
+            get => commandDetail;
+            set
+            {
+                commandDetail = value ?? "";
+                Invalidate();
+            }
+        }
+
+        public string StateText
+        {
+            get => stateText;
+            set
+            {
+                stateText = value ?? "";
+                Invalidate();
+            }
+        }
+
+        public Color AccentColor
+        {
+            get => accentColor;
+            set
+            {
+                accentColor = value;
+                Invalidate();
+            }
+        }
+
+        public bool CommandAvailable
+        {
+            get => commandAvailable;
+            set
+            {
+                commandAvailable = value;
+                Cursor = commandAvailable ? Cursors.Hand : Cursors.Default;
+                Invalidate();
+            }
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            base.OnMouseEnter(e);
+            hovered = true;
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            hovered = false;
+            pressed = false;
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Left)
+            {
+                pressed = true;
+                Invalidate();
+            }
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            pressed = false;
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+            Rectangle bounds = new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1));
+            Color baseSurface = CommandAvailable ? Color.FromArgb(24, 30, 42) : Color.FromArgb(18, 22, 31);
+            Color filledSurface = hovered && CommandAvailable
+                ? Blend(baseSurface, AccentColor, pressed ? 0.25f : 0.14f)
+                : baseSurface;
+            Color border = CommandAvailable
+                ? ModernUiPainter.WithAlpha(AccentColor, hovered ? 230 : 182)
+                : Color.FromArgb(74, 86, 104);
+            Color stripColor = CommandAvailable ? AccentColor : Color.FromArgb(82, 92, 108);
+            Color titleColor = CommandAvailable ? TextPrimary : InactiveText;
+            Color detailColor = CommandAvailable ? TextMuted : InactiveDetail;
+
+            ModernUiPainter.FillRoundedRectangle(e.Graphics, filledSurface, bounds, 14);
+            ModernUiPainter.DrawRoundedRectangle(e.Graphics, border, 1.15f, bounds, 14);
+            ModernUiPainter.FillRoundedRectangle(e.Graphics,
+                Color.FromArgb(CommandAvailable ? 225 : 140, stripColor.R, stripColor.G, stripColor.B),
+                new Rectangle(bounds.X + 14, bounds.Y + 10, Math.Min(68, Math.Max(38, bounds.Width / 3)), 4), 2);
+
+            Rectangle chipRect = BuildChipRectangle(e.Graphics, bounds);
+            if (!string.IsNullOrWhiteSpace(StateText))
+            {
+                Color chipFill = Color.FromArgb(CommandAvailable ? 42 : 28, stripColor.R, stripColor.G, stripColor.B);
+                Color chipBorder = Color.FromArgb(CommandAvailable ? 128 : 86, stripColor.R, stripColor.G, stripColor.B);
+                ModernUiPainter.FillRoundedRectangle(e.Graphics, chipFill, chipRect, 8);
+                ModernUiPainter.DrawRoundedRectangle(e.Graphics, chipBorder, 1f, chipRect, 8);
+
+                using (var chipBrush = new SolidBrush(titleColor))
+                using (var chipFormat = new StringFormat())
+                {
+                    chipFormat.Alignment = StringAlignment.Center;
+                    chipFormat.LineAlignment = StringAlignment.Center;
+                    e.Graphics.DrawString(StateText, chipFont, chipBrush, chipRect, chipFormat);
+                }
+            }
+
+            RectangleF titleBounds = new RectangleF(bounds.X + 14, bounds.Y + 20, bounds.Width - 28, 18);
+            RectangleF detailBounds = new RectangleF(bounds.X + 14, bounds.Y + 40, bounds.Width - 28, Math.Max(18, bounds.Height - 64));
+
+            using (var titleBrush = new SolidBrush(titleColor))
+            using (var detailBrush = new SolidBrush(detailColor))
+            using (var titleFormat = new StringFormat())
+            using (var detailFormat = new StringFormat())
+            {
+                titleFormat.Trimming = StringTrimming.EllipsisCharacter;
+                detailFormat.Trimming = StringTrimming.EllipsisWord;
+                detailFormat.LineAlignment = StringAlignment.Near;
+
+                e.Graphics.DrawString(CommandTitle, titleFont, titleBrush, titleBounds, titleFormat);
+                e.Graphics.DrawString(CommandDetail, detailFont, detailBrush, detailBounds, detailFormat);
+            }
+        }
+
+        private Rectangle BuildChipRectangle(Graphics graphics, Rectangle bounds)
+        {
+            if (string.IsNullOrWhiteSpace(StateText))
+                return Rectangle.Empty;
+
+            int chipWidth = (int)Math.Ceiling(graphics.MeasureString(StateText, chipFont).Width) + 18;
+            chipWidth = Math.Max(52, Math.Min(bounds.Width - 28, chipWidth));
+            return new Rectangle(bounds.Right - chipWidth - 12, bounds.Bottom - 26, chipWidth, 18);
+        }
+
+        private static Color Blend(Color baseColor, Color accentColor, float amount)
+        {
+            amount = Math.Max(0f, Math.Min(1f, amount));
+            return Color.FromArgb(
+                baseColor.A,
+                (int)(baseColor.R + ((accentColor.R - baseColor.R) * amount)),
+                (int)(baseColor.G + ((accentColor.G - baseColor.G) * amount)),
+                (int)(baseColor.B + ((accentColor.B - baseColor.B) * amount)));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                titleFont?.Dispose();
+                detailFont?.Dispose();
+                chipFont?.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
+
+    public class EventTimelineControl : ScrollableControl
+    {
+        private const int MaxEvents = 30;
+        private const int EventGap = 8;
+        private const int EventCardHeight = 96;
+        private const int ScrollStep = 28;
         private readonly Font labelFont = new Font("Segoe UI", 8f, FontStyle.Bold);
-        private readonly Font titleFont = new Font("Segoe UI", 9f, FontStyle.Bold);
+        private readonly Font titleFont = new Font("Segoe UI", 9.25f, FontStyle.Bold);
         private readonly Font detailFont = new Font("Segoe UI", 8.5f, FontStyle.Regular);
+        private readonly Font chipFont = new Font("Segoe UI", 7.5f, FontStyle.Bold);
         private readonly Color Surface = Color.FromArgb(19, 24, 34);
         private readonly Color Border = Color.FromArgb(46, 56, 74);
         private readonly Color TextPrimary = Color.FromArgb(232, 236, 243);
         private readonly Color TextMuted = Color.FromArgb(136, 148, 168);
+        private readonly Color TextSecondary = Color.FromArgb(194, 202, 215);
         private readonly System.Collections.Generic.List<FlightEventItem> items =
             new System.Collections.Generic.List<FlightEventItem>();
 
         public EventTimelineControl()
         {
-            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
             DoubleBuffered = true;
+            TabStop = true;
             BackColor = Surface;
+            AutoScroll = true;
+            AutoScrollMinSize = Size.Empty;
+            MouseEnter += (s, e) => Focus();
         }
 
         public void AddEvent(FlightEventSeverity severity, string title, string detail)
@@ -2466,10 +4236,35 @@ namespace MissionPlanner.GCSViews
                 string.Equals(items[0].Detail, trimmedDetail, StringComparison.OrdinalIgnoreCase))
                 return;
 
+            bool shouldPinToTop = VerticalScroll.Value <= 12;
             items.Insert(0, new FlightEventItem(severity, trimmedTitle, trimmedDetail));
-            if (items.Count > 6)
+            if (items.Count > MaxEvents)
                 items.RemoveAt(items.Count - 1);
 
+            UpdateScrollMetrics();
+            if (shouldPinToTop)
+                AutoScrollPosition = new Point(0, 0);
+
+            Invalidate();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            UpdateScrollMetrics();
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+
+            if (!VerticalScroll.Visible)
+                return;
+
+            int maxValue = Math.Max(VerticalScroll.Minimum, VerticalScroll.Maximum - VerticalScroll.LargeChange + 1);
+            int delta = e.Delta > 0 ? -ScrollStep : ScrollStep;
+            int newValue = Math.Max(VerticalScroll.Minimum, Math.Min(maxValue, VerticalScroll.Value + delta));
+            AutoScrollPosition = new Point(0, newValue);
             Invalidate();
         }
 
@@ -2490,19 +4285,22 @@ namespace MissionPlanner.GCSViews
                 return;
             }
 
-            int gap = 8;
-            int eventHeight = Math.Max(52, Math.Min(64, (Height - gap * (items.Count - 1)) / Math.Max(1, items.Count)));
+            int eventWidth = Math.Max(92, ClientSize.Width - (VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth + 3 : 1));
             int top = 0;
+            e.Graphics.TranslateTransform(0, AutoScrollPosition.Y);
 
             for (int i = 0; i < items.Count; i++)
             {
-                var bounds = new Rectangle(0, top, Width - 1, eventHeight);
+                var bounds = new Rectangle(0, top, eventWidth, EventCardHeight);
                 DrawEventCard(e.Graphics, bounds, items[i]);
-                top += eventHeight + gap;
-
-                if (top > Height)
-                    break;
+                top += EventCardHeight + EventGap;
             }
+        }
+
+        private void UpdateScrollMetrics()
+        {
+            int contentHeight = items.Count == 0 ? 0 : items.Count * EventCardHeight + Math.Max(0, items.Count - 1) * EventGap;
+            AutoScrollMinSize = new Size(0, contentHeight);
         }
 
         private void DrawEventCard(Graphics graphics, Rectangle bounds, FlightEventItem item)
@@ -2510,19 +4308,51 @@ namespace MissionPlanner.GCSViews
             Color accent = GetAccent(item.Severity);
 
             ModernUiPainter.FillRoundedRectangle(graphics, Surface, bounds, 16);
-            ModernUiPainter.DrawRoundedRectangle(graphics, Border, 1f, bounds, 16);
+            ModernUiPainter.DrawRoundedRectangle(graphics, Color.FromArgb(74, accent.R, accent.G, accent.B), 1f, bounds, 16);
             ModernUiPainter.FillRoundedRectangle(graphics, accent, new Rectangle(bounds.X + 10, bounds.Y + 10, 4, bounds.Height - 20), 2);
 
-            using (var labelBrush = new SolidBrush(TextMuted))
+            using (var timeBrush = new SolidBrush(ModernUiPainter.WithAlpha(accent, 235)))
             using (var titleBrush = new SolidBrush(TextPrimary))
-            using (var detailBrush = new SolidBrush(ModernUiPainter.WithAlpha(accent, 220)))
+            using (var detailBrush = new SolidBrush(TextSecondary))
+            using (var chipTextBrush = new SolidBrush(TextPrimary))
+            using (var dividerPen = new Pen(Color.FromArgb(48, accent.R, accent.G, accent.B), 1f))
+            using (var titleFormat = new StringFormat())
+            using (var detailFormat = new StringFormat())
             {
-                graphics.DrawString(item.Timestamp.ToString("HH:mm:ss"), labelFont, labelBrush,
-                    new RectangleF(bounds.X + 22, bounds.Y + 10, bounds.Width - 30, 12));
+                titleFormat.Trimming = StringTrimming.EllipsisCharacter;
+                detailFormat.Trimming = StringTrimming.EllipsisWord;
+                detailFormat.Alignment = StringAlignment.Near;
+                detailFormat.LineAlignment = StringAlignment.Near;
+
+                graphics.DrawString(item.Timestamp.ToString("HH:mm:ss"), labelFont, timeBrush,
+                    new RectangleF(bounds.X + 22, bounds.Y + 10, 68, 12));
+
+                var chipRect = new Rectangle(bounds.Right - 84, bounds.Y + 8, 72, 18);
+                ModernUiPainter.FillRoundedRectangle(graphics, Color.FromArgb(32, accent.R, accent.G, accent.B), chipRect, 8);
+                ModernUiPainter.DrawRoundedRectangle(graphics, Color.FromArgb(118, accent.R, accent.G, accent.B), 1f, chipRect, 8);
+                graphics.DrawString(GetSeverityLabel(item.Severity), chipFont, chipTextBrush,
+                    new RectangleF(chipRect.X + 8, chipRect.Y + 3, chipRect.Width - 16, 12));
+
                 graphics.DrawString(item.Title, titleFont, titleBrush,
-                    new RectangleF(bounds.X + 22, bounds.Y + 24, bounds.Width - 30, 16));
+                    new RectangleF(bounds.X + 22, bounds.Y + 30, bounds.Width - 34, 16), titleFormat);
+                graphics.DrawLine(dividerPen, bounds.X + 22, bounds.Y + 50, bounds.Right - 16, bounds.Y + 50);
                 graphics.DrawString(item.Detail, detailFont, detailBrush,
-                    new RectangleF(bounds.X + 22, bounds.Bottom - 22, bounds.Width - 30, 14));
+                    new RectangleF(bounds.X + 22, bounds.Y + 56, bounds.Width - 34, bounds.Height - 64), detailFormat);
+            }
+        }
+
+        private static string GetSeverityLabel(FlightEventSeverity severity)
+        {
+            switch (severity)
+            {
+                case FlightEventSeverity.Success:
+                    return "SUCCESS";
+                case FlightEventSeverity.Warning:
+                    return "WARNING";
+                case FlightEventSeverity.Danger:
+                    return "ALERT";
+                default:
+                    return "INFO";
             }
         }
 
@@ -2548,6 +4378,7 @@ namespace MissionPlanner.GCSViews
                 labelFont?.Dispose();
                 titleFont?.Dispose();
                 detailFont?.Dispose();
+                chipFont?.Dispose();
             }
 
             base.Dispose(disposing);
@@ -2555,7 +4386,7 @@ namespace MissionPlanner.GCSViews
     }
 
     /// <summary>
-    /// Quick Actions Panel - Right side buttons for ARM, TAKEOFF, RTL, LAND
+    /// Message Center Panel - Right side live vehicle, warning, and mission events
     /// </summary>
     public class PanelQuickActions : Panel
     {
@@ -2563,10 +4394,7 @@ namespace MissionPlanner.GCSViews
         private Label lblSubtitle;
         private Label lblHint;
         private Label lblTimeline;
-        private Button btnArm;
-        private Button btnTakeoff;
-        private Button btnRTL;
-        private Button btnLand;
+        private Label lblTimelineMeta;
         private Label lblStatus;
         private EventTimelineControl eventTimeline;
 
@@ -2592,7 +4420,7 @@ namespace MissionPlanner.GCSViews
         {
             lblTitle = new Label
             {
-                Text = "ACTION CONSOLE",
+                Text = "MESSAGE CENTER",
                 Font = new Font("Segoe UI", 12, FontStyle.Bold),
                 ForeColor = Gold,
                 BackColor = Color.Transparent,
@@ -2602,25 +4430,13 @@ namespace MissionPlanner.GCSViews
 
             lblSubtitle = new Label
             {
-                Text = "Guided mission controls and live flight events",
+                Text = "Live vehicle, warning, and mission events",
                 Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
                 ForeColor = LightGray,
                 BackColor = Color.Transparent,
                 TextAlign = ContentAlignment.MiddleLeft
             };
             Controls.Add(lblSubtitle);
-
-            btnArm = CreateActionButton("ARM VEHICLE", Color.FromArgb(54, 96, 166));
-            btnArm.Click += BtnArm_Click;
-
-            btnTakeoff = CreateActionButton("TAKEOFF", Color.FromArgb(111, 90, 42));
-            btnTakeoff.Click += BtnTakeoff_Click;
-
-            btnRTL = CreateActionButton("RETURN TO LAUNCH", Color.FromArgb(68, 118, 76));
-            btnRTL.Click += BtnRTL_Click;
-
-            btnLand = CreateActionButton("LAND NOW", Color.FromArgb(122, 58, 52));
-            btnLand.Click += BtnLand_Click;
 
             lblStatus = new Label
             {
@@ -2634,7 +4450,7 @@ namespace MissionPlanner.GCSViews
 
             lblHint = new Label
             {
-                Text = "Connect to enable guided actions.",
+                Text = "Awaiting telemetry, pilot advisories, and mission events.",
                 Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
                 ForeColor = LightGray,
                 BackColor = Color.Transparent,
@@ -2644,7 +4460,7 @@ namespace MissionPlanner.GCSViews
 
             lblTimeline = new Label
             {
-                Text = "LIVE EVENTS",
+                Text = "LIVE MESSAGES",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 ForeColor = Gold,
                 BackColor = Color.Transparent,
@@ -2652,33 +4468,20 @@ namespace MissionPlanner.GCSViews
             };
             Controls.Add(lblTimeline);
 
+            lblTimelineMeta = new Label
+            {
+                Text = "SCROLL",
+                Font = new Font("Segoe UI", 7.25f, FontStyle.Bold),
+                ForeColor = MutedGray,
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleRight
+            };
+            Controls.Add(lblTimelineMeta);
+
             eventTimeline = new EventTimelineControl();
             Controls.Add(eventTimeline);
 
             UpdateLayoutMetrics();
-        }
-
-        private Button CreateActionButton(string text, Color accent)
-        {
-            var btn = new Button
-            {
-                Text = text,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                BackColor = Color.FromArgb(27, 35, 49),
-                ForeColor = LightGray,
-                Font = new Font("Segoe UI", 10, FontStyle.Bold),
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand,
-                Tag = accent
-            };
-
-            btn.FlatAppearance.BorderColor = accent;
-            btn.FlatAppearance.BorderSize = 1;
-            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(38, 46, 63);
-            btn.FlatAppearance.MouseDownBackColor = Color.FromArgb(58, 67, 88);
-
-            Controls.Add(btn);
-            return btn;
         }
 
         protected override void OnResize(EventArgs eventargs)
@@ -2707,180 +4510,43 @@ namespace MissionPlanner.GCSViews
             top += 24;
 
             lblSubtitle.Bounds = new Rectangle(left, top, contentWidth, 18);
-            top += 24;
+            top += 22;
 
             lblStatus.Bounds = new Rectangle(left, top, contentWidth, 18);
-            top += 30;
-
-            const int buttonHeight = 48;
-            const int gap = 8;
-
-            btnArm.Bounds = new Rectangle(left, top, contentWidth, buttonHeight);
-            top += buttonHeight + gap;
-
-            btnTakeoff.Bounds = new Rectangle(left, top, contentWidth, buttonHeight);
-            top += buttonHeight + gap;
-
-            btnRTL.Bounds = new Rectangle(left, top, contentWidth, buttonHeight);
-            top += buttonHeight + gap;
-
-            btnLand.Bounds = new Rectangle(left, top, contentWidth, buttonHeight);
-            top += buttonHeight + 12;
-
-            lblHint.Bounds = new Rectangle(left, top, contentWidth, 38);
-            top += 44;
-
-            lblTimeline.Bounds = new Rectangle(left, top, contentWidth, 18);
             top += 24;
 
-            eventTimeline.Bounds = new Rectangle(left, top, contentWidth, Math.Max(82, ClientSize.Height - top - Padding.Bottom));
+            lblHint.Bounds = new Rectangle(left, top, contentWidth, 36);
+            top += 42;
+
+            int headerWidth = Math.Max(0, contentWidth - 74);
+            lblTimeline.Bounds = new Rectangle(left, top, headerWidth, 18);
+            lblTimelineMeta.Bounds = new Rectangle(left + headerWidth, top, contentWidth - headerWidth, 18);
+            top += 24;
+
+            eventTimeline.Bounds = new Rectangle(left, top, contentWidth,
+                Math.Max(140, ClientSize.Height - top - Padding.Bottom));
         }
 
         public void UpdateStatus(bool armed, bool connected, string mode, string alert)
         {
-            lblSubtitle.Text = string.IsNullOrWhiteSpace(mode) ? "Guided mission controls" : $"Mode: {mode.ToUpperInvariant()}";
+            string normalizedMode = string.IsNullOrWhiteSpace(mode) ? "UNKNOWN" : mode.ToUpperInvariant();
+            lblSubtitle.Text = $"Mode {normalizedMode}";
             lblStatus.Text = $"{(armed ? "ARMED" : "SAFE")}  |  {(connected ? "LIVE LINK" : "OFFLINE")}";
             lblStatus.ForeColor = !connected ? RedStatus : armed ? GreenStatus : WarningStatus;
 
-            btnArm.Text = armed ? "DISARM VEHICLE" : "ARM VEHICLE";
-            ApplyButtonState(btnArm, armed ? Color.FromArgb(122, 58, 52) : Color.FromArgb(54, 96, 166), connected);
-            ApplyButtonState(btnTakeoff, Color.FromArgb(111, 90, 42), !armed && connected);
-            ApplyButtonState(btnRTL, Color.FromArgb(68, 118, 76), armed && connected);
-            ApplyButtonState(btnLand, Color.FromArgb(122, 58, 52), armed && connected);
-
             if (!connected)
-                lblHint.Text = "Connect to enable guided actions and mission commands.";
+                lblHint.Text = "Awaiting vehicle link, telemetry, and mission activity.";
             else if (!string.IsNullOrWhiteSpace(alert))
-                lblHint.Text = $"Alert: {alert}";
+                lblHint.Text = $"Active advisory: {alert}";
             else if (armed)
-                lblHint.Text = "Vehicle is armed. RTL and LAND are now available.";
+                lblHint.Text = "Aircraft is armed. Monitoring live flight events and safety messages.";
             else
-                lblHint.Text = "Vehicle is safe. Arm or send a guided takeoff command.";
-
-            btnArm.Enabled = connected;
-            btnTakeoff.Enabled = !armed && connected;
-            btnRTL.Enabled = armed && connected;
-            btnLand.Enabled = armed && connected;
+                lblHint.Text = "Aircraft is safe. Monitoring preflight, navigation, and system messages.";
         }
 
         public void PushEvent(FlightEventSeverity severity, string title, string detail)
         {
             eventTimeline?.AddEvent(severity, title, detail);
-        }
-
-        private void ApplyButtonState(Button button, Color accent, bool enabled)
-        {
-            button.FlatAppearance.BorderColor = accent;
-            button.BackColor = enabled ? Color.FromArgb(27, 35, 49) : Color.FromArgb(21, 25, 34);
-            button.ForeColor = enabled ? LightGray : Color.FromArgb(123, 131, 145);
-        }
-
-        private void BtnArm_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                if (MainV2.comPort?.BaseStream?.IsOpen == true)
-                {
-                    var cs = MainV2.comPort.MAV.cs;
-                    var owner = FindForm();
-
-                    if (cs.armed)
-                    {
-                        if (!ModernCommandDialog.ShowConfirmation(owner, "Disarm Vehicle",
-                            "This will return the aircraft to a safe state and disable armed mission actions.",
-                            "Disarm vehicle", Color.FromArgb(228, 84, 71)))
-                            return;
-
-                        MainV2.comPort.doARM(false, false);
-                        PushEvent(FlightEventSeverity.Warning, "Disarm requested", "Vehicle disarm command transmitted.");
-                    }
-                    else
-                    {
-                        if (!ModernCommandDialog.ShowConfirmation(owner, "Arm Vehicle",
-                            "This will arm the aircraft and make guided mission actions available.",
-                            "Arm vehicle", Color.FromArgb(72, 182, 132)))
-                            return;
-
-                        MainV2.comPort.doARM(true, false);
-                        PushEvent(FlightEventSeverity.Success, "Arm requested", "Vehicle arm command transmitted.");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                PushEvent(FlightEventSeverity.Danger, "Command failed", ex.Message);
-                ModernCommandDialog.ShowNotice(FindForm(), "Command Error", ex.Message, Color.FromArgb(228, 84, 71));
-            }
-        }
-
-        private void BtnTakeoff_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                var owner = FindForm();
-                var altitude = ModernCommandDialog.ShowTakeoffPrompt(owner, 20);
-
-                if (altitude.HasValue)
-                {
-                    if (MainV2.comPort?.BaseStream?.IsOpen == true)
-                    {
-                        MainV2.comPort.setMode("GUIDED");
-                        MainV2.comPort.doARM(true, false);
-                        MainV2.comPort.doCommand(MAVLink.MAV_CMD.TAKEOFF, 0, 0, 0, 0, 0, 0, (float)altitude.Value);
-                        PushEvent(FlightEventSeverity.Success, "Guided takeoff requested",
-                            $"Takeoff command sent for {altitude.Value:0} m.");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                PushEvent(FlightEventSeverity.Danger, "Takeoff failed", ex.Message);
-                ModernCommandDialog.ShowNotice(FindForm(), "Takeoff Error", ex.Message, Color.FromArgb(228, 84, 71));
-            }
-        }
-
-        private void BtnRTL_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                if (MainV2.comPort?.BaseStream?.IsOpen == true)
-                {
-                    if (!ModernCommandDialog.ShowConfirmation(FindForm(), "Return To Launch",
-                        "The aircraft will leave its current guided task and begin the RTL sequence.",
-                        "Start RTL", Color.FromArgb(68, 118, 76)))
-                        return;
-
-                    MainV2.comPort.setMode("RTL");
-                    PushEvent(FlightEventSeverity.Warning, "RTL requested", "Return-to-launch command transmitted.");
-                }
-            }
-            catch (Exception ex)
-            {
-                PushEvent(FlightEventSeverity.Danger, "RTL failed", ex.Message);
-                ModernCommandDialog.ShowNotice(FindForm(), "RTL Error", ex.Message, Color.FromArgb(228, 84, 71));
-            }
-        }
-
-        private void BtnLand_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                if (MainV2.comPort?.BaseStream?.IsOpen == true)
-                {
-                    if (!ModernCommandDialog.ShowConfirmation(FindForm(), "Land Now",
-                        "The aircraft will transition immediately into landing mode at its current position.",
-                        "Start landing", Color.FromArgb(122, 58, 52)))
-                        return;
-
-                    MainV2.comPort.setMode("LAND");
-                    PushEvent(FlightEventSeverity.Warning, "Landing requested", "Landing command transmitted.");
-                }
-            }
-            catch (Exception ex)
-            {
-                PushEvent(FlightEventSeverity.Danger, "Landing failed", ex.Message);
-                ModernCommandDialog.ShowNotice(FindForm(), "Landing Error", ex.Message, Color.FromArgb(228, 84, 71));
-            }
         }
     }
 

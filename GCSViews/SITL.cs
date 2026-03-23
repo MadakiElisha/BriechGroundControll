@@ -1002,7 +1002,7 @@ namespace MissionPlanner.GCSViews
 
             MainV2.instance.InvokeIfRequired(() =>
             {
-                MainV2.View.ShowScreen(MainV2.View.screens[0].Name);
+                MainV2.instance.ShowPreferredFlightScreen(true, false);
             });
 
             var client = new Comms.TcpSerial();
@@ -1212,7 +1212,7 @@ SIM_DRIFT_TIME=0
 
             await Task.Delay(2000);
 
-            MainV2.View.ShowScreen(MainV2.View.screens[0].Name);
+            MainV2.instance?.InvokeIfRequired(() => MainV2.instance.ShowPreferredFlightScreen(true, false));
 
             try
             {
@@ -1361,7 +1361,7 @@ SIM_DRIFT_TIME=0
 
             System.Threading.Thread.Sleep(2000);
 
-            MainV2.View.ShowScreen(MainV2.View.screens[0].Name);
+            MainV2.instance?.InvokeIfRequired(() => MainV2.instance.ShowPreferredFlightScreen(true, false));
 
             try
             {

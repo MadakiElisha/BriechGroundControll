@@ -1705,20 +1705,37 @@ namespace MissionPlanner
 
         private void MenuModernFlightData_Click(object sender, EventArgs e)
         {
+            ShowModernFlightScreen(false, true);
+        }
+
+        public bool ShowModernFlightScreen(bool resetLayout = false, bool showFailureDialog = true)
+        {
             if (ModernFlightData != null)
             {
+                if (resetLayout)
+                    ModernFlightData.ResetToDefaultLayout();
+
                 MyView.ShowScreen("ModernFlightData");
-            }
-            else
-            {
-                var message = "Modern Flight failed to initialize. Check the log for the startup error and restart the app.";
-                log.Error(message);
-                CustomMessageBox.Show(message, "Modern Flight unavailable");
-                return;
+                SaveConfig();
+                return true;
             }
 
-            // save config
-            SaveConfig();
+            var message = "Modern Flight failed to initialize. Check the log for the startup error and restart the app.";
+            log.Error(message);
+
+            if (showFailureDialog)
+                CustomMessageBox.Show(message, "Modern Flight unavailable");
+
+            return false;
+        }
+
+        public bool ShowPreferredFlightScreen(bool resetModernLayout = false, bool showFailureDialog = false)
+        {
+            if (ShowModernFlightScreen(resetModernLayout, showFailureDialog))
+                return true;
+
+            MenuFlightData_Click(null, null);
+            return false;
         }
 
         public void MenuSetup_Click(object sender, EventArgs e)
@@ -3740,7 +3757,7 @@ namespace MissionPlanner
                 if (ModernFlightData != null)
                 {
                     log.Info("show ModernFlightData");
-                    MenuModernFlightData_Click(this, e);
+                    ShowPreferredFlightScreen(true, false);
                     log.Info("show ModernFlightData... Done");
                     MainMenu_ItemClicked(this, new ToolStripItemClickedEventArgs(MenuModernFlightData));
                 }
