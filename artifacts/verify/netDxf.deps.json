@@ -1,0 +1,78 @@
+{
+  "runtimeTarget": {
+    "name": ".NETStandard,Version=v2.0/",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETStandard,Version=v2.0": {},
+    ".NETStandard,Version=v2.0/": {
+      "netDxf/1.0.0": {
+        "dependencies": {
+          "Font": "0.3.0.3"
+        },
+        "runtime": {
+          "netDxf.dll": {}
+        }
+      },
+      "Bezier/0.9.3.5": {
+        "dependencies": {
+          "System.Numerics.Vectors": "4.1.1"
+        },
+        "runtime": {
+          "lib/netstandard2.0/System.Geometry.dll": {
+            "assemblyVersion": "0.9.3.5",
+            "fileVersion": "0.9.3.5"
+          }
+        }
+      },
+      "Font/0.3.0.3": {
+        "dependencies": {
+          "Bezier": "0.9.3.5"
+        },
+        "runtime": {
+          "lib/netstandard2.0/System.Geometry.Text.dll": {
+            "assemblyVersion": "0.3.0.3",
+            "fileVersion": "0.3.0.3"
+          }
+        }
+      },
+      "System.Numerics.Vectors/4.1.1": {
+        "runtime": {
+          "lib/netstandard1.0/System.Numerics.Vectors.dll": {
+            "assemblyVersion": "4.1.1.0",
+            "fileVersion": "1.0.24212.1"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "netDxf/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Bezier/0.9.3.5": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-F4wXbn9kFPME+pLK5AvteSkMKeuDxpIjoSYglIqkaQr7VUsp2hyfm8bnXQ2EmJ2fsmx2y8W1iFFYRi9adi0JgQ==",
+      "path": "bezier/0.9.3.5",
+      "hashPath": "bezier.0.9.3.5.nupkg.sha512"
+    },
+    "Font/0.3.0.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-sCK71k/t9zCk9vMeQgElcMWzdRrcY60ek+RQpIIT/g6bJMksYbTbSPtJ6JDAkV0n/VtcnJolUOrCi8zqaNFoBg==",
+      "path": "font/0.3.0.3",
+      "hashPath": "font.0.3.0.3.nupkg.sha512"
+    },
+    "System.Numerics.Vectors/4.1.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-Ex1NSKycC2wi5XBMWUGWPc3lumh6OQWFFmmpZFZz0oLht5lQ+wWPHVZumOrMJuckfUiVMd4p67BrkBos8lcF+Q==",
+      "path": "system.numerics.vectors/4.1.1",
+      "hashPath": "system.numerics.vectors.4.1.1.nupkg.sha512"
+    }
+  }
+}

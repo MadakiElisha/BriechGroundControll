@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using System.Globalization;
 using System.Linq;
 using System.Windows.Forms;
 using GMap.NET;
@@ -19,23 +20,23 @@ namespace MissionPlanner.GCSViews
 {
     /// <summary>
     /// Professional drone GCS flight data display - 100% C#
-    /// Dark navy + gold professional aesthetic
-    /// 3-panel layout: Telemetry (left), stacked HUD + 3D situational deck with mission map (center), Quick Actions (right)
+        /// Dark navy + gold professional aesthetic
+        /// 3-panel layout: Telemetry (left), stacked HUD + optional auxiliary deck with mission map (center), Quick Actions (right)
     /// </summary>
     public partial class ModernFlightDataCSharp : MyUserControl, IActivate, IDeactivate
     {
         private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
         private const int TelemetryMinWidth = 220;
         private const int TelemetryDefaultWidth = 224;
-        private const int CenterContentMinWidth = 620;
+        private const int CenterContentMinWidth = 560;
         private const int HudMinWidth = 300;
         private const int MapDeckMinWidth = 520;
         private const int HudDeckMinHeight = 320;
         private const int PreviewDeckMinHeight = 160;
-        private const int ActionConsoleMinWidth = 208;
-        private const int ActionConsoleMaxWidth = 300;
-        private const int ActionConsoleDefaultWidth = 280;
-        private const double HudColumnDefaultRatio = 0.27;
+        private const int ActionConsoleMinWidth = 360;
+        private const int ActionConsoleMaxWidth = 720;
+        private const int ActionConsoleDefaultWidth = 480;
+        private const double HudColumnDefaultRatio = 0.32;
         private const double HudDeckDefaultRatio = 0.60;
 
         // Custom controls
@@ -46,7 +47,7 @@ namespace MissionPlanner.GCSViews
         private SplitContainer splitHudStack;
         private PanelTelemetry panelTelemetry;
         private PanelHudDeck panelHudDeck;
-        private PanelSituationalPreviewDeck panelHudPreview;
+        private PanelAuxiliaryDeck panelAuxiliaryDeck;
         private ControlArtificialHorizon hudDisplay;
         private PanelMap3DDeck panelMap3D;
         private PanelQuickActions panelActions;
@@ -131,11 +132,12 @@ namespace MissionPlanner.GCSViews
                 BackColor = VeryDarkNavy
             };
 
-            panelHudPreview = new PanelSituationalPreviewDeck
+            panelAuxiliaryDeck = new PanelAuxiliaryDeck
             {
                 Dock = DockStyle.Fill,
                 BackColor = VeryDarkNavy
             };
+            panelAuxiliaryDeck.VisibilityPreferenceChanged += PanelAuxiliaryDeck_VisibilityPreferenceChanged;
 
             splitHudStack = new SplitContainer
             {
@@ -147,7 +149,7 @@ namespace MissionPlanner.GCSViews
             };
             splitHudStack.SplitterMoved += SplitHudStack_SplitterMoved;
             splitHudStack.Panel1.Controls.Add(panelHudDeck);
-            splitHudStack.Panel2.Controls.Add(panelHudPreview);
+            splitHudStack.Panel2.Controls.Add(panelAuxiliaryDeck);
             splitCenter.Panel1.Controls.Add(splitHudStack);
 
             // Mission map (right center)
@@ -177,6 +179,8 @@ namespace MissionPlanner.GCSViews
                 MinimumSize = new Size(ActionConsoleMinWidth, 0),
                 BackColor = VeryDarkNavy
             };
+            panelActions.ClearTrackRequested += PanelActions_ClearTrackRequested;
+            preferredActionWidth = panelActions.ActivePreferredWidth;
             splitWorkspace.Panel2.Controls.Add(panelActions);
 
             splitMain.Panel2.Controls.Add(splitWorkspace);
@@ -202,6 +206,7 @@ namespace MissionPlanner.GCSViews
             this.Size = new Size(1400, 800);
 
             this.ResumeLayout(false);
+            ApplyAuxiliaryDeckVisibility();
             UpdateResponsiveLayout();
 
             log.Info("ModernFlightDataCSharp initialized");
@@ -313,6 +318,8 @@ namespace MissionPlanner.GCSViews
 
                 if (splitHudStack != null)
                 {
+                    splitHudStack.Panel2Collapsed = false;
+
                     int stackAvailableHeight = Math.Max(0, splitHudStack.Height - splitHudStack.SplitterWidth);
                     if (stackAvailableHeight > HudDeckMinHeight + PreviewDeckMinHeight)
                     {
@@ -350,12 +357,43 @@ namespace MissionPlanner.GCSViews
             preferredActionWidth = splitWorkspace.Panel2.Width;
         }
 
+        private void PanelActions_ClearTrackRequested(object sender, EventArgs e)
+        {
+            panelMap3D?.ClearTrack();
+
+            if (MainV2.comPort?.MAV?.camerapoints != null)
+                MainV2.comPort.MAV.camerapoints.Clear();
+        }
+
         private void SplitHudStack_SplitterMoved(object sender, SplitterEventArgs e)
         {
             if (splitHudStack == null || suppressSplitterPreferenceCapture)
                 return;
 
             preferredHudDeckHeight = splitHudStack.SplitterDistance;
+        }
+
+        private void PanelAuxiliaryDeck_VisibilityPreferenceChanged(object sender, EventArgs e)
+        {
+            ApplyAuxiliaryDeckVisibility();
+            UpdateResponsiveLayout();
+        }
+
+        private void ApplyAuxiliaryDeckVisibility()
+        {
+            if (splitHudStack == null || panelAuxiliaryDeck == null)
+                return;
+
+            suppressSplitterPreferenceCapture = true;
+
+            try
+            {
+                splitHudStack.Panel2Collapsed = false;
+            }
+            finally
+            {
+                suppressSplitterPreferenceCapture = false;
+            }
         }
 
         public void ResetToDefaultLayout()
@@ -386,6 +424,8 @@ namespace MissionPlanner.GCSViews
                     hudDisplay.AirSpeed = 0;
                     hudDisplay.TargetSpeed = 0;
                     hudDisplay.VerticalSpeed = 0;
+                    hudDisplay.AngleOfAttack = 0;
+                    hudDisplay.CriticalAngleOfAttack = 0;
                     hudDisplay.DistanceToWaypoint = 0;
                     hudDisplay.WaypointNumber = 0;
                     hudDisplay.DistanceToHome = 0;
@@ -394,9 +434,9 @@ namespace MissionPlanner.GCSViews
                     hudDisplay.Invalidate();
                     statusRail.SetOffline(isConnected);
                     panelHudDeck.SetOffline(isConnected);
-                    panelHudPreview.SetOffline(isConnected);
+                    panelAuxiliaryDeck.SetOffline(isConnected);
                     panelMap3D.SetOffline(isConnected);
-                    panelActions.UpdateStatus(false, isConnected, "Awaiting vehicle", "Connect to enable guided actions.");
+                    panelActions.UpdateTelemetry(null, isConnected);
                     TrackFlightEvents(null, isConnected);
                     return;
                 }
@@ -416,6 +456,8 @@ namespace MissionPlanner.GCSViews
                 hudDisplay.AirSpeed = cs.airspeed;
                 hudDisplay.TargetSpeed = cs.targetairspeed;
                 hudDisplay.VerticalSpeed = cs.verticalspeed;
+                hudDisplay.AngleOfAttack = cs.AOA;
+                hudDisplay.CriticalAngleOfAttack = cs.crit_AOA;
                 hudDisplay.DistanceToWaypoint = cs.wp_dist;
                 hudDisplay.WaypointNumber = (int)Math.Round(cs.wpno);
                 hudDisplay.DistanceToHome = cs.DistToHome;
@@ -423,7 +465,7 @@ namespace MissionPlanner.GCSViews
                 hudDisplay.BatteryRemaining = cs.battery_remaining;
                 hudDisplay.Invalidate();
                 panelHudDeck.UpdateFlightState(cs.mode, cs.armed, (float)cs.yaw, cs.battery_remaining);
-                panelHudPreview.UpdateTelemetry(cs);
+                panelAuxiliaryDeck.UpdateTelemetry(cs);
 
                 panelMap3D.UpdateTelemetry(cs);
 
@@ -432,7 +474,7 @@ namespace MissionPlanner.GCSViews
 
                 // Update status and actions
                 statusRail.UpdateTelemetry(cs, isConnected);
-                panelActions.UpdateStatus(cs.armed, isConnected, cs.mode, cs.messageHigh);
+                panelActions.UpdateTelemetry(cs, isConnected);
                 TrackFlightEvents(cs, isConnected);
             }
             catch (Exception ex)
@@ -533,7 +575,7 @@ namespace MissionPlanner.GCSViews
             {
                 telemetryTimer?.Stop();
                 telemetryTimer?.Dispose();
-                panelHudPreview?.DeactivateView();
+                panelAuxiliaryDeck?.DeactivateView();
                 panelMap3D?.DeactivateView();
             }
             base.Dispose(disposing);
@@ -547,7 +589,7 @@ namespace MissionPlanner.GCSViews
             try
             {
                 ScheduleDeferredLayout();
-                panelHudPreview?.ActivateView();
+                panelAuxiliaryDeck?.ActivateView();
                 panelMap3D?.ActivateView();
 
                 if (telemetryTimer != null && !telemetryTimer.Enabled)
@@ -575,7 +617,7 @@ namespace MissionPlanner.GCSViews
                     log.Info("ModernFlightData: Telemetry timer stopped");
                 }
 
-                panelHudPreview?.DeactivateView();
+                panelAuxiliaryDeck?.DeactivateView();
                 panelMap3D?.DeactivateView();
             }
             catch (Exception ex)
@@ -715,6 +757,7 @@ namespace MissionPlanner.GCSViews
     public class TopStatusRail : Control
     {
         private const string TopStatusSelectionSettingKey = "ModernFlightTopStatusCards";
+        private const string TopStatusCustomizationSettingKey = "ModernFlightTopStatusCustomizations";
         private static readonly string[] DefaultMetricKeys =
         {
             "link",
@@ -753,6 +796,7 @@ namespace MissionPlanner.GCSViews
         private readonly StatusCard[] cards = new StatusCard[5];
         private readonly Rectangle[] cardHitAreas = new Rectangle[5];
         private readonly List<string> selectedMetricKeys = new List<string>();
+        private readonly List<StatusCardCustomization> customCardConfigs = new List<StatusCardCustomization>();
         private readonly ContextMenuStrip cardMenu = new ContextMenuStrip();
         private CurrentState lastTelemetry;
         private bool lastConnected;
@@ -766,6 +810,7 @@ namespace MissionPlanner.GCSViews
             Cursor = Cursors.Default;
             InitializeCardMenu();
             LoadMetricSelection();
+            LoadMetricCustomizations();
             SetOffline(false);
         }
 
@@ -833,6 +878,20 @@ namespace MissionPlanner.GCSViews
         protected override void OnMouseDoubleClick(MouseEventArgs e)
         {
             base.OnMouseDoubleClick(e);
+
+            int cardIndex = HitTestCardIndex(e.Location);
+            if (cardIndex < 0)
+                return;
+
+            OpenStatusCardEditor(cardIndex);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+
+            if (e.Button != MouseButtons.Right)
+                return;
 
             int cardIndex = HitTestCardIndex(e.Location);
             if (cardIndex < 0)
@@ -919,7 +978,9 @@ namespace MissionPlanner.GCSViews
             {
                 selectedMetricKeys.Clear();
                 selectedMetricKeys.AddRange(DefaultMetricKeys);
+                customCardConfigs.Clear();
                 SaveMetricSelection();
+                SaveMetricCustomizations();
                 ApplyCards(lastTelemetry, lastConnected);
             };
             cardMenu.Items.Add(resetItem);
@@ -940,7 +1001,10 @@ namespace MissionPlanner.GCSViews
                 selectedMetricKeys[existingIndex] = replacedKey;
 
             selectedMetricKeys[activeCardIndex] = metricKey;
+            EnsureCustomizationSlots();
+            customCardConfigs[activeCardIndex] = null;
             SaveMetricSelection();
+            SaveMetricCustomizations();
             ApplyCards(lastTelemetry, lastConnected);
         }
 
@@ -948,11 +1012,42 @@ namespace MissionPlanner.GCSViews
         {
             for (int i = 0; i < cards.Length; i++)
             {
-                string metricKey = i < selectedMetricKeys.Count ? selectedMetricKeys[i] : DefaultMetricKeys[Math.Min(i, DefaultMetricKeys.Length - 1)];
-                cards[i] = BuildCard(metricKey, cs, connected);
+                cards[i] = BuildCardForIndex(i, cs, connected);
             }
 
             Invalidate();
+        }
+
+        private StatusCard BuildCardForIndex(int cardIndex, CurrentState cs, bool connected)
+        {
+            if (cardIndex < 0 || cardIndex >= cards.Length)
+                return new StatusCard("STATUS", "--", "Card unavailable", CardBorder);
+
+            EnsureCustomizationSlots();
+
+            var customization = customCardConfigs[cardIndex];
+            if (customization != null && !string.IsNullOrWhiteSpace(customization.SourceTag))
+                return BuildCustomizedCard(customization, cs, connected);
+
+            string metricKey = cardIndex < selectedMetricKeys.Count
+                ? selectedMetricKeys[cardIndex]
+                : DefaultMetricKeys[Math.Min(cardIndex, DefaultMetricKeys.Length - 1)];
+
+            if (MetricCatalog.Any(metric => metric.Key == metricKey))
+                return BuildCard(metricKey, cs, connected);
+
+            return BuildCustomizedCard(new StatusCardCustomization
+            {
+                SourceTag = metricKey,
+                Label = GetTelemetryDisplayName(ResolveTelemetrySourceKey(metricKey), cs),
+                AccentColor = GetDefaultAccent(metricKey),
+                NumberFormat = ResolveEditorFormat(metricKey),
+                Scale = 1.0,
+                Offset = 0.0,
+                GaugeEnabled = false,
+                GaugeMin = 0.0,
+                GaugeMax = 100.0
+            }, cs, connected);
         }
 
         private StatusCard BuildCard(string key, CurrentState cs, bool connected)
@@ -1032,6 +1127,22 @@ namespace MissionPlanner.GCSViews
             }
         }
 
+        private StatusCard BuildCustomizedCard(StatusCardCustomization customization, CurrentState cs, bool connected)
+        {
+            string sourceKey = ResolveTelemetrySourceKey(customization.SourceTag);
+            string label = string.IsNullOrWhiteSpace(customization.Label)
+                ? GetTelemetryDisplayName(sourceKey, cs)
+                : customization.Label;
+            string detail = BuildStatusDetail(customization, sourceKey, cs, connected);
+            Color accent = customization.AccentColor;
+
+            if (cs == null)
+                return new StatusCard(label, "--", detail, accent);
+
+            object rawValue = typeof(CurrentState).GetProperty(sourceKey ?? string.Empty)?.GetValue(cs, null);
+            return new StatusCard(label, FormatStatusValue(rawValue, customization), detail, accent);
+        }
+
         private void LoadMetricSelection()
         {
             selectedMetricKeys.Clear();
@@ -1044,7 +1155,8 @@ namespace MissionPlanner.GCSViews
                     foreach (string token in rawValue.ToString().Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
                     {
                         string key = token.Trim();
-                        if (MetricCatalog.Any(metric => metric.Key == key) && !selectedMetricKeys.Contains(key))
+                        if ((MetricCatalog.Any(metric => metric.Key == key) || IsSupportedTelemetryKey(key)) &&
+                            !selectedMetricKeys.Contains(key))
                             selectedMetricKeys.Add(key);
 
                         if (selectedMetricKeys.Count == cards.Length)
@@ -1079,12 +1191,235 @@ namespace MissionPlanner.GCSViews
         {
             try
             {
+                EnsureCustomizationSlots();
                 Settings.Instance[TopStatusSelectionSettingKey] = string.Join(",", selectedMetricKeys);
                 Settings.Instance.Save();
             }
             catch
             {
             }
+        }
+
+        private void LoadMetricCustomizations()
+        {
+            customCardConfigs.Clear();
+
+            try
+            {
+                var rawValue = Settings.Instance[TopStatusCustomizationSettingKey];
+                if (rawValue != null)
+                {
+                    foreach (string token in rawValue.ToString().Split(new[] { "||" }, StringSplitOptions.None))
+                    {
+                        customCardConfigs.Add(StatusCardCustomization.TryDeserialize(token));
+                        if (customCardConfigs.Count == cards.Length)
+                            break;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            EnsureCustomizationSlots();
+        }
+
+        private void SaveMetricCustomizations()
+        {
+            try
+            {
+                EnsureCustomizationSlots();
+                Settings.Instance[TopStatusCustomizationSettingKey] = string.Join("||", customCardConfigs.Select(StatusCardCustomization.Serialize));
+                Settings.Instance.Save();
+            }
+            catch
+            {
+            }
+        }
+
+        private void EnsureCustomizationSlots()
+        {
+            while (customCardConfigs.Count < cards.Length)
+                customCardConfigs.Add(null);
+        }
+
+        private void OpenStatusCardEditor(int cardIndex)
+        {
+            if (cardIndex < 0 || cardIndex >= cards.Length)
+                return;
+
+            using (var proxy = CreateStatusQuickViewProxy(cardIndex))
+            using (var editor = new QuickViewOptions(proxy))
+            {
+                editor.StartPosition = FormStartPosition.CenterParent;
+                ThemeManager.ApplyThemeTo(editor);
+                editor.ShowDialog(FindForm());
+                ApplyStatusQuickViewProxy(cardIndex, proxy);
+            }
+        }
+
+        private QuickView CreateStatusQuickViewProxy(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+
+            var proxy = new QuickView
+            {
+                Tag = ResolveEditorSourceTag(cardIndex),
+                desc = ResolveEditorLabel(cardIndex),
+                numberColor = ResolveEditorColor(cardIndex),
+                numberColorBackup = ResolveEditorColor(cardIndex),
+                numberformat = ResolveEditorFormat(cardIndex),
+                scale = ResolveEditorScale(cardIndex),
+                offset = ResolveEditorOffset(cardIndex),
+                isGauge = ResolveEditorGaugeEnabled(cardIndex),
+                gaugeMin = ResolveEditorGaugeMin(cardIndex),
+                gaugeMax = ResolveEditorGaugeMax(cardIndex)
+            };
+
+            return proxy;
+        }
+
+        private void ApplyStatusQuickViewProxy(int cardIndex, QuickView proxy)
+        {
+            string sourceTag = proxy.Tag as string;
+            if (string.IsNullOrWhiteSpace(sourceTag))
+                return;
+
+            EnsureCustomizationSlots();
+
+            selectedMetricKeys[cardIndex] = sourceTag;
+            customCardConfigs[cardIndex] = new StatusCardCustomization
+            {
+                SourceTag = sourceTag,
+                Label = proxy.desc,
+                AccentColor = proxy.numberColorBackup,
+                NumberFormat = string.IsNullOrWhiteSpace(proxy.numberformat) ? "0.00" : proxy.numberformat,
+                Scale = proxy.scale,
+                Offset = proxy.offset,
+                GaugeEnabled = proxy.isGauge,
+                GaugeMin = proxy.gaugeMin,
+                GaugeMax = proxy.gaugeMax
+            };
+
+            SaveMetricSelection();
+            SaveMetricCustomizations();
+            ApplyCards(lastTelemetry, lastConnected);
+        }
+
+        private string ResolveEditorSourceTag(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+
+            var customization = customCardConfigs[cardIndex];
+            if (customization != null && !string.IsNullOrWhiteSpace(customization.SourceTag))
+                return customization.SourceTag;
+
+            string key = selectedMetricKeys[cardIndex];
+            switch (key)
+            {
+                case "link":
+                    return "linkqualitygcs";
+                case "mode":
+                    return "armed";
+                case "battery":
+                    return "battery_remaining";
+                case "gps":
+                    return "satcount";
+                case "alert":
+                    return "failsafe";
+                case "time_in_air":
+                    return "timeInAir";
+                case "distance_travelled":
+                    return "distTraveled";
+                case "distance_to_home":
+                    return "DistToHome";
+                default:
+                    return key;
+            }
+        }
+
+        private string ResolveEditorLabel(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+
+            var customization = customCardConfigs[cardIndex];
+            if (customization != null && !string.IsNullOrWhiteSpace(customization.Label))
+                return customization.Label;
+
+            return cardIndex >= 0 && cardIndex < cards.Length && !string.IsNullOrWhiteSpace(cards[cardIndex].Label)
+                ? cards[cardIndex].Label
+                : GetTelemetryDisplayName(ResolveTelemetrySourceKey(ResolveEditorSourceTag(cardIndex)), MainV2.comPort?.MAV?.cs);
+        }
+
+        private Color ResolveEditorColor(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+
+            var customization = customCardConfigs[cardIndex];
+            if (customization != null)
+                return customization.AccentColor;
+
+            return cardIndex >= 0 && cardIndex < cards.Length
+                ? cards[cardIndex].Accent
+                : GetDefaultAccent(selectedMetricKeys[cardIndex]);
+        }
+
+        private string ResolveEditorFormat(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+
+            var customization = customCardConfigs[cardIndex];
+            if (customization != null && !string.IsNullOrWhiteSpace(customization.NumberFormat))
+                return customization.NumberFormat;
+
+            return ResolveEditorFormat(ResolveEditorSourceTag(cardIndex));
+        }
+
+        private static string ResolveEditorFormat(string sourceTag)
+        {
+            switch (ResolveTelemetrySourceKey(sourceTag))
+            {
+                case "linkqualitygcs":
+                case "battery_remaining":
+                case "satcount":
+                case "distTraveled":
+                case "DistToHome":
+                    return "0";
+                case "timeInAir":
+                    return "mm\\:ss";
+                default:
+                    return "0.00";
+            }
+        }
+
+        private double ResolveEditorScale(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+            return customCardConfigs[cardIndex]?.Scale ?? 1.0;
+        }
+
+        private double ResolveEditorOffset(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+            return customCardConfigs[cardIndex]?.Offset ?? 0.0;
+        }
+
+        private bool ResolveEditorGaugeEnabled(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+            return customCardConfigs[cardIndex]?.GaugeEnabled ?? false;
+        }
+
+        private double ResolveEditorGaugeMin(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+            return customCardConfigs[cardIndex]?.GaugeMin ?? 0.0;
+        }
+
+        private double ResolveEditorGaugeMax(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+            return customCardConfigs[cardIndex]?.GaugeMax ?? 100.0;
         }
 
         private int HitTestCardIndex(Point location)
@@ -1109,6 +1444,146 @@ namespace MissionPlanner.GCSViews
                 (int)(baseColor.B + ((accentColor.B - baseColor.B) * amount)));
         }
 
+        private static string ResolveTelemetrySourceKey(string sourceTag)
+        {
+            if (string.IsNullOrWhiteSpace(sourceTag))
+                return "battery_remaining";
+
+            if (sourceTag.StartsWith("customfield:", StringComparison.OrdinalIgnoreCase))
+                return CurrentState.GetCustomField(sourceTag.Substring("customfield:".Length));
+
+            return sourceTag;
+        }
+
+        private static bool IsSupportedTelemetryKey(string key)
+        {
+            string sourceKey = ResolveTelemetrySourceKey(key);
+            var property = typeof(CurrentState).GetProperty(sourceKey ?? string.Empty);
+            if (property == null)
+                return false;
+
+            Type propertyType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+            if (propertyType == typeof(bool))
+                return true;
+
+            return propertyType == typeof(byte) ||
+                   propertyType == typeof(sbyte) ||
+                   propertyType == typeof(short) ||
+                   propertyType == typeof(ushort) ||
+                   propertyType == typeof(int) ||
+                   propertyType == typeof(uint) ||
+                   propertyType == typeof(long) ||
+                   propertyType == typeof(ulong) ||
+                   propertyType == typeof(float) ||
+                   propertyType == typeof(double) ||
+                   propertyType == typeof(decimal);
+        }
+
+        private static string GetTelemetryDisplayName(string sourceKey, CurrentState cs)
+        {
+            if (cs == null || string.IsNullOrWhiteSpace(sourceKey))
+                return "Telemetry";
+
+            return cs.GetNameandUnit(sourceKey);
+        }
+
+        private static string BuildStatusDetail(StatusCardCustomization customization, string sourceKey, CurrentState cs, bool connected)
+        {
+            if (!connected)
+                return "Awaiting vehicle telemetry";
+
+            string defaultLabel = GetTelemetryDisplayName(sourceKey, cs);
+            if (customization.GaugeEnabled)
+                return $"Range {customization.GaugeMin:0.##} to {customization.GaugeMax:0.##}";
+
+            if (string.IsNullOrWhiteSpace(customization.Label) ||
+                customization.Label.Equals(defaultLabel, StringComparison.OrdinalIgnoreCase))
+            {
+                return defaultLabel;
+            }
+
+            return defaultLabel;
+        }
+
+        private static string FormatStatusValue(object rawValue, StatusCardCustomization customization)
+        {
+            if (rawValue == null)
+                return "--";
+
+            if (rawValue is bool booleanValue)
+                return booleanValue ? "TRUE" : "FALSE";
+
+            if (!TryConvertToDouble(rawValue, out double numericValue))
+                return Convert.ToString(rawValue, CultureInfo.InvariantCulture) ?? "--";
+
+            double adjustedValue = (numericValue * customization.Scale) + customization.Offset;
+            string format = string.IsNullOrWhiteSpace(customization.NumberFormat) ? "0.00" : customization.NumberFormat;
+
+            try
+            {
+                if (format.Contains(":"))
+                    return TimeSpan.FromSeconds(adjustedValue).ToString(format);
+
+                return adjustedValue.ToString(format, CultureInfo.InvariantCulture);
+            }
+            catch (FormatException)
+            {
+                return adjustedValue.ToString("0.00", CultureInfo.InvariantCulture);
+            }
+        }
+
+        private static bool TryConvertToDouble(object rawValue, out double value)
+        {
+            if (rawValue == null)
+            {
+                value = 0;
+                return false;
+            }
+
+            try
+            {
+                value = Convert.ToDouble(rawValue, CultureInfo.InvariantCulture);
+                return true;
+            }
+            catch
+            {
+                value = 0;
+                return false;
+            }
+        }
+
+        private Color GetDefaultAccent(string key)
+        {
+            switch (key)
+            {
+                case "link":
+                case "linkqualitygcs":
+                    return LinkAccent;
+                case "mode":
+                    return Color.FromArgb(102, 164, 229);
+                case "battery":
+                case "battery_remaining":
+                    return Color.FromArgb(230, 99, 83);
+                case "gps":
+                case "satcount":
+                    return Color.FromArgb(74, 201, 176);
+                case "time_in_air":
+                case "timeInAir":
+                    return TimeInAirAccent;
+                case "distance_travelled":
+                case "distTraveled":
+                    return DistanceTraveledAccent;
+                case "distance_to_home":
+                case "DistToHome":
+                    return DistanceToHomeAccent;
+                case "alert":
+                case "failsafe":
+                    return AlertNominalAccent;
+                default:
+                    return Color.FromArgb(111, 120, 138);
+            }
+        }
+
         private sealed class StatusMetricDefinition
         {
             public StatusMetricDefinition(string key, string label)
@@ -1119,6 +1594,76 @@ namespace MissionPlanner.GCSViews
 
             public string Key { get; }
             public string Label { get; }
+        }
+
+        private sealed class StatusCardCustomization
+        {
+            public string SourceTag { get; set; }
+            public string Label { get; set; }
+            public Color AccentColor { get; set; } = Color.FromArgb(111, 120, 138);
+            public string NumberFormat { get; set; } = "0.00";
+            public double Scale { get; set; } = 1.0;
+            public double Offset { get; set; }
+            public bool GaugeEnabled { get; set; }
+            public double GaugeMin { get; set; }
+            public double GaugeMax { get; set; } = 100.0;
+
+            public static string Serialize(StatusCardCustomization customization)
+            {
+                if (customization == null || string.IsNullOrWhiteSpace(customization.SourceTag))
+                    return string.Empty;
+
+                return string.Join(";",
+                    EncodePart(customization.SourceTag),
+                    EncodePart(customization.Label),
+                    customization.AccentColor.ToArgb().ToString(CultureInfo.InvariantCulture),
+                    EncodePart(customization.NumberFormat),
+                    customization.Scale.ToString("R", CultureInfo.InvariantCulture),
+                    customization.Offset.ToString("R", CultureInfo.InvariantCulture),
+                    customization.GaugeEnabled ? "1" : "0",
+                    customization.GaugeMin.ToString("R", CultureInfo.InvariantCulture),
+                    customization.GaugeMax.ToString("R", CultureInfo.InvariantCulture));
+            }
+
+            public static StatusCardCustomization TryDeserialize(string raw)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                    return null;
+
+                try
+                {
+                    string[] parts = raw.Split(';');
+                    if (parts.Length < 9)
+                        return null;
+
+                    return new StatusCardCustomization
+                    {
+                        SourceTag = DecodePart(parts[0]),
+                        Label = DecodePart(parts[1]),
+                        AccentColor = Color.FromArgb(int.Parse(parts[2], CultureInfo.InvariantCulture)),
+                        NumberFormat = DecodePart(parts[3]),
+                        Scale = double.Parse(parts[4], CultureInfo.InvariantCulture),
+                        Offset = double.Parse(parts[5], CultureInfo.InvariantCulture),
+                        GaugeEnabled = parts[6] == "1",
+                        GaugeMin = double.Parse(parts[7], CultureInfo.InvariantCulture),
+                        GaugeMax = double.Parse(parts[8], CultureInfo.InvariantCulture)
+                    };
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            private static string EncodePart(string value)
+            {
+                return Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(value ?? string.Empty));
+            }
+
+            private static string DecodePart(string value)
+            {
+                return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(value ?? string.Empty));
+            }
         }
 
         protected override void Dispose(bool disposing)
@@ -1250,6 +1795,20 @@ namespace MissionPlanner.GCSViews
         private Map3D mapView;
         private bool previewAvailable;
         private string previewInitError = "";
+        private bool embeddedMode;
+
+        public bool EmbeddedMode
+        {
+            get => embeddedMode;
+            set
+            {
+                if (embeddedMode == value)
+                    return;
+
+                embeddedMode = value;
+                ApplyEmbeddedLayout();
+            }
+        }
 
         public PanelSituationalPreviewDeck()
         {
@@ -1259,6 +1818,7 @@ namespace MissionPlanner.GCSViews
 
             InitializeControls();
             SetOffline(false);
+            ApplyEmbeddedLayout();
         }
 
         private void InitializeControls()
@@ -1405,6 +1965,15 @@ namespace MissionPlanner.GCSViews
             lblEyebrow.Bounds = new Rectangle(18, 10, textWidth, 14);
             lblTitle.Bounds = new Rectangle(18, 23, textWidth, 18);
             lblSubtitle.Bounds = new Rectangle(18, 40, textWidth, 15);
+        }
+
+        private void ApplyEmbeddedLayout()
+        {
+            if (headerPanel == null)
+                return;
+
+            Padding = embeddedMode ? new Padding(0) : new Padding(10, 0, 10, 10);
+            headerPanel.Visible = !embeddedMode;
         }
 
         public void ActivateView()
@@ -1666,6 +2235,7 @@ namespace MissionPlanner.GCSViews
     public class PanelTelemetry : Panel
     {
         private const string TelemetrySelectionSettingKey = "ModernFlightTelemetryCards";
+        private const string TelemetryCustomizationSettingKey = "ModernFlightTelemetryCardCustomizations";
         private static readonly string[] DefaultMetricKeys =
         {
             "altitude",
@@ -1706,6 +2276,7 @@ namespace MissionPlanner.GCSViews
         private ContextMenuStrip telemetryMenu;
         private readonly List<ModernTelemetryCard> cards = new List<ModernTelemetryCard>();
         private readonly List<string> selectedMetricKeys = new List<string>();
+        private readonly List<TelemetryCardCustomization> customMetricConfigs = new List<TelemetryCardCustomization>();
         private CurrentState lastTelemetry;
         private int activeTelemetryCardIndex = -1;
 
@@ -1718,6 +2289,7 @@ namespace MissionPlanner.GCSViews
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
             LoadMetricSelection();
+            LoadMetricCustomizations();
             InitializeControls();
         }
 
@@ -1735,7 +2307,7 @@ namespace MissionPlanner.GCSViews
 
             lblSubtitle = new Label
             {
-                Text = "Double-click any card to replace its parameter",
+                Text = "Double-click any card to edit it",
                 Font = subtitleFont,
                 ForeColor = MutedText,
                 BackColor = Color.Transparent,
@@ -1821,7 +2393,7 @@ namespace MissionPlanner.GCSViews
 
                 for (int i = 0; i < cards.Count; i++)
                 {
-                    var snapshot = BuildMetricSnapshot(selectedMetricKeys[i], cs);
+                    var snapshot = BuildSnapshotForCard(i, cs);
                     cards[i].Title = snapshot.Title;
                     cards[i].Value = snapshot.Value;
                     cards[i].Detail = snapshot.Detail;
@@ -1847,7 +2419,7 @@ namespace MissionPlanner.GCSViews
                     foreach (string token in rawValue.ToString().Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
                     {
                         string key = token.Trim();
-                        if (MetricCatalog.Any(option => option.Key == key) && !selectedMetricKeys.Contains(key))
+                        if (IsSupportedTelemetryKey(key) && !selectedMetricKeys.Contains(key))
                             selectedMetricKeys.Add(key);
 
                         if (selectedMetricKeys.Count == DefaultMetricKeys.Length)
@@ -1878,8 +2450,70 @@ namespace MissionPlanner.GCSViews
             }
         }
 
+        private static bool IsSupportedTelemetryKey(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                return false;
+
+            if (MetricCatalog.Any(metric => metric.Key == key))
+                return true;
+
+            if (key.StartsWith("customfield:", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return typeof(CurrentState).GetProperty(key) != null;
+        }
+
+        private void LoadMetricCustomizations()
+        {
+            customMetricConfigs.Clear();
+
+            try
+            {
+                var rawValue = Settings.Instance[TelemetryCustomizationSettingKey];
+                if (rawValue != null)
+                {
+                    string[] entries = rawValue.ToString().Split(new[] { "||" }, StringSplitOptions.None);
+                    foreach (string entry in entries)
+                    {
+                        customMetricConfigs.Add(TelemetryCardCustomization.TryDeserialize(entry));
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            EnsureCustomizationSlots();
+        }
+
+        private void SaveMetricCustomizations()
+        {
+            try
+            {
+                EnsureCustomizationSlots();
+                Settings.Instance[TelemetryCustomizationSettingKey] = string.Join("||",
+                    customMetricConfigs.Select(TelemetryCardCustomization.Serialize));
+                Settings.Instance.Save();
+            }
+            catch
+            {
+            }
+        }
+
+        private void EnsureCustomizationSlots()
+        {
+            while (customMetricConfigs.Count < selectedMetricKeys.Count)
+                customMetricConfigs.Add(null);
+
+            while (customMetricConfigs.Count > selectedMetricKeys.Count)
+                customMetricConfigs.RemoveAt(customMetricConfigs.Count - 1);
+        }
+
         private void SyncCardControls()
         {
+            EnsureCustomizationSlots();
+
             while (cards.Count < selectedMetricKeys.Count)
             {
                 var card = new ModernTelemetryCard { BackColor = BackColor, Cursor = Cursors.Hand };
@@ -1912,6 +2546,151 @@ namespace MissionPlanner.GCSViews
             activeTelemetryCardIndex = cardIndex;
             RebuildTelemetryMenu();
             telemetryMenu?.Show(source, location);
+        }
+
+        private TelemetryMetricSnapshot BuildSnapshotForCard(int cardIndex, CurrentState cs)
+        {
+            if (cardIndex < 0 || cardIndex >= selectedMetricKeys.Count)
+                return new TelemetryMetricSnapshot("TELEMETRY", "--", "Metric unavailable", GetMetricAccent(""), 0f);
+
+            EnsureCustomizationSlots();
+
+            var customization = cardIndex < customMetricConfigs.Count ? customMetricConfigs[cardIndex] : null;
+            if (customization != null && !string.IsNullOrWhiteSpace(customization.SourceTag))
+                return BuildCustomizedMetricSnapshot(customization, cs);
+
+            string metricKey = selectedMetricKeys[cardIndex];
+            if (MetricCatalog.Any(metric => metric.Key == metricKey))
+                return BuildMetricSnapshot(metricKey, cs);
+
+            return BuildCustomizedMetricSnapshot(new TelemetryCardCustomization
+            {
+                SourceTag = metricKey,
+                Label = GetTelemetryDisplayName(ResolveTelemetrySourceKey(metricKey), cs),
+                AccentColor = GetMetricAccent(metricKey),
+                NumberFormat = ResolveEditorFormat(cardIndex),
+                Scale = 1.0,
+                Offset = 0.0,
+                GaugeEnabled = false,
+                GaugeMin = 0.0,
+                GaugeMax = 100.0
+            }, cs);
+        }
+
+        private TelemetryMetricSnapshot BuildCustomizedMetricSnapshot(TelemetryCardCustomization customization, CurrentState cs)
+        {
+            string sourceKey = ResolveTelemetrySourceKey(customization.SourceTag);
+            string title = string.IsNullOrWhiteSpace(customization.Label)
+                ? GetTelemetryDisplayName(sourceKey, cs)
+                : customization.Label;
+            string detail = BuildTelemetryDetail(customization, sourceKey, cs);
+            Color accent = customization.AccentColor;
+
+            if (cs == null)
+                return new TelemetryMetricSnapshot(title.ToUpperInvariant(), "--", detail, accent, 0f);
+
+            object rawValue = typeof(CurrentState).GetProperty(sourceKey ?? string.Empty)?.GetValue(cs, null);
+            string value = FormatTelemetryValue(rawValue, customization);
+            float progress = ResolveTelemetryProgress(rawValue, customization);
+
+            return new TelemetryMetricSnapshot(title.ToUpperInvariant(), value, detail, accent, progress);
+        }
+
+        private static string ResolveTelemetrySourceKey(string sourceTag)
+        {
+            if (string.IsNullOrWhiteSpace(sourceTag))
+                return "battery_voltage";
+
+            if (sourceTag.StartsWith("customfield:", StringComparison.OrdinalIgnoreCase))
+                return CurrentState.GetCustomField(sourceTag.Substring("customfield:".Length));
+
+            return sourceTag;
+        }
+
+        private static string GetTelemetryDisplayName(string sourceKey, CurrentState cs)
+        {
+            if (cs == null || string.IsNullOrWhiteSpace(sourceKey))
+                return "Telemetry";
+
+            return cs.GetNameandUnit(sourceKey);
+        }
+
+        private static string BuildTelemetryDetail(TelemetryCardCustomization customization, string sourceKey, CurrentState cs)
+        {
+            string defaultLabel = GetTelemetryDisplayName(sourceKey, cs);
+            if (customization.GaugeEnabled)
+                return $"Range {customization.GaugeMin:0.##} to {customization.GaugeMax:0.##}";
+
+            if (string.IsNullOrWhiteSpace(customization.Label) ||
+                customization.Label.Equals(defaultLabel, StringComparison.OrdinalIgnoreCase))
+            {
+                return sourceKey?.Replace("_", " ") ?? "live telemetry";
+            }
+
+            return defaultLabel;
+        }
+
+        private static string FormatTelemetryValue(object rawValue, TelemetryCardCustomization customization)
+        {
+            if (rawValue == null)
+                return "--";
+
+            if (rawValue is bool booleanValue)
+                return booleanValue ? "TRUE" : "FALSE";
+
+            if (!TryConvertToDouble(rawValue, out double numericValue))
+                return Convert.ToString(rawValue, CultureInfo.InvariantCulture) ?? "--";
+
+            double adjustedValue = (numericValue * customization.Scale) + customization.Offset;
+            string format = string.IsNullOrWhiteSpace(customization.NumberFormat) ? "0.00" : customization.NumberFormat;
+
+            try
+            {
+                if (format.Contains(":"))
+                    return TimeSpan.FromSeconds(adjustedValue).ToString(format);
+
+                return adjustedValue.ToString(format, CultureInfo.InvariantCulture);
+            }
+            catch (FormatException)
+            {
+                return adjustedValue.ToString("0.00", CultureInfo.InvariantCulture);
+            }
+        }
+
+        private static float ResolveTelemetryProgress(object rawValue, TelemetryCardCustomization customization)
+        {
+            if (rawValue is bool booleanValue)
+                return booleanValue ? 1f : 0.08f;
+
+            if (!TryConvertToDouble(rawValue, out double numericValue))
+                return 0.08f;
+
+            double adjustedValue = (numericValue * customization.Scale) + customization.Offset;
+
+            if (customization.GaugeEnabled && customization.GaugeMax > customization.GaugeMin)
+                return Clamp01((adjustedValue - customization.GaugeMin) / (customization.GaugeMax - customization.GaugeMin));
+
+            return 0.08f;
+        }
+
+        private static bool TryConvertToDouble(object rawValue, out double value)
+        {
+            if (rawValue == null)
+            {
+                value = 0;
+                return false;
+            }
+
+            try
+            {
+                value = Convert.ToDouble(rawValue, CultureInfo.InvariantCulture);
+                return true;
+            }
+            catch
+            {
+                value = 0;
+                return false;
+            }
         }
 
         private void RebuildTelemetryMenu()
@@ -1964,8 +2743,11 @@ namespace MissionPlanner.GCSViews
                 selectedMetricKeys[existingIndex] = replacedKey;
 
             selectedMetricKeys[activeTelemetryCardIndex] = metricKey;
+            EnsureCustomizationSlots();
+            customMetricConfigs[activeTelemetryCardIndex] = null;
 
             SaveMetricSelection();
+            SaveMetricCustomizations();
             SyncCardControls();
             RebuildTelemetryMenu();
 
@@ -1977,8 +2759,10 @@ namespace MissionPlanner.GCSViews
         {
             selectedMetricKeys.Clear();
             selectedMetricKeys.AddRange(DefaultMetricKeys);
+            customMetricConfigs.Clear();
 
             SaveMetricSelection();
+            SaveMetricCustomizations();
             SyncCardControls();
             RebuildTelemetryMenu();
 
@@ -1990,6 +2774,7 @@ namespace MissionPlanner.GCSViews
         {
             try
             {
+                EnsureCustomizationSlots();
                 Settings.Instance[TelemetrySelectionSettingKey] = string.Join(",", selectedMetricKeys);
                 Settings.Instance.Save();
             }
@@ -2219,6 +3004,268 @@ namespace MissionPlanner.GCSViews
             public float Progress { get; }
         }
 
+        private sealed class TelemetryCardCustomization
+        {
+            public string SourceTag { get; set; }
+            public string Label { get; set; }
+            public Color AccentColor { get; set; } = Color.FromArgb(111, 120, 138);
+            public string NumberFormat { get; set; } = "0.00";
+            public double Scale { get; set; } = 1.0;
+            public double Offset { get; set; }
+            public bool GaugeEnabled { get; set; }
+            public double GaugeMin { get; set; }
+            public double GaugeMax { get; set; } = 100.0;
+
+            public static string Serialize(TelemetryCardCustomization customization)
+            {
+                if (customization == null || string.IsNullOrWhiteSpace(customization.SourceTag))
+                    return string.Empty;
+
+                return string.Join(";",
+                    EncodePart(customization.SourceTag),
+                    EncodePart(customization.Label),
+                    customization.AccentColor.ToArgb().ToString(CultureInfo.InvariantCulture),
+                    EncodePart(customization.NumberFormat),
+                    customization.Scale.ToString("R", CultureInfo.InvariantCulture),
+                    customization.Offset.ToString("R", CultureInfo.InvariantCulture),
+                    customization.GaugeEnabled ? "1" : "0",
+                    customization.GaugeMin.ToString("R", CultureInfo.InvariantCulture),
+                    customization.GaugeMax.ToString("R", CultureInfo.InvariantCulture));
+            }
+
+            public static TelemetryCardCustomization TryDeserialize(string raw)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                    return null;
+
+                try
+                {
+                    string[] parts = raw.Split(';');
+                    if (parts.Length < 9)
+                        return null;
+
+                    return new TelemetryCardCustomization
+                    {
+                        SourceTag = DecodePart(parts[0]),
+                        Label = DecodePart(parts[1]),
+                        AccentColor = Color.FromArgb(int.Parse(parts[2], CultureInfo.InvariantCulture)),
+                        NumberFormat = DecodePart(parts[3]),
+                        Scale = double.Parse(parts[4], CultureInfo.InvariantCulture),
+                        Offset = double.Parse(parts[5], CultureInfo.InvariantCulture),
+                        GaugeEnabled = parts[6] == "1",
+                        GaugeMin = double.Parse(parts[7], CultureInfo.InvariantCulture),
+                        GaugeMax = double.Parse(parts[8], CultureInfo.InvariantCulture)
+                    };
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            private static string EncodePart(string value)
+            {
+                return Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(value ?? string.Empty));
+            }
+
+            private static string DecodePart(string value)
+            {
+                return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(value ?? string.Empty));
+            }
+        }
+
+        private void OpenTelemetryCardEditor(int cardIndex)
+        {
+            if (cardIndex < 0 || cardIndex >= selectedMetricKeys.Count)
+                return;
+
+            using (var proxy = CreateTelemetryQuickViewProxy(cardIndex))
+            using (var editor = new QuickViewOptions(proxy))
+            {
+                editor.StartPosition = FormStartPosition.CenterParent;
+                ThemeManager.ApplyThemeTo(editor);
+                editor.ShowDialog(FindForm());
+                ApplyTelemetryQuickViewProxy(cardIndex, proxy);
+            }
+        }
+
+        private QuickView CreateTelemetryQuickViewProxy(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+
+            var proxy = new QuickView
+            {
+                Tag = ResolveEditorSourceTag(cardIndex),
+                desc = ResolveEditorLabel(cardIndex),
+                numberColor = ResolveEditorColor(cardIndex),
+                numberColorBackup = ResolveEditorColor(cardIndex),
+                numberformat = ResolveEditorFormat(cardIndex),
+                scale = ResolveEditorScale(cardIndex),
+                offset = ResolveEditorOffset(cardIndex),
+                isGauge = ResolveEditorGaugeEnabled(cardIndex),
+                gaugeMin = ResolveEditorGaugeMin(cardIndex),
+                gaugeMax = ResolveEditorGaugeMax(cardIndex)
+            };
+
+            return proxy;
+        }
+
+        private void ApplyTelemetryQuickViewProxy(int cardIndex, QuickView proxy)
+        {
+            string sourceTag = proxy.Tag as string;
+            if (string.IsNullOrWhiteSpace(sourceTag))
+                return;
+
+            EnsureCustomizationSlots();
+
+            selectedMetricKeys[cardIndex] = sourceTag;
+            customMetricConfigs[cardIndex] = new TelemetryCardCustomization
+            {
+                SourceTag = sourceTag,
+                Label = proxy.desc,
+                AccentColor = proxy.numberColorBackup,
+                NumberFormat = string.IsNullOrWhiteSpace(proxy.numberformat) ? "0.00" : proxy.numberformat,
+                Scale = proxy.scale,
+                Offset = proxy.offset,
+                GaugeEnabled = proxy.isGauge,
+                GaugeMin = proxy.gaugeMin,
+                GaugeMax = proxy.gaugeMax
+            };
+
+            SaveMetricSelection();
+            SaveMetricCustomizations();
+            SyncCardControls();
+
+            if (lastTelemetry != null)
+                UpdateTelemetry(lastTelemetry);
+        }
+
+        private string ResolveEditorSourceTag(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+
+            var customization = customMetricConfigs[cardIndex];
+            if (customization != null && !string.IsNullOrWhiteSpace(customization.SourceTag))
+                return customization.SourceTag;
+
+            string key = selectedMetricKeys[cardIndex];
+            switch (key)
+            {
+                case "altitude":
+                    return "altasl";
+                case "ground_speed":
+                    return "groundspeed";
+                case "battery":
+                    return "battery_voltage";
+                case "endurance":
+                    return "battery_remainmin";
+                case "gps":
+                    return "satcount";
+                case "navigation":
+                    return "wp_dist";
+                case "time_in_air":
+                    return "timeInAir";
+                case "distance_travelled":
+                    return "distTraveled";
+                case "distance_to_home":
+                    return "DistToHome";
+                case "battery_used":
+                    return "battery_usedmah";
+                case "fuel_system":
+                    return "efi_fuelflow";
+                case "flight_mode":
+                    return "armed";
+                default:
+                    return key;
+            }
+        }
+
+        private string ResolveEditorLabel(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+
+            var customization = customMetricConfigs[cardIndex];
+            if (customization != null && !string.IsNullOrWhiteSpace(customization.Label))
+                return customization.Label;
+
+            if (cardIndex >= 0 && cardIndex < cards.Count && !string.IsNullOrWhiteSpace(cards[cardIndex].Title))
+                return cards[cardIndex].Title;
+
+            string sourceKey = ResolveTelemetrySourceKey(ResolveEditorSourceTag(cardIndex));
+            return GetTelemetryDisplayName(sourceKey, MainV2.comPort?.MAV?.cs);
+        }
+
+        private Color ResolveEditorColor(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+
+            var customization = customMetricConfigs[cardIndex];
+            if (customization != null)
+                return customization.AccentColor;
+
+            if (cardIndex >= 0 && cardIndex < cards.Count)
+                return cards[cardIndex].AccentColor;
+
+            return GetMetricAccent(selectedMetricKeys[cardIndex]);
+        }
+
+        private string ResolveEditorFormat(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+
+            var customization = customMetricConfigs[cardIndex];
+            if (customization != null && !string.IsNullOrWhiteSpace(customization.NumberFormat))
+                return customization.NumberFormat;
+
+            string sourceTag = ResolveEditorSourceTag(cardIndex);
+            switch (ResolveTelemetrySourceKey(sourceTag))
+            {
+                case "altasl":
+                case "satcount":
+                case "wp_dist":
+                case "distTraveled":
+                case "DistToHome":
+                case "battery_remaining":
+                case "battery_usedmah":
+                case "efi_fuelflow":
+                    return "0";
+                case "timeInAir":
+                    return "mm\\:ss";
+                default:
+                    return "0.00";
+            }
+        }
+
+        private double ResolveEditorScale(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+            return customMetricConfigs[cardIndex]?.Scale ?? 1.0;
+        }
+
+        private double ResolveEditorOffset(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+            return customMetricConfigs[cardIndex]?.Offset ?? 0.0;
+        }
+
+        private bool ResolveEditorGaugeEnabled(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+            return customMetricConfigs[cardIndex]?.GaugeEnabled ?? false;
+        }
+
+        private double ResolveEditorGaugeMin(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+            return customMetricConfigs[cardIndex]?.GaugeMin ?? 0.0;
+        }
+
+        private double ResolveEditorGaugeMax(int cardIndex)
+        {
+            EnsureCustomizationSlots();
+            return customMetricConfigs[cardIndex]?.GaugeMax ?? 100.0;
+        }
+
         private void TelemetryCard_MouseDoubleClick(object sender, MouseEventArgs e)
         {
             if (!(sender is ModernTelemetryCard card))
@@ -2228,7 +3275,7 @@ namespace MissionPlanner.GCSViews
             if (cardIndex < 0)
                 return;
 
-            ShowTelemetryMenu(cardIndex, card, new Point(Math.Min(card.Width - 8, e.X), Math.Min(card.Height - 8, e.Y)));
+            OpenTelemetryCardEditor(cardIndex);
         }
     }
 
@@ -2287,11 +3334,14 @@ namespace MissionPlanner.GCSViews
         private myGMAP tacticalMap;
         private TacticalMapGlassOverlay tacticalGlassOverlay;
         private GMapOverlay mapOverlay;
+        private GMapOverlay missionOverlay;
         private GMapRoute breadcrumbRoute;
         private GMapRoute homeRoute;
         private GMarkerGoogle homeMarker;
         private GMapMarkerPlane aircraftMarker;
         private readonly List<PointLatLng> breadcrumbPoints = new List<PointLatLng>();
+        private int lastMissionWaypointCount = -1;
+        private DateTime lastMissionOverlayRefresh = DateTime.MinValue;
         private Map3D mapView;
         private bool previewAvailable;
         private string previewInitError = "";
@@ -2300,6 +3350,9 @@ namespace MissionPlanner.GCSViews
         private Size appliedPreviewSize = new Size(280, 180);
         private Size previewRestoreSize = new Size(280, 180);
         private bool previewExpanded;
+        private bool updatingMapPosition;
+        private bool updatingMapZoom;
+        private DateTime manualNavigationUntilUtc = DateTime.MinValue;
         private bool resizingPreview;
         private Point previewResizeStartCursor;
         private Size previewResizeStartSize;
@@ -2337,8 +3390,9 @@ namespace MissionPlanner.GCSViews
             headerPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 58,
-                BackColor = Surface
+                Height = 0,
+                BackColor = Surface,
+                Visible = false
             };
             Controls.Add(headerPanel);
 
@@ -2410,6 +3464,7 @@ namespace MissionPlanner.GCSViews
                 BackColor = Color.FromArgb(8, 12, 20),
                 EmptyTileColor = Color.FromArgb(20, 24, 33),
                 CanDragMap = true,
+                DragButton = MouseButtons.Left,
                 DisableFocusOnMouseEnter = true,
                 GrayScaleMode = false,
                 HelperLineOption = HelperLineOptions.DontShow,
@@ -2430,6 +3485,8 @@ namespace MissionPlanner.GCSViews
             };
 
             tacticalMap.CacheLocation = Settings.GetDataDirectory() + "gmapcache" + System.IO.Path.DirectorySeparatorChar;
+            tacticalMap.OnPositionChanged += TacticalMap_OnPositionChanged;
+            tacticalMap.OnMapZoomChanged += TacticalMap_OnMapZoomChanged;
 
             mapOverlay = new GMapOverlay("modern-flight-map");
 
@@ -2473,36 +3530,21 @@ namespace MissionPlanner.GCSViews
             mapOverlay.Markers.Add(aircraftMarker);
             tacticalMap.Overlays.Add(mapOverlay);
 
-            if (FlightData.mymap?.MapProvider == GMapProviders.GoogleSatelliteMap)
-            {
-                selectedMapProvider = GMapProviders.GoogleSatelliteMap;
-            }
-            else
-            {
-                selectedMapProvider = GMapProviders.GoogleTerrainMap;
-            }
+            selectedMapProvider = GMapProviders.GoogleSatelliteMap;
 
             tacticalMap.MapProvider = selectedMapProvider;
             LoadSavedMapView();
 
             mapHostPanel.Controls.Add(tacticalMap);
             tacticalMap.SendToBack();
-
-            tacticalGlassOverlay = new TacticalMapGlassOverlay
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Color.Transparent,
-                Enabled = false
-            };
-            tacticalMap.Controls.Add(tacticalGlassOverlay);
-            tacticalGlassOverlay.BringToFront();
         }
 
         private void InitializeMapChrome()
         {
             mapChromePanel = new Panel
             {
-                BackColor = Color.FromArgb(19, 27, 38)
+                BackColor = Color.FromArgb(18, 24, 33),
+                Padding = new Padding(6, 4, 6, 4)
             };
             mapHostPanel.Controls.Add(mapChromePanel);
 
@@ -2514,29 +3556,9 @@ namespace MissionPlanner.GCSViews
                 FlowDirection = FlowDirection.LeftToRight,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty,
-                BackColor = Color.Transparent
+                BackColor = Color.FromArgb(18, 24, 33)
             };
             mapChromePanel.Controls.Add(mapButtonBar);
-
-            lblMapOverlayTitle = new Label
-            {
-                Font = overlayTitleFont,
-                ForeColor = LightGray,
-                BackColor = MapOverlaySurface,
-                Text = "Mission map",
-                AutoEllipsis = true
-            };
-            mapChromePanel.Controls.Add(lblMapOverlayTitle);
-
-            lblMapOverlaySubtitle = new Label
-            {
-                Font = overlayDetailFont,
-                ForeColor = MutedGray,
-                BackColor = MapOverlaySurface,
-                Text = "Waiting for vehicle link",
-                AutoEllipsis = true
-            };
-            mapChromePanel.Controls.Add(lblMapOverlaySubtitle);
 
             btnSatellite = CreateMapButton("Satellite");
             btnSatellite.Click += (s, e) => SetMapProvider(GMapProviders.GoogleSatelliteMap);
@@ -2717,45 +3739,33 @@ namespace MissionPlanner.GCSViews
 
         private void LayoutHeader()
         {
-            if (headerPanel == null)
+            if (mapHostPanel == null || mapChromePanel == null || mapButtonBar == null)
                 return;
 
-            int badgeWidth = 114;
-            int badgeHeight = 28;
-            int rightInset = 18;
-            int topInset = 18;
-
-            lblStatus.Bounds = new Rectangle(
-                Math.Max(140, headerPanel.ClientSize.Width - badgeWidth - rightInset),
-                topInset,
-                badgeWidth,
-                badgeHeight);
-
-            statusDot.Bounds = new Rectangle(
-                Math.Max(10, lblStatus.Left - 18),
-                topInset + (badgeHeight - statusDot.Height) / 2,
-                statusDot.Width,
-                statusDot.Height);
-
-            int textWidth = Math.Max(180, statusDot.Left - 28);
-            lblEyebrow.Bounds = new Rectangle(18, 10, textWidth, 14);
-            lblTitle.Bounds = new Rectangle(18, 24, textWidth, 20);
-            lblSubtitle.Bounds = new Rectangle(18, 44, textWidth, 16);
-        }
-
-        private void LayoutMapChrome()
-        {
-            if (mapHostPanel == null || mapChromePanel == null)
-                return;
+            int buttonBarWidth = mapButtonBar?.GetPreferredSize(Size.Empty).Width ?? 0;
+            int toolbarHeight = 30;
+            int toolbarWidth = buttonBarWidth + mapChromePanel.Padding.Horizontal;
 
             mapChromePanel.Bounds = new Rectangle(
                 14,
                 14,
-                Math.Max(220, mapHostPanel.ClientSize.Width - 28),
-                38);
+                Math.Max(90, toolbarWidth),
+                toolbarHeight);
 
-            int right = mapChromePanel.ClientSize.Width - 10;
-            int buttonTop = 8;
+            mapButtonBar.Bounds = new Rectangle(
+                mapChromePanel.Padding.Left,
+                mapChromePanel.Padding.Top,
+                buttonBarWidth,
+                22);
+
+            mapChromePanel.BringToFront();
+            mapButtonBar.BringToFront();
+        }
+
+        private void LayoutMapChrome()
+        {
+            if (mapHostPanel == null)
+                return;
             int zoomButtonWidth = 28;
             int terrainButtonWidth = GetMapButtonWidth(btnTerrain, 84, 24);
             int satelliteButtonWidth = GetMapButtonWidth(btnSatellite, 96, 24);
@@ -2771,23 +3781,7 @@ namespace MissionPlanner.GCSViews
             btnZoomOut.Size = new Size(zoomButtonWidth, 22);
 
             mapButtonBar?.PerformLayout();
-
-            int buttonBarWidth = mapButtonBar?.GetPreferredSize(Size.Empty).Width ?? 0;
-            if (mapButtonBar != null)
-            {
-                mapButtonBar.Bounds = new Rectangle(
-                    Math.Max(12, right - buttonBarWidth),
-                    buttonTop,
-                    buttonBarWidth,
-                    22);
-                mapButtonBar.BringToFront();
-            }
-
-            int textWidth = Math.Max(120, (mapButtonBar?.Left ?? (mapChromePanel.ClientSize.Width - 12)) - 18);
-            lblMapOverlayTitle.Bounds = new Rectangle(12, 5, textWidth, 14);
-            lblMapOverlaySubtitle.Bounds = new Rectangle(12, 18, textWidth, 14);
-
-            mapChromePanel.BringToFront();
+            LayoutHeader();
 
             if (!showEmbeddedPreview || previewBorderPanel == null)
                 return;
@@ -2798,7 +3792,7 @@ namespace MissionPlanner.GCSViews
             if (previewExpanded)
             {
                 int expandedLeft = 18;
-                int expandedTop = mapChromePanel.Bottom + 12;
+                int expandedTop = 18;
                 int expandedWidth = Math.Max(340, mapHostPanel.ClientSize.Width - 36);
                 int expandedHeight = Math.Max(220, mapHostPanel.ClientSize.Height - expandedTop - 18);
                 appliedPreviewSize = new Size(expandedWidth, expandedHeight);
@@ -2809,7 +3803,7 @@ namespace MissionPlanner.GCSViews
                 appliedPreviewSize = new Size(previewWidth, previewHeight);
                 previewBorderPanel.Bounds = new Rectangle(
                     Math.Max(18, mapHostPanel.ClientSize.Width - previewWidth - 18),
-                    Math.Max(mapChromePanel.Bottom + 12, mapHostPanel.ClientSize.Height - previewHeight - 18),
+                    Math.Max(18, mapHostPanel.ClientSize.Height - previewHeight - 18),
                     previewWidth,
                     previewHeight);
             }
@@ -2991,51 +3985,18 @@ namespace MissionPlanner.GCSViews
 
         private void ApplyDeckState(bool connected, bool hasPosition, string badgeText, string subtitle)
         {
-            Color accent = hasPosition
-                ? LiveAccent
-                : connected
-                    ? Gold
-                    : StandbyAccent;
-
-            lblTitle.Text = hasPosition
-                ? "Mission map - live"
-                : connected
-                    ? "Mission map syncing"
-                    : "Mission map standing by";
-
-            lblSubtitle.Text = subtitle;
-
-            lblStatus.Text = badgeText;
-            lblStatus.BackColor = hasPosition
-                ? Color.FromArgb(26, 60, 78)
-                : connected
-                    ? Color.FromArgb(78, 62, 28)
-                    : Color.FromArgb(44, 49, 59);
-
-            statusDot.BackColor = accent;
             mapBorderPanel.BackColor = hasPosition
                 ? Color.FromArgb(55, 102, 114)
                 : connected
                     ? Color.FromArgb(92, 78, 46)
                     : Border;
 
-            mapChromePanel.BackColor = hasPosition
-                ? Color.FromArgb(18, 29, 36)
-                : connected
-                    ? Color.FromArgb(20, 28, 36)
-                    : Color.FromArgb(19, 27, 38);
-
-            lblMapOverlayTitle.Text = hasPosition ? "Mission map - live" : "Mission map";
-            lblMapOverlaySubtitle.Text = hasPosition
-                ? subtitle
-                : connected
-                    ? "Waiting for stable telemetry"
-                    : "Waiting for vehicle link";
-            lblMapOverlaySubtitle.ForeColor = hasPosition
-                ? Color.FromArgb(141, 222, 214)
-                : connected
-                    ? Color.FromArgb(214, 188, 128)
-                    : MutedGray;
+            if (mapChromePanel != null)
+            {
+                mapChromePanel.BackColor = Color.FromArgb(18, 24, 33);
+                if (mapButtonBar != null)
+                    mapButtonBar.BackColor = mapChromePanel.BackColor;
+            }
         }
 
         private void ApplyPreviewState(bool connected, bool hasPosition, string mode, CurrentState cs)
@@ -3141,12 +4102,12 @@ namespace MissionPlanner.GCSViews
                 aircraftMarker.Nav_bearing = cs.nav_bearing;
                 aircraftMarker.Target = cs.target_bearing;
 
-                if (!tacticalMap.IsDragging)
+                if (!tacticalMap.IsDragging && !IsManualNavigationActive())
                 {
                     if (tacticalMap.Position.IsEmpty ||
                         GMapProviders.EmptyProvider.Projection.GetDistance(tacticalMap.Position, currentPoint) > 0.05)
                     {
-                        tacticalMap.Position = currentPoint;
+                        SetMapPositionInternal(currentPoint);
                     }
                 }
 
@@ -3187,7 +4148,7 @@ namespace MissionPlanner.GCSViews
 
                 if (!hasAircraft && tacticalMap.Position.IsEmpty)
                 {
-                    tacticalMap.Position = homePoint;
+                    SetMapPositionInternal(homePoint);
                 }
             }
             else
@@ -3195,6 +4156,8 @@ namespace MissionPlanner.GCSViews
                 homeRoute.Points.Clear();
                 tacticalMap.UpdateRouteLocalPosition(homeRoute);
             }
+
+            UpdateMissionOverlay(cs);
 
             UpdateTacticalOverlayState(
                 MainV2.comPort?.BaseStream?.IsOpen == true,
@@ -3209,6 +4172,146 @@ namespace MissionPlanner.GCSViews
 
             tacticalMap.Invalidate();
             tacticalGlassOverlay?.Invalidate();
+        }
+
+        private void UpdateMissionOverlay(CurrentState cs)
+        {
+            if (tacticalMap == null)
+                return;
+
+            var waypointValues = MainV2.comPort?.MAV?.wps?.Values;
+            if (waypointValues == null)
+            {
+                ClearMissionOverlay();
+                return;
+            }
+
+            var missionItems = waypointValues.Select(item => (Locationwp)item).ToList();
+            if (missionItems.Count == 0)
+            {
+                ClearMissionOverlay();
+                return;
+            }
+
+            var now = DateTime.UtcNow;
+            if (missionOverlay != null &&
+                missionItems.Count == lastMissionWaypointCount &&
+                lastMissionOverlayRefresh.AddSeconds(2) > now)
+            {
+                return;
+            }
+
+            var homeplla = new PointLatLngAlt(
+                cs.HomeLocation.Lat,
+                cs.HomeLocation.Lng,
+                cs.HomeLocation.Alt / CurrentState.multiplieralt,
+                "H");
+
+            if (!HasValidCoordinate(homeplla.Lat, homeplla.Lng))
+            {
+                homeplla = new PointLatLngAlt(
+                    cs.PlannedHomeLocation.Lat,
+                    cs.PlannedHomeLocation.Lng,
+                    cs.PlannedHomeLocation.Alt / CurrentState.multiplieralt,
+                    "H");
+            }
+
+            if (!HasValidCoordinate(homeplla.Lat, homeplla.Lng) && missionItems.Count > 0)
+            {
+                homeplla = new PointLatLngAlt(
+                    missionItems[0].lat,
+                    missionItems[0].lng,
+                    missionItems[0].alt / CurrentState.multiplieralt,
+                    "H");
+            }
+
+            List<Locationwp> routeMissionItems = new List<Locationwp>(missionItems);
+            if (routeMissionItems.Count > 0)
+                routeMissionItems.RemoveAt(0);
+
+            GMapOverlay activeOverlay;
+            if (Settings.Instance.GetBoolean("UseWPOverlay2", true))
+            {
+                var wpOverlay2 = new WPOverlay2
+                {
+                    VehicleClass = MainV2.comPort.MAV.cs.vehicleClass,
+                    ShowPlusMarkers = false
+                };
+
+                wpOverlay2.CreateOverlay(
+                    homeplla,
+                    routeMissionItems,
+                    0 / CurrentState.multiplieralt,
+                    0 / CurrentState.multiplieralt,
+                    CurrentState.multiplieralt);
+
+                activeOverlay = wpOverlay2.overlay;
+            }
+            else
+            {
+                var wpOverlay = new MissionPlanner.ArduPilot.WPOverlay();
+                wpOverlay.CreateOverlay(
+                    homeplla,
+                    routeMissionItems,
+                    0 / CurrentState.multiplieralt,
+                    0 / CurrentState.multiplieralt,
+                    CurrentState.multiplieralt);
+
+                activeOverlay = wpOverlay.overlay;
+            }
+
+            ClearMissionOverlay();
+
+            missionOverlay = activeOverlay;
+
+            int insertIndex = mapOverlay != null
+                ? tacticalMap.Overlays.IndexOf(mapOverlay)
+                : tacticalMap.Overlays.Count;
+            if (insertIndex < 0)
+                insertIndex = tacticalMap.Overlays.Count;
+
+            tacticalMap.Overlays.Insert(insertIndex, missionOverlay);
+            missionOverlay.ForceUpdate();
+
+            lastMissionWaypointCount = missionItems.Count;
+            lastMissionOverlayRefresh = now;
+        }
+
+        private void ClearMissionOverlay()
+        {
+            if (tacticalMap != null)
+            {
+                if (missionOverlay != null)
+                {
+                    tacticalMap.Overlays.Remove(missionOverlay);
+                }
+
+                var staleMissionOverlays = tacticalMap.Overlays
+                    .Where(overlay => overlay != mapOverlay &&
+                                      (overlay.Id == "WPOverlay2" || overlay.Id == "WPOverlay"))
+                    .ToList();
+
+                foreach (var overlay in staleMissionOverlays)
+                {
+                    tacticalMap.Overlays.Remove(overlay);
+                    DisposeMissionOverlayRoutes(overlay);
+                }
+            }
+
+            DisposeMissionOverlayRoutes(missionOverlay);
+            missionOverlay = null;
+            lastMissionWaypointCount = -1;
+        }
+
+        private static void DisposeMissionOverlayRoutes(GMapOverlay overlay)
+        {
+            if (overlay == null)
+                return;
+
+            foreach (var route in overlay.Routes)
+            {
+                route?.Stroke?.Dispose();
+            }
         }
 
         private void UpdateTacticalOverlayState(bool connected, bool hasPosition, bool hasHome, string mode,
@@ -3235,18 +4338,18 @@ namespace MissionPlanner.GCSViews
             {
                 if (!string.IsNullOrWhiteSpace(Settings.Instance["maplast_lat"]))
                 {
-                    tacticalMap.Position = new PointLatLng(
+                    SetMapPositionInternal(new PointLatLng(
                         Settings.Instance.GetDouble("maplast_lat"),
-                        Settings.Instance.GetDouble("maplast_lng"));
+                        Settings.Instance.GetDouble("maplast_lng")));
 
                     if (Math.Round(Settings.Instance.GetDouble("maplast_lat"), 1) == 0)
                     {
-                        tacticalMap.Zoom = 3;
+                        SetMapZoomInternal(3);
                     }
                     else
                     {
-                        tacticalMap.Zoom = Math.Max(tacticalMap.MinZoom,
-                            Math.Min(tacticalMap.MaxZoom, Settings.Instance.GetFloat("maplast_zoom")));
+                        SetMapZoomInternal(Math.Max(tacticalMap.MinZoom,
+                            Math.Min(tacticalMap.MaxZoom, Settings.Instance.GetFloat("maplast_zoom"))));
                     }
 
                     return;
@@ -3257,8 +4360,8 @@ namespace MissionPlanner.GCSViews
                 log.Debug($"Modern flight map restore error: {ex.Message}");
             }
 
-            tacticalMap.Position = new PointLatLng(0, 0);
-            tacticalMap.Zoom = 3;
+            SetMapPositionInternal(new PointLatLng(0, 0));
+            SetMapZoomInternal(3);
         }
 
         private void SaveMapView()
@@ -3298,6 +4401,64 @@ namespace MissionPlanner.GCSViews
             ApplyMapButtonStyle(btnTerrain, selectedMapProvider == GMapProviders.GoogleTerrainMap);
         }
 
+        private void TacticalMap_OnPositionChanged(PointLatLng point)
+        {
+            if (updatingMapPosition)
+                return;
+
+            MarkManualNavigation();
+        }
+
+        private void TacticalMap_OnMapZoomChanged()
+        {
+            if (updatingMapZoom)
+                return;
+
+            MarkManualNavigation();
+        }
+
+        private void MarkManualNavigation()
+        {
+            manualNavigationUntilUtc = DateTime.UtcNow.AddSeconds(12);
+        }
+
+        private bool IsManualNavigationActive()
+        {
+            return manualNavigationUntilUtc > DateTime.UtcNow;
+        }
+
+        private void SetMapPositionInternal(PointLatLng position)
+        {
+            if (tacticalMap == null)
+                return;
+
+            updatingMapPosition = true;
+            try
+            {
+                tacticalMap.Position = position;
+            }
+            finally
+            {
+                updatingMapPosition = false;
+            }
+        }
+
+        private void SetMapZoomInternal(double zoom)
+        {
+            if (tacticalMap == null)
+                return;
+
+            updatingMapZoom = true;
+            try
+            {
+                tacticalMap.Zoom = zoom;
+            }
+            finally
+            {
+                updatingMapZoom = false;
+            }
+        }
+
         private void ApplyMapButtonStyle(Button button, bool selected)
         {
             button.BackColor = selected ? Color.FromArgb(34, 88, 108) : Color.FromArgb(18, 24, 33);
@@ -3305,6 +4466,14 @@ namespace MissionPlanner.GCSViews
             button.FlatAppearance.BorderColor = selected
                 ? Color.FromArgb(118, 208, 199)
                 : Color.FromArgb(46, 58, 76);
+        }
+
+        public void ClearTrack()
+        {
+            breadcrumbPoints.Clear();
+            breadcrumbRoute?.Points.Clear();
+            tacticalMap?.UpdateRouteLocalPosition(breadcrumbRoute);
+            tacticalMap?.Invalidate();
         }
 
         private static bool HasValidCoordinate(double latitude, double longitude)
@@ -3317,6 +4486,7 @@ namespace MissionPlanner.GCSViews
             if (disposing)
             {
                 DeactivateView();
+                ClearMissionOverlay();
                 breadcrumbRoute?.Stroke?.Dispose();
                 homeRoute?.Stroke?.Dispose();
                 eyebrowFont?.Dispose();
@@ -4388,7 +5558,7 @@ namespace MissionPlanner.GCSViews
     /// <summary>
     /// Message Center Panel - Right side live vehicle, warning, and mission events
     /// </summary>
-    public class PanelQuickActions : Panel
+    public class LegacyMessageCenterPanel : Panel
     {
         private Label lblTitle;
         private Label lblSubtitle;
@@ -4406,7 +5576,7 @@ namespace MissionPlanner.GCSViews
         private readonly Color RedStatus = Color.FromArgb(244, 67, 54);
         private readonly Color WarningStatus = Color.FromArgb(228, 172, 67);
 
-        public PanelQuickActions()
+        public LegacyMessageCenterPanel()
         {
             BackColor = Color.FromArgb(10, 14, 20);
             Padding = new Padding(12);

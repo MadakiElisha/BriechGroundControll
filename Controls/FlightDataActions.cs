@@ -57,6 +57,12 @@ namespace MissionPlanner.Controls
             UpdateGroupBoxWidths();
         }
 
+        public void SetPayloadVisible(bool visible)
+        {
+            grpPayload.Visible = visible;
+            UpdateGroupBoxWidths();
+        }
+
         #region Exposed Controls - for FlightData.cs to wire up existing event handlers
 
         // Command group

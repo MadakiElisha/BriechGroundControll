@@ -19,6 +19,8 @@ namespace MissionPlanner.GCSViews
         public float AirSpeed { get; set; }
         public float TargetSpeed { get; set; }
         public float VerticalSpeed { get; set; }
+        public float AngleOfAttack { get; set; }
+        public float CriticalAngleOfAttack { get; set; }
         public float DistanceToWaypoint { get; set; }
         public int WaypointNumber { get; set; }
         public float DistanceToHome { get; set; }
@@ -41,6 +43,9 @@ namespace MissionPlanner.GCSViews
         private readonly Color targetBugColor = Color.FromArgb(230, 174, 68);
         private readonly Color homeBugColor = Color.FromArgb(92, 202, 142);
         private readonly Color aircraftColor = Color.FromArgb(245, 82, 71);
+        private readonly Color aoaSafeColor = Color.FromArgb(78, 182, 117);
+        private readonly Color aoaCautionColor = Color.FromArgb(221, 182, 74);
+        private readonly Color aoaDangerColor = Color.FromArgb(223, 92, 82);
         private readonly Color textPrimary = Color.FromArgb(232, 236, 242);
         private readonly Color textSecondary = Color.FromArgb(150, 160, 178);
         private readonly Color statusDanger = Color.FromArgb(232, 82, 71);
@@ -97,12 +102,16 @@ namespace MissionPlanner.GCSViews
             int instrumentHeight = Math.Max(160, Height - instrumentTop - outerPadding);
             int arcReserve = ClampInt(instrumentHeight / 10, 24, 34);
             int tapeWidth = ClampInt(Width / 8, 66, 90);
+            int aoaStripWidth = ClampInt(Width / 38, 18, 24);
+            int aoaStripGap = ClampInt(Width / 80, 6, 10);
+            int waypointFooterHeight = ClampInt(Height / 18, 24, 30);
+            int waypointFooterGap = ClampInt(Height / 55, 6, 10);
             int gap = ClampInt(Width / 60, 8, 14);
 
             var headingRect = new Rectangle(outerPadding, outerPadding, Width - outerPadding * 2, ribbonHeight);
             var batteryRect = new Rectangle(Width - outerPadding - 74, instrumentTop + 4, 74, 22);
 
-            int centerAvailableWidth = Width - outerPadding * 2 - tapeWidth * 2 - gap * 2;
+            int centerAvailableWidth = Width - outerPadding * 2 - tapeWidth * 2 - gap * 2 - aoaStripWidth - aoaStripGap;
             int centerAvailableHeight = instrumentHeight - arcReserve - 12;
             int globeDiameter = Math.Max(220, Math.Min(centerAvailableWidth, centerAvailableHeight));
             globeDiameter = Math.Min(globeDiameter, Math.Min(centerAvailableWidth, centerAvailableHeight));
@@ -112,15 +121,27 @@ namespace MissionPlanner.GCSViews
             var globeRect = new Rectangle(globeLeft, globeTop, globeDiameter, globeDiameter);
 
             int tapeTop = instrumentTop + arcReserve + 8;
-            int tapeHeight = Math.Max(180, Height - tapeTop - outerPadding - 12);
+            int tapeHeight = Math.Max(160, Height - tapeTop - outerPadding - waypointFooterHeight - waypointFooterGap - 8);
             var leftTapeRect = new Rectangle(outerPadding + 4, tapeTop, tapeWidth, tapeHeight);
-            var rightTapeRect = new Rectangle(Width - outerPadding - tapeWidth - 4, tapeTop, tapeWidth, tapeHeight);
+            var rightTapeRect = new Rectangle(
+                Width - outerPadding - aoaStripWidth - aoaStripGap - tapeWidth - 4,
+                tapeTop,
+                tapeWidth,
+                tapeHeight);
+            var aoaRect = new Rectangle(rightTapeRect.Right + aoaStripGap, tapeTop + 10, aoaStripWidth, Math.Max(80, tapeHeight - 20));
+            var waypointRect = new Rectangle(
+                rightTapeRect.Left,
+                rightTapeRect.Bottom + waypointFooterGap,
+                rightTapeRect.Width,
+                waypointFooterHeight);
 
             DrawHeadingRibbon(graphics, headingRect);
             DrawRollScale(graphics, globeRect);
             DrawHorizonGlobe(graphics, globeRect);
             DrawSpeedTape(graphics, leftTapeRect);
             DrawAltitudeTape(graphics, rightTapeRect);
+            DrawAoaEnvelope(graphics, aoaRect);
+            DrawWaypointReadout(graphics, waypointRect);
             DrawBatteryBadge(graphics, batteryRect);
             DrawArmingAnnunciator(graphics, globeRect);
         }
@@ -336,7 +357,6 @@ namespace MissionPlanner.GCSViews
             float pixelsPerUnit = tapeRect.Height / visibleRange;
 
             using (var scaleBrush = new SolidBrush(majorScaleColor))
-            using (var mutedBrush = new SolidBrush(textSecondary))
             using (var targetPen = new Pen(targetBugColor, 2.4f))
             {
                 for (int value = (int)Math.Floor(start); value <= (int)Math.Ceiling(end); value++)
@@ -372,12 +392,6 @@ namespace MissionPlanner.GCSViews
                 var groundBadgeRect = new Rectangle(Math.Max(2, tapeRect.Left - 52), tapeRect.Top + tapeRect.Height / 2 - 1, 48, 20);
                 DrawTelemetryBadge(graphics, airBadgeRect, "A", AirSpeed, ModernUiPainter.GetBatteryColor(BatteryRemaining));
                 DrawTelemetryBadge(graphics, groundBadgeRect, "G", GroundSpeed, Color.FromArgb(88, 182, 225));
-
-                string footer = FormatWaypointFooter();
-                SizeF footerSize = graphics.MeasureString(footer, footerFont);
-                graphics.DrawString(footer, footerFont, mutedBrush,
-                    tapeRect.Left + (tapeRect.Width - footerSize.Width) / 2f,
-                    tapeRect.Bottom + 8);
             }
         }
 
@@ -446,6 +460,90 @@ namespace MissionPlanner.GCSViews
                 }
 
                 graphics.DrawPolygon(accentPen, wedge);
+            }
+        }
+
+        private void DrawAoaEnvelope(Graphics graphics, Rectangle bounds)
+        {
+            if (bounds.Width < 14 || bounds.Height < 72)
+                return;
+
+            bool hasAoAData = Connected && CriticalAngleOfAttack > 0.1f;
+            float aoaRatio = hasAoAData
+                ? Clamp(AngleOfAttack / CriticalAngleOfAttack, 0f, 1f)
+                : 0f;
+
+            ModernUiPainter.FillRoundedRectangle(graphics, Color.FromArgb(13, 18, 27), bounds, 10);
+            ModernUiPainter.DrawRoundedRectangle(graphics, Color.FromArgb(86, 99, 122), 1f, bounds, 10);
+
+            var barRect = new Rectangle(
+                bounds.Left + Math.Max(4, bounds.Width / 3),
+                bounds.Top + 8,
+                Math.Max(7, bounds.Width / 3),
+                Math.Max(40, bounds.Height - 16));
+
+            using (var safeBrush = new SolidBrush(ModernUiPainter.WithAlpha(aoaSafeColor, hasAoAData ? 220 : 90)))
+            using (var cautionBrush = new SolidBrush(ModernUiPainter.WithAlpha(aoaCautionColor, hasAoAData ? 220 : 90)))
+            using (var dangerBrush = new SolidBrush(ModernUiPainter.WithAlpha(aoaDangerColor, hasAoAData ? 220 : 90)))
+            using (var barBorderPen = new Pen(Color.FromArgb(218, 225, 235), 1f))
+            {
+                float redHeight = barRect.Height * 0.15f;
+                float yellowHeight = barRect.Height * 0.25f;
+                float greenHeight = barRect.Height - redHeight - yellowHeight;
+
+                graphics.FillRectangle(dangerBrush,
+                    new RectangleF(barRect.Left, barRect.Top, barRect.Width, redHeight));
+                graphics.FillRectangle(cautionBrush,
+                    new RectangleF(barRect.Left, barRect.Top + redHeight, barRect.Width, yellowHeight));
+                graphics.FillRectangle(safeBrush,
+                    new RectangleF(barRect.Left, barRect.Top + redHeight + yellowHeight, barRect.Width, greenHeight));
+                graphics.DrawRectangle(barBorderPen, barRect);
+            }
+
+            float pointerY = barRect.Bottom - (barRect.Height * aoaRatio);
+            pointerY = Clamp(pointerY, barRect.Top + 3, barRect.Bottom - 3);
+
+            Color pointerAccent = !hasAoAData
+                ? textSecondary
+                : aoaRatio >= 0.85f
+                    ? aoaDangerColor
+                    : aoaRatio >= 0.60f
+                        ? aoaCautionColor
+                        : aoaSafeColor;
+
+            PointF[] pointer =
+            {
+                new PointF(barRect.Left - 1, pointerY),
+                new PointF(bounds.Left + 2, pointerY - Math.Max(4, bounds.Width / 3f)),
+                new PointF(bounds.Left + 2, pointerY + Math.Max(4, bounds.Width / 3f))
+            };
+
+            using (var pointerFill = new SolidBrush(Color.FromArgb(16, 20, 30)))
+            using (var pointerPen = new Pen(pointerAccent, 1.4f))
+            {
+                graphics.FillPolygon(pointerFill, pointer);
+                graphics.DrawPolygon(pointerPen, pointer);
+            }
+        }
+
+        private void DrawWaypointReadout(Graphics graphics, Rectangle bounds)
+        {
+            if (bounds.Width < 40 || bounds.Height < 16)
+                return;
+
+            string footer = FormatWaypointFooter();
+            using (var textBrush = new SolidBrush(textSecondary))
+            {
+                var textRect = new RectangleF(bounds.Left + 2, bounds.Top, bounds.Width - 4, bounds.Height);
+                var format = new StringFormat
+                {
+                    Alignment = StringAlignment.Center,
+                    LineAlignment = StringAlignment.Center,
+                    Trimming = StringTrimming.EllipsisCharacter,
+                    FormatFlags = StringFormatFlags.NoWrap
+                };
+
+                graphics.DrawString(footer, footerFont, textBrush, textRect, format);
             }
         }
 

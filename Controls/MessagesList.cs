@@ -19,11 +19,45 @@ namespace MissionPlanner.Controls
         private Font displayFont;
         private int selectedIndex = -1;
         private int hoverIndex = -1;
+        private bool useWrappedRows;
+        private float configuredFontSize = 9.5f;
+
+        public bool UseWrappedRows
+        {
+            get { return useWrappedRows; }
+            set
+            {
+                if (useWrappedRows == value)
+                    return;
+
+                useWrappedRows = value;
+                itemHeight = useWrappedRows ? 42 : 26;
+                RebuildDisplayFont();
+                UpdateScrollBar();
+                containerPanel.Invalidate();
+            }
+        }
+
+        public float DisplayFontSize
+        {
+            get { return configuredFontSize; }
+            set
+            {
+                float newSize = Math.Max(7.5f, Math.Min(12f, value));
+                if (Math.Abs(configuredFontSize - newSize) < 0.01f)
+                    return;
+
+                configuredFontSize = newSize;
+                RebuildDisplayFont();
+                UpdateScrollBar();
+                containerPanel.Invalidate();
+            }
+        }
 
         public MessagesList()
         {
             InitializeComponent();
-            displayFont = new Font("Segoe UI", 9.5f, FontStyle.Regular);
+            RebuildDisplayFont();
         }
 
         private void InitializeComponent()
@@ -82,6 +116,14 @@ namespace MissionPlanner.Controls
                 this.containerPanel.BackColor = Color.FromArgb(30, 30, 30);
             }
             containerPanel.Invalidate();
+        }
+
+        private void RebuildDisplayFont()
+        {
+            if (displayFont != null)
+                displayFont.Dispose();
+
+            displayFont = new Font("Segoe UI", configuredFontSize, FontStyle.Regular);
         }
 
         private void ContainerPanel_MouseEnter(object sender, EventArgs e)
@@ -321,7 +363,7 @@ namespace MissionPlanner.Controls
             }
 
             int padding = 4;
-            int textY = y + (itemHeight - displayFont.Height) / 2;
+            int textY = useWrappedRows ? y + 5 : y + (itemHeight - displayFont.Height) / 2;
 
             // Draw timestamp
             string timeStr = msg.time.ToString("HH:mm:ss");
@@ -335,13 +377,17 @@ namespace MissionPlanner.Controls
             Color badgeColor = GetSeverityBadgeColor(msg.severity);
             using (var brush = new SolidBrush(badgeColor))
             {
-                var badgeRect = new Rectangle(severityX, y + 4, 50, itemHeight - 8);
+                var badgeRect = useWrappedRows
+                    ? new Rectangle(severityX, y + 6, 50, 18)
+                    : new Rectangle(severityX, y + 4, 50, itemHeight - 8);
                 g.FillRectangle(brush, badgeRect);
             }
             using (var brush = new SolidBrush(Color.White))
             using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
             {
-                var badgeRect = new RectangleF(severityX, y, 50, itemHeight);
+                var badgeRect = useWrappedRows
+                    ? new RectangleF(severityX, y + 2, 50, 26)
+                    : new RectangleF(severityX, y, 50, itemHeight);
                 using (var smallFont = new Font(displayFont.FontFamily, displayFont.Size * 0.8f, FontStyle.Bold))
                 {
                     g.DrawString(severityText, smallFont, brush, badgeRect, sf);
@@ -352,8 +398,14 @@ namespace MissionPlanner.Controls
             int messageX = 130;
             using (var brush = new SolidBrush(textColor))
             {
-                var messageRect = new RectangleF(messageX, textY, containerPanel.Width - messageX - padding, displayFont.Height);
-                using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
+                var messageRect = useWrappedRows
+                    ? new RectangleF(messageX, y + 3, Math.Max(40, containerPanel.Width - messageX - padding), itemHeight - 6)
+                    : new RectangleF(messageX, textY, Math.Max(40, containerPanel.Width - messageX - padding), displayFont.Height);
+                using (var sf = new StringFormat
+                {
+                    Trimming = useWrappedRows ? StringTrimming.EllipsisWord : StringTrimming.EllipsisCharacter,
+                    FormatFlags = useWrappedRows ? 0 : StringFormatFlags.NoWrap
+                })
                 {
                     g.DrawString(msg.message, displayFont, brush, messageRect, sf);
                 }
@@ -465,6 +517,14 @@ namespace MissionPlanner.Controls
                 this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
                 this.UpdateStyles();
             }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && displayFont != null)
+                displayFont.Dispose();
+
+            base.Dispose(disposing);
         }
     }
 }

@@ -1,0 +1,56 @@
+{
+  "runtimeTarget": {
+    "name": ".NETStandard,Version=v2.0/",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETStandard,Version=v2.0": {},
+    ".NETStandard,Version=v2.0/": {
+      "MissionPlanner.Strings/1.0.0": {
+        "runtime": {
+          "MissionPlanner.Strings.dll": {}
+        },
+        "resources": {
+          "az-Latn-AZ/MissionPlanner.Strings.resources.dll": {
+            "locale": "az-Latn-AZ"
+          },
+          "de-DE/MissionPlanner.Strings.resources.dll": {
+            "locale": "de-DE"
+          },
+          "id-ID/MissionPlanner.Strings.resources.dll": {
+            "locale": "id-ID"
+          },
+          "ja-JP/MissionPlanner.Strings.resources.dll": {
+            "locale": "ja-JP"
+          },
+          "ko-KR/MissionPlanner.Strings.resources.dll": {
+            "locale": "ko-KR"
+          },
+          "pt/MissionPlanner.Strings.resources.dll": {
+            "locale": "pt"
+          },
+          "ru-KZ/MissionPlanner.Strings.resources.dll": {
+            "locale": "ru-KZ"
+          },
+          "tr/MissionPlanner.Strings.resources.dll": {
+            "locale": "tr"
+          },
+          "uk/MissionPlanner.Strings.resources.dll": {
+            "locale": "uk"
+          },
+          "zh-Hans/MissionPlanner.Strings.resources.dll": {
+            "locale": "zh-Hans"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "MissionPlanner.Strings/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}
