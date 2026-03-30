@@ -59,6 +59,13 @@ namespace MissionPlanner.GCSViews
         private FlightDataActions legacyActions;
         private MessagesList messagesList;
         private Button btnOpenDataflashLogs;
+        private Button btnDownloadDataflashLogs;
+        private Button btnReviewDataflashLogs;
+        private Button btnAutoAnalyzeDataflash;
+        private Button btnCreateDataflashKml;
+        private Button btnConvertBinToLog;
+        private Button btnOpenMatlabLog;
+        private Button btnGeorefImages;
         private Button btnLoadTelemetryLog;
         private Button btnExportTelemetryKml;
         private Button btnPlayPauseLog;
@@ -67,6 +74,7 @@ namespace MissionPlanner.GCSViews
         private Label lblPlaybackState;
         private Label lblLogFile;
         private ComboBox comboPlaybackSpeed;
+        private Label lblPlaybackMultiplier;
         private PreflightStatusCard cardLink;
         private PreflightStatusCard cardGps;
         private PreflightStatusCard cardBattery;
@@ -79,6 +87,8 @@ namespace MissionPlanner.GCSViews
         private bool legacyActionsInitialized;
         private bool suppressLogUiEvents;
         private MethodInfo legacySetPlaybackSpeedMethod;
+        private MethodInfo legacyLogHandlerMethod;
+        private MethodInfo legacyTrackScrollMethod;
         private FieldInfo legacyPlaybackSpeedField;
         private readonly List<(DateTime time, string message, byte severity)> supplementalMessages =
             new List<(DateTime time, string message, byte severity)>();
@@ -290,7 +300,12 @@ namespace MissionPlanner.GCSViews
 
         private Panel BuildLogsPage()
         {
-            var page = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+            var page = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.Transparent,
+                AutoScroll = true
+            };
 
             var note = new Label
             {
@@ -302,23 +317,35 @@ namespace MissionPlanner.GCSViews
                 BackColor = Color.Transparent
             };
 
+            var content = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 1,
+                RowCount = 2,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0, 0, 0, 8)
+            };
+            content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+
             Panel telemetryBody;
             var telemetrySection = CreateLogsSectionPanel("TELEMETRY LOGS", "Load, scrub, play, and export telemetry logs.", out telemetryBody);
-            telemetrySection.Dock = DockStyle.Fill;
+            telemetrySection.Dock = DockStyle.Top;
+            telemetrySection.Height = 216;
 
             var telemetryContent = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 5,
+                RowCount = 4,
                 BackColor = Color.Transparent,
                 Padding = new Padding(14, 12, 14, 14)
             };
             telemetryContent.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-            telemetryContent.RowStyles.Add(new RowStyle(SizeType.Absolute, 38f));
+            telemetryContent.RowStyles.Add(new RowStyle(SizeType.Absolute, 46f));
             telemetryContent.RowStyles.Add(new RowStyle(SizeType.Absolute, 48f));
             telemetryContent.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-            telemetryContent.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
             var telemetryButtons = new FlowLayoutPanel
             {
@@ -329,7 +356,7 @@ namespace MissionPlanner.GCSViews
                 Margin = new Padding(0)
             };
 
-            btnLoadTelemetryLog = CreateLogCommandButton("Load Telemetry", 122);
+            btnLoadTelemetryLog = CreateLogCommandButton("Load Log", 132);
             btnLoadTelemetryLog.Click += BtnLoadTelemetryLog_Click;
             telemetryButtons.Controls.Add(btnLoadTelemetryLog);
 
@@ -337,7 +364,7 @@ namespace MissionPlanner.GCSViews
             btnPlayPauseLog.Click += BtnPlayPauseLog_Click;
             telemetryButtons.Controls.Add(btnPlayPauseLog);
 
-            btnExportTelemetryKml = CreateLogCommandButton("Export KML", 108);
+            btnExportTelemetryKml = CreateLogCommandButton("Tlog > Kml or Graph", 174);
             btnExportTelemetryKml.Click += BtnExportTelemetryKml_Click;
             telemetryButtons.Controls.Add(btnExportTelemetryKml);
 
@@ -348,8 +375,8 @@ namespace MissionPlanner.GCSViews
                 ForeColor = TextPrimary,
                 BackColor = Color.Transparent,
                 Text = "No telemetry log loaded.",
-                AutoEllipsis = true,
-                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = false,
+                TextAlign = ContentAlignment.TopLeft,
                 Margin = new Padding(0, 2, 0, 0)
             };
 
@@ -431,6 +458,17 @@ namespace MissionPlanner.GCSViews
             comboPlaybackSpeed.Items.AddRange(new object[] { "0.1", "0.25", "0.5", "1", "2", "4", "8" });
             comboPlaybackSpeed.SelectedIndexChanged += ComboPlaybackSpeed_SelectedIndexChanged;
             speedPanel.Controls.Add(comboPlaybackSpeed);
+            lblPlaybackMultiplier = new Label
+            {
+                Width = 42,
+                Height = 26,
+                Text = "x 1",
+                Font = subtitleFont,
+                ForeColor = TextPrimary,
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            speedPanel.Controls.Add(lblPlaybackMultiplier);
 
             telemetryContent.Controls.Add(telemetryButtons, 0, 0);
             telemetryContent.Controls.Add(lblLogFile, 0, 1);
@@ -439,24 +477,57 @@ namespace MissionPlanner.GCSViews
             telemetryBody.Controls.Add(telemetryContent);
 
             Panel dataflashBody;
-            var dataflashSection = CreateLogsSectionPanel("DATAFLASH LOGS", "Open the legacy dataflash browser and analysis tools.", out dataflashBody);
+            var dataflashSection = CreateLogsSectionPanel("DATAFLASH LOGS", "Download, review, convert, analyze, and export onboard logs.", out dataflashBody);
             dataflashSection.Dock = DockStyle.Top;
-            dataflashSection.Height = 112;
+            dataflashSection.Height = 228;
 
-            var dataflashContent = new Panel
+            var dataflashContent = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.Transparent,
-                Padding = new Padding(14, 12, 14, 14)
+                Padding = new Padding(14, 12, 14, 14),
+                ColumnCount = 3,
+                RowCount = 3
             };
-            btnOpenDataflashLogs = CreateLogCommandButton("Open Browser", 118);
-            btnOpenDataflashLogs.Location = new Point(0, 0);
-            btnOpenDataflashLogs.Click += BtnOpenDataflashLogs_Click;
-            dataflashContent.Controls.Add(btnOpenDataflashLogs);
+            dataflashContent.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+            dataflashContent.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+            dataflashContent.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.34f));
+            dataflashContent.RowStyles.Add(new RowStyle(SizeType.Absolute, 46f));
+            dataflashContent.RowStyles.Add(new RowStyle(SizeType.Absolute, 46f));
+            dataflashContent.RowStyles.Add(new RowStyle(SizeType.Absolute, 46f));
+
+            btnDownloadDataflashLogs = CreateLogGridButton("Download via\r\nMavlink");
+            btnDownloadDataflashLogs.Click += BtnDownloadDataflashLogs_Click;
+            dataflashContent.Controls.Add(btnDownloadDataflashLogs, 0, 0);
+
+            btnReviewDataflashLogs = CreateLogGridButton("Review a Log");
+            btnReviewDataflashLogs.Click += BtnOpenDataflashLogs_Click;
+            dataflashContent.Controls.Add(btnReviewDataflashLogs, 1, 0);
+
+            btnAutoAnalyzeDataflash = CreateLogGridButton("Auto Analysis");
+            btnAutoAnalyzeDataflash.Click += BtnAutoAnalyzeDataflash_Click;
+            dataflashContent.Controls.Add(btnAutoAnalyzeDataflash, 2, 0);
+
+            btnCreateDataflashKml = CreateLogGridButton("Create kml +\r\ngpx");
+            btnCreateDataflashKml.Click += BtnCreateDataflashKml_Click;
+            dataflashContent.Controls.Add(btnCreateDataflashKml, 0, 1);
+
+            btnConvertBinToLog = CreateLogGridButton("Convert .bin to\r\n.log");
+            btnConvertBinToLog.Click += BtnConvertBinToLog_Click;
+            dataflashContent.Controls.Add(btnConvertBinToLog, 1, 1);
+
+            btnOpenMatlabLog = CreateLogGridButton("MATLAB File");
+            btnOpenMatlabLog.Click += BtnOpenMatlabLog_Click;
+            dataflashContent.Controls.Add(btnOpenMatlabLog, 2, 1);
+
+            btnGeorefImages = CreateLogGridButton("Geo Reference\r\nImages");
+            btnGeorefImages.Click += BtnGeorefImages_Click;
+            dataflashContent.Controls.Add(btnGeorefImages, 0, 2);
             dataflashBody.Controls.Add(dataflashContent);
 
-            page.Controls.Add(telemetrySection);
-            page.Controls.Add(dataflashSection);
+            content.Controls.Add(dataflashSection, 0, 0);
+            content.Controls.Add(telemetrySection, 0, 1);
+            page.Controls.Add(content);
             page.Controls.Add(note);
 
             UpdateLogsUi();
@@ -560,6 +631,29 @@ namespace MissionPlanner.GCSViews
                 BackColor = SurfaceRaised,
                 ForeColor = TextPrimary,
                 Cursor = Cursors.Hand
+            };
+            button.FlatAppearance.BorderSize = 1;
+            button.FlatAppearance.BorderColor = Gold;
+            button.FlatAppearance.MouseDownBackColor = SurfaceRaised;
+            button.FlatAppearance.MouseOverBackColor = SurfaceRaised;
+            return button;
+        }
+
+        private Button CreateLogGridButton(string text)
+        {
+            var button = new Button
+            {
+                Text = text,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 10, 10),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 8f, FontStyle.Bold),
+                BackColor = SurfaceRaised,
+                ForeColor = TextPrimary,
+                Cursor = Cursors.Hand,
+                TextAlign = ContentAlignment.MiddleCenter,
+                UseMnemonic = false,
+                Padding = new Padding(6, 0, 6, 0)
             };
             button.FlatAppearance.BorderSize = 1;
             button.FlatAppearance.BorderColor = Gold;
@@ -747,13 +841,58 @@ namespace MissionPlanner.GCSViews
 
         private void BtnOpenDataflashLogs_Click(object sender, EventArgs e)
         {
-            var logBrowse = new LogBrowse();
-            ThemeManager.ApplyThemeTo(logBrowse);
-            logBrowse.Show();
+            if (!InvokeLegacyFlightDataHandler("BUT_logbrowse_Click"))
+            {
+                var logBrowse = new LogBrowse();
+                ThemeManager.ApplyThemeTo(logBrowse);
+                logBrowse.Show();
+            }
+        }
+
+        private void BtnDownloadDataflashLogs_Click(object sender, EventArgs e)
+        {
+            if (!InvokeLegacyFlightDataHandler("BUT_DFMavlink_Click"))
+                ModernCommandDialog.ShowNotice(this, "Legacy log tool unavailable", "The Dataflash download tool could not be opened.", Warning);
+        }
+
+        private void BtnAutoAnalyzeDataflash_Click(object sender, EventArgs e)
+        {
+            if (!InvokeLegacyFlightDataHandler("BUT_loganalysis_Click"))
+                ModernCommandDialog.ShowNotice(this, "Legacy log tool unavailable", "The Auto Analysis tool could not be opened.", Warning);
+        }
+
+        private void BtnCreateDataflashKml_Click(object sender, EventArgs e)
+        {
+            if (!InvokeLegacyFlightDataHandler("but_dflogtokml_Click"))
+                ModernCommandDialog.ShowNotice(this, "Legacy log tool unavailable", "The KML/GPX export tool could not be opened.", Warning);
+        }
+
+        private void BtnConvertBinToLog_Click(object sender, EventArgs e)
+        {
+            if (!InvokeLegacyFlightDataHandler("but_bintolog_Click"))
+                ModernCommandDialog.ShowNotice(this, "Legacy log tool unavailable", "The bin-to-log converter could not be opened.", Warning);
+        }
+
+        private void BtnOpenMatlabLog_Click(object sender, EventArgs e)
+        {
+            if (!InvokeLegacyFlightDataHandler("BUT_matlab_Click"))
+                ModernCommandDialog.ShowNotice(this, "Legacy log tool unavailable", "The MATLAB export could not be opened.", Warning);
+        }
+
+        private void BtnGeorefImages_Click(object sender, EventArgs e)
+        {
+            if (!InvokeLegacyFlightDataHandler("BUT_georefimage_Click"))
+                ModernCommandDialog.ShowNotice(this, "Legacy log tool unavailable", "The image georeference tool could not be opened.", Warning);
         }
 
         private void BtnLoadTelemetryLog_Click(object sender, EventArgs e)
         {
+            if (InvokeLegacyFlightDataHandler("BUT_loadtelem_Click"))
+            {
+                UpdateLogsUi();
+                return;
+            }
+
             using (var dialog = new OpenFileDialog())
             {
                 dialog.Filter = "Telemetry Logs|*.tlog;*.log;*.rlog;*.bin|All Files|*.*";
@@ -798,9 +937,12 @@ namespace MissionPlanner.GCSViews
 
         private void BtnExportTelemetryKml_Click(object sender, EventArgs e)
         {
-            var exportDialog = new MavlinkLog();
-            ThemeManager.ApplyThemeTo(exportDialog);
-            exportDialog.Show();
+            if (!InvokeLegacyFlightDataHandler("BUT_log2kml_Click"))
+            {
+                var exportDialog = new MavlinkLog();
+                ThemeManager.ApplyThemeTo(exportDialog);
+                exportDialog.Show();
+            }
         }
 
         private void BtnPlayPauseLog_Click(object sender, EventArgs e)
@@ -831,6 +973,12 @@ namespace MissionPlanner.GCSViews
         {
             if (suppressLogUiEvents || MainV2.comPort?.logplaybackfile == null)
                 return;
+
+            if (InvokeLegacyTrackScroll())
+            {
+                UpdateLogsUi();
+                return;
+            }
 
             try
             {
@@ -907,6 +1055,8 @@ namespace MissionPlanner.GCSViews
                 if (comboPlaybackSpeed.Items.IndexOf(playbackSpeed) < 0)
                     comboPlaybackSpeed.Items.Add(playbackSpeed);
                 comboPlaybackSpeed.SelectedItem = playbackSpeed;
+                if (lblPlaybackMultiplier != null)
+                    lblPlaybackMultiplier.Text = "x " + playbackSpeed;
             }
             finally
             {
@@ -955,6 +1105,54 @@ namespace MissionPlanner.GCSViews
             if (legacyPlaybackSpeedField == null)
                 legacyPlaybackSpeedField = typeof(FlightData).GetField("LogPlayBackSpeed", BindingFlags.Instance | BindingFlags.NonPublic);
             legacyPlaybackSpeedField?.SetValue(flightData, speed);
+        }
+
+        private bool InvokeLegacyTrackScroll()
+        {
+            var flightData = MainV2.instance?.FlightData;
+            if (flightData == null)
+                return false;
+
+            if (legacyTrackScrollMethod == null)
+                legacyTrackScrollMethod = typeof(FlightData).GetMethod("tracklog_Scroll", BindingFlags.Instance | BindingFlags.NonPublic);
+
+            if (legacyTrackScrollMethod == null)
+                return false;
+
+            try
+            {
+                var legacyTrack = typeof(FlightData).GetField("tracklog", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(flightData) as TrackBar;
+                if (legacyTrack != null)
+                    legacyTrack.Value = trackPlayback.Value;
+
+                legacyTrackScrollMethod.Invoke(flightData, new object[] { this, EventArgs.Empty });
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool InvokeLegacyFlightDataHandler(string methodName)
+        {
+            var flightData = MainV2.instance?.FlightData;
+            if (flightData == null)
+                return false;
+
+            try
+            {
+                legacyLogHandlerMethod = typeof(FlightData).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+                if (legacyLogHandlerMethod == null)
+                    return false;
+
+                legacyLogHandlerMethod.Invoke(flightData, new object[] { this, EventArgs.Empty });
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static string BuildSupplementalMessage(string title, string detail)

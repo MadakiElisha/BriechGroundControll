@@ -3356,6 +3356,7 @@ namespace MissionPlanner.GCSViews
         private bool resizingPreview;
         private Point previewResizeStartCursor;
         private Size previewResizeStartSize;
+        private ContextMenuStrip legacyMapContextMenu;
 
         public PanelMap3DDeck(bool showEmbeddedPreview = false)
         {
@@ -3487,6 +3488,8 @@ namespace MissionPlanner.GCSViews
             tacticalMap.CacheLocation = Settings.GetDataDirectory() + "gmapcache" + System.IO.Path.DirectorySeparatorChar;
             tacticalMap.OnPositionChanged += TacticalMap_OnPositionChanged;
             tacticalMap.OnMapZoomChanged += TacticalMap_OnMapZoomChanged;
+            tacticalMap.MouseDown += TacticalMap_MouseDown;
+            tacticalMap.MouseEnter += TacticalMap_MouseEnter;
 
             mapOverlay = new GMapOverlay("modern-flight-map");
 
@@ -3534,9 +3537,47 @@ namespace MissionPlanner.GCSViews
 
             tacticalMap.MapProvider = selectedMapProvider;
             LoadSavedMapView();
+            TryAttachLegacyMapContextMenu();
 
             mapHostPanel.Controls.Add(tacticalMap);
             tacticalMap.SendToBack();
+        }
+
+        private void TacticalMap_MouseEnter(object sender, EventArgs e)
+        {
+            TryAttachLegacyMapContextMenu();
+        }
+
+        private void TacticalMap_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (tacticalMap == null)
+                return;
+
+            var legacyFlightData = MainV2.instance?.FlightData;
+            if (legacyFlightData == null)
+                return;
+
+            legacyFlightData.MouseDownStart = tacticalMap.FromLocalToLatLng(e.X, e.Y);
+            TryAttachLegacyMapContextMenu();
+        }
+
+        private void TryAttachLegacyMapContextMenu()
+        {
+            if (tacticalMap == null)
+                return;
+
+            var legacyFlightData = MainV2.instance?.FlightData;
+            var candidateMenu = legacyFlightData?.contextMenuStripMap;
+
+            if (candidateMenu == null || candidateMenu.IsDisposed)
+                return;
+
+            if (ReferenceEquals(legacyMapContextMenu, candidateMenu) &&
+                ReferenceEquals(tacticalMap.ContextMenuStrip, candidateMenu))
+                return;
+
+            legacyMapContextMenu = candidateMenu;
+            tacticalMap.ContextMenuStrip = legacyMapContextMenu;
         }
 
         private void InitializeMapChrome()

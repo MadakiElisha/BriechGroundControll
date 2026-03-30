@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Drawing;
 using System.Reflection;
 using System.Windows.Forms;
 using MissionPlanner.Utilities;
@@ -10,6 +11,9 @@ namespace MissionPlanner
         public Splash()
         {
             InitializeComponent();
+
+            if (Program.IconFile is Bitmap iconBitmap)
+                this.Icon = Icon.FromHandle(iconBitmap.GetHicon());
 
             TXT_version.Visible = false; //Added to hide version info on splash screen.
 
