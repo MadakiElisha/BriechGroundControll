@@ -56,11 +56,11 @@ namespace wix
 
         static string mainexeid = "";
         static string mainExecutablePath = "";
-        static string mainExecutableName = "MissionPlanner.exe";
-        static string productDisplayName = "Mission Planner";
-        static string manufacturerName = "Michael Oborne";
-        static string installerDescription = "Mission Planner Installer";
-        static string uninstallDisplayName = "Mission Planner";
+        static string mainExecutableName = "BriechGroundControl.exe";
+        static string productDisplayName = "Briech Ground Control Station";
+        static string manufacturerName = "Briech UAS";
+        static string installerDescription = "Briech Ground Control Station Installer";
+        static string uninstallDisplayName = "Briech Ground Control Station";
 
         static string basedir = "";
 
@@ -90,7 +90,7 @@ namespace wix
             System.Diagnostics.FileVersionInfo fvi = FileVersionInfo.GetVersionInfo(mainExecutablePath);
 
             productDisplayName = FirstNonEmpty(fvi.ProductName, "Briech Ground Control Station", "Mission Planner");
-            manufacturerName = FirstNonEmpty(fvi.CompanyName, "Briech UAS", "Michael Oborne");
+            manufacturerName = FirstNonEmpty(fvi.CompanyName, "Briech UAS", "Briech UAS");
             installerDescription = FirstNonEmpty(fvi.FileDescription, productDisplayName + " Installer", "Mission Planner Installer");
             uninstallDisplayName = productDisplayName;
 
