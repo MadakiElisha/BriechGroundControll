@@ -28,6 +28,7 @@ using SkiaSharp;
 
 // Control written by Michael Oborne 2011
 // Modified by Mohammad Adib 2026 =)
+//Modified bt Briech UAS
 // dual opengl and GDI+
 
 namespace MissionPlanner.Controls

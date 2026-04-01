@@ -1689,7 +1689,7 @@ namespace MissionPlanner.GCSViews
         private readonly Color Surface = Color.FromArgb(24, 31, 44);
         private readonly Color Border = Color.FromArgb(44, 54, 73);
         private readonly Color Gold = Color.FromArgb(200, 168, 101);
-        private readonly Color ArmedAccent = Color.FromArgb(72, 182, 132);
+        private readonly Color ArmedAccent = Color.FromArgb(228, 84, 71);
         private readonly Color SafeAccent = Color.FromArgb(228, 84, 71);
         private readonly Color StandbyAccent = Color.FromArgb(110, 118, 136);
 
@@ -2186,9 +2186,9 @@ namespace MissionPlanner.GCSViews
                 float contentWidth = Width - 32;
                 float labelY = accentRect.Bottom + 9;
                 float valueY = labelY + 17;
-                float progressTop = Height - 15;
+                float contentBottom = Height - 14;
                 float detailY = valueY + 28;
-                float detailHeight = Math.Max(16, progressTop - detailY - 8);
+                float detailHeight = Math.Max(20, contentBottom - detailY);
 
                 e.Graphics.DrawString(Title, labelFont, titleBrush,
                     new RectangleF(contentX, labelY, contentWidth, 13), singleLineFormat);
@@ -2198,14 +2198,6 @@ namespace MissionPlanner.GCSViews
                     new RectangleF(contentX, detailY, contentWidth, detailHeight), detailFormat);
             }
 
-            int progressWidth = (int)((Width - 32) * Math.Max(0f, Math.Min(1f, Progress)));
-            if (progressWidth > 0)
-            {
-                var progressTrack = new Rectangle(16, Height - 15, Width - 32, 4);
-                var progressFill = new Rectangle(16, Height - 15, progressWidth, 4);
-                ModernUiPainter.FillRoundedRectangle(e.Graphics, Color.FromArgb(42, 54, 76), progressTrack, 2);
-                ModernUiPainter.FillRoundedRectangle(e.Graphics, AccentColor, progressFill, 2);
-            }
         }
 
         private static Color Blend(Color baseColor, Color accentColor, float amount)
@@ -5743,7 +5735,7 @@ namespace MissionPlanner.GCSViews
             string normalizedMode = string.IsNullOrWhiteSpace(mode) ? "UNKNOWN" : mode.ToUpperInvariant();
             lblSubtitle.Text = $"Mode {normalizedMode}";
             lblStatus.Text = $"{(armed ? "ARMED" : "SAFE")}  |  {(connected ? "LIVE LINK" : "OFFLINE")}";
-            lblStatus.ForeColor = !connected ? RedStatus : armed ? GreenStatus : WarningStatus;
+            lblStatus.ForeColor = !connected ? RedStatus : armed ? RedStatus : WarningStatus;
 
             if (!connected)
                 lblHint.Text = "Awaiting vehicle link, telemetry, and mission activity.";

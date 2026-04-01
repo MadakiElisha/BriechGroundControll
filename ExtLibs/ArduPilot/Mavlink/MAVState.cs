@@ -156,6 +156,10 @@ namespace MissionPlanner
 
         internal byte[] signingKey;
 
+        [JsonIgnore]
+        [IgnoreDataMember]
+        public byte[] SigningKey => signingKey;
+
         /// <summary>
         /// are we signing outgoing packets, and checking incomming packet signatures
         /// </summary>

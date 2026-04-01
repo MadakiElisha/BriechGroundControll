@@ -36,6 +36,15 @@ namespace MissionPlanner.Utilities
             client.Timeout = TimeSpan.FromSeconds(30);
         }
 
+        private static string GetConfiguredUpdatePackageUrl(string zipKey, string fallbackKey)
+        {
+            var zipUrl = ConfigurationManager.AppSettings[zipKey];
+            if (!string.IsNullOrWhiteSpace(zipUrl))
+                return zipUrl;
+
+            return ConfigurationManager.AppSettings[fallbackKey];
+        }
+
         public static void updateCheckMain(IProgressReporterDialogue frmProgressReporter)
         {
             var t = Type.GetType("Mono.Runtime");
@@ -47,19 +56,19 @@ namespace MissionPlanner.Utilities
                 {
                     CheckMD5(frmProgressReporter,
                         ConfigurationManager.AppSettings["MasterUpdateLocationMD5"].ToString(),
-                        ConfigurationManager.AppSettings["MasterUpdateLocationZip"]);
+                        GetConfiguredUpdatePackageUrl("MasterUpdateLocationZip", "UpdateLocation"));
                 }
                 else if (dobeta)
                 {
                     CheckMD5(frmProgressReporter,
                         ConfigurationManager.AppSettings["BetaUpdateLocationMD5"].ToString(),
-                        ConfigurationManager.AppSettings["BetaUpdateLocationZip"]);
+                        GetConfiguredUpdatePackageUrl("BetaUpdateLocationZip", "UpdateLocation"));
                 }
                 else
                 {
                     CheckMD5(frmProgressReporter,
                         ConfigurationManager.AppSettings["UpdateLocationMD5"].ToString(),
-                        ConfigurationManager.AppSettings["UpdateLocation"]);
+                        GetConfiguredUpdatePackageUrl("UpdateLocationZip", "UpdateLocation"));
                 }
 
                 var process = new Process();

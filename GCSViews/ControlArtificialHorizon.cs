@@ -49,7 +49,7 @@ namespace MissionPlanner.GCSViews
         private readonly Color textPrimary = Color.FromArgb(232, 236, 242);
         private readonly Color textSecondary = Color.FromArgb(150, 160, 178);
         private readonly Color statusDanger = Color.FromArgb(232, 82, 71);
-        private readonly Color statusSafe = Color.FromArgb(90, 202, 138);
+        private readonly Color statusSafe = Color.FromArgb(232, 82, 71);
 
         private readonly Pen horizonPen;
         private readonly Pen majorLadderPen;
@@ -576,7 +576,7 @@ namespace MissionPlanner.GCSViews
         private void DrawArmingAnnunciator(Graphics graphics, Rectangle globeRect)
         {
             string label = Armed ? "ARMED" : "DISARMED";
-            Color accent = Armed ? statusSafe : statusDanger;
+            Color accent = Armed ? statusDanger : statusDanger;
             float fontSize = Clamp(globeRect.Width / 12.5f, 18f, 28f);
 
             using (var statusTextFont = new Font("Segoe UI", fontSize, FontStyle.Bold))
