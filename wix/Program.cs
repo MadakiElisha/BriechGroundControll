@@ -55,6 +55,12 @@ namespace wix
         static Hashtable dircache = new Hashtable();
 
         static string mainexeid = "";
+        static string mainExecutablePath = "";
+        static string mainExecutableName = "MissionPlanner.exe";
+        static string productDisplayName = "Mission Planner";
+        static string manufacturerName = "Michael Oborne";
+        static string installerDescription = "Mission Planner Installer";
+        static string uninstallDisplayName = "Mission Planner";
 
         static string basedir = "";
 
@@ -72,22 +78,31 @@ namespace wix
             basedir = path;
             //Path.GetDirectoryName(Application.ExecutablePath) + Path.DirectorySeparatorChar+ 
             string file = "installer.wxs";
+            mainExecutablePath = ResolveMainExecutablePath(path);
+            if (string.IsNullOrEmpty(mainExecutablePath))
+            {
+                Console.WriteLine("Unable to locate main executable in " + path);
+                return;
+            }
 
-            string outputfilename = "MissionPlanner";
+            mainExecutableName = Path.GetFileName(mainExecutablePath);
 
-            if (args.Length > 1)
-                outputfilename = args[1];
+            System.Diagnostics.FileVersionInfo fvi = FileVersionInfo.GetVersionInfo(mainExecutablePath);
 
-            string exepath = Path.GetFullPath(path) + Path.DirectorySeparatorChar + "MissionPlanner.exe";
-            string version = Assembly.LoadFile(exepath).GetName().Version.ToString();
+            productDisplayName = FirstNonEmpty(fvi.ProductName, "Briech Ground Control Station", "Mission Planner");
+            manufacturerName = FirstNonEmpty(fvi.CompanyName, "Briech UAS", "Michael Oborne");
+            installerDescription = FirstNonEmpty(fvi.FileDescription, productDisplayName + " Installer", "Mission Planner Installer");
+            uninstallDisplayName = productDisplayName;
 
-            System.Diagnostics.FileVersionInfo fvi = FileVersionInfo.GetVersionInfo(exepath);
+            string outputfilename = args.Length > 1
+                ? args[1]
+                : Path.GetFileNameWithoutExtension(mainExecutableName);
 
             sw = new StreamWriter(file);
 
             header(fvi.ProductVersion);
 
-            sw.WriteLine("    <Directory Id=\"INSTALLDIR\" Name=\"Mission Planner\">");
+            sw.WriteLine("    <Directory Id=\"INSTALLDIR\" Name=\"" + productDisplayName + "\">");
 
             sw.WriteLine(@"        <Component Id=""InstallDirPermissions"" Guid=""{525389D7-EB3C-4d77-A5F6-A285CF99437D}"" KeyPath=""yes""> 
             <CreateFolder> 
@@ -167,6 +182,52 @@ namespace wix
             return null;
         }
 
+        static string ResolveMainExecutablePath(string basePath)
+        {
+            var preferredFiles = new[]
+            {
+                "BriechGroundControl.exe",
+                "MissionPlanner.exe",
+            };
+
+            foreach (var fileName in preferredFiles)
+            {
+                var candidate = Path.Combine(basePath, fileName);
+                if (File.Exists(candidate))
+                {
+                    return Path.GetFullPath(candidate);
+                }
+            }
+
+            foreach (var candidate in Directory.GetFiles(basePath, "*.exe"))
+            {
+                var fileName = Path.GetFileName(candidate);
+                if (fileName.Equals("Updater.exe", StringComparison.OrdinalIgnoreCase) ||
+                    fileName.Equals("version.exe", StringComparison.OrdinalIgnoreCase) ||
+                    fileName.StartsWith("wix", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                return Path.GetFullPath(candidate);
+            }
+
+            return null;
+        }
+
+        static string FirstNonEmpty(params string[] values)
+        {
+            foreach (var value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value.Trim();
+                }
+            }
+
+            return string.Empty;
+        }
+
         static void runProgram(string run)
         {
             System.Diagnostics.Process P = new System.Diagnostics.Process();
@@ -187,9 +248,9 @@ namespace wix
 <Wix xmlns=""http://schemas.microsoft.com/wix/2006/wi"" xmlns:netfx=""http://schemas.microsoft.com/wix/NetFxExtension"" xmlns:difx=""http://schemas.microsoft.com/wix/DifxAppExtension"" xmlns:iis='http://schemas.microsoft.com/wix/IIsExtension' >
 
 
-    <Product Id=""" + newid + @""" Name=""Mission Planner"" Language=""1033"" Version=""" + version + @""" Manufacturer=""Michael Oborne"" UpgradeCode=""{625389D7-EB3C-4d77-A5F6-A285CF99437D}"">
+    <Product Id=""" + newid + @""" Name=""" + productDisplayName + @""" Language=""1033"" Version=""" + version + @""" Manufacturer=""" + manufacturerName + @""" UpgradeCode=""{625389D7-EB3C-4d77-A5F6-A285CF99437D}"">
 
-    <Package Description=""Mission Planner Installer"" Comments=""Mission Planner Installer"" Manufacturer=""Michael Oborne"" InstallerVersion=""200"" Compressed=""yes"" />
+    <Package Description=""" + installerDescription + @""" Comments=""" + installerDescription + @""" Manufacturer=""" + manufacturerName + @""" InstallerVersion=""200"" Compressed=""yes"" />
 
     <Upgrade Id=""{625389D7-EB3C-4d77-A5F6-A285CF99437D}"">
         <UpgradeVersion OnlyDetect=""yes"" Minimum=""" + version + @""" Property=""NEWERVERSIONDETECTED"" IncludeMinimum=""no"" />
@@ -221,7 +282,7 @@ namespace wix
         </Directory>
 
         <Directory Id=""ProgramMenuFolder"">
-            <Directory Id=""ApplicationProgramsFolder"" Name=""Mission Planner"" />
+            <Directory Id=""ApplicationProgramsFolder"" Name=""" + productDisplayName + @""" />
         </Directory>
     </Directory>
 
@@ -276,8 +337,8 @@ namespace wix
 
     <DirectoryRef Id=""ApplicationProgramsFolder"">
         <Component Id=""ApplicationShortcut"" Guid=""*"">
-            <Shortcut Id=""ApplicationStartMenuShortcut10"" Name=""Mission Planner"" Description=""Mission Planner"" Target=""[INSTALLDIR]MissionPlanner.exe"" WorkingDirectory=""INSTALLDIR"" />
-            <Shortcut Id=""UninstallProduct"" Name=""Uninstall Mission Planner"" Description=""Uninstalls My Application"" Target=""[System64Folder]msiexec.exe"" Arguments=""/x [ProductCode]"" />
+            <Shortcut Id=""ApplicationStartMenuShortcut10"" Name=""" + productDisplayName + @""" Description=""" + installerDescription + @""" Target=""[INSTALLDIR]" + mainExecutableName + @""" WorkingDirectory=""INSTALLDIR"" />
+            <Shortcut Id=""UninstallProduct"" Name=""Uninstall " + uninstallDisplayName + @""" Description=""Uninstalls " + uninstallDisplayName + @""" Target=""[System64Folder]msiexec.exe"" Arguments=""/x [ProductCode]"" />
             <RegistryValue Root=""HKCU"" Key=""Software\MichaelOborne\MissionPlanner"" Name=""installed"" Type=""integer"" Value=""1"" KeyPath=""yes"" />
 
             <RemoveFolder Id=""dltApplicationProgramsFolder"" Directory=""ApplicationProgramsFolder"" On=""uninstall"" />
@@ -287,7 +348,7 @@ namespace wix
     </DirectoryRef>
 
 
-    <Feature Id=""Complete"" Title=""Mission Planner"" Level=""1"">
+    <Feature Id=""Complete"" Title=""" + productDisplayName + @""" Level=""1"">
         <ComponentRef Id=""InstallDirPermissions"" />
 ";
             sw.WriteLine(data);
@@ -314,7 +375,7 @@ namespace wix
             Event=""DoAction"" 
             Value=""LaunchApplication"">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed</Publish>
     </UI>
-    <Property Id=""WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT"" Value=""Launch Mission Planner"" />
+    <Property Id=""WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT"" Value=""Launch " + productDisplayName + @""" />
 
     <!-- Step 3: Include the custom action -->
     <Property Id=""WixShellExecTarget"" Value=""[#" + mainexeid + @"]"" />
@@ -370,11 +431,11 @@ namespace wix
                 no++;
 
 
-                if (filepath.EndsWith("MissionPlanner.exe"))
+                if (string.Equals(Path.GetFullPath(filepath), mainExecutablePath, StringComparison.OrdinalIgnoreCase))
                 {
                     mainexeid = "_" + no;
 
-                    sw.WriteLine(tabs3 + "<File Id=\"" + mainexeid + "\" Source=\"" + filepath + "\" ><netfx:NativeImage Id=\"ngen_MissionPlannerexe\"/> </File>");
+                    sw.WriteLine(tabs3 + "<File Id=\"" + mainexeid + "\" Source=\"" + filepath + "\" ><netfx:NativeImage Id=\"ngen_MainExecutable\"/> </File>");
 
                     sw.WriteLine(@"<ProgId Id='MissionPlanner.tlog' Description='Telemetry Log'>
   <Extension Id='tlog' ContentType='application/tlog'>
