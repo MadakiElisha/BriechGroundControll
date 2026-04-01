@@ -61,6 +61,7 @@ namespace wix
         static string manufacturerName = "Briech UAS";
         static string installerDescription = "Briech Ground Control Station Installer";
         static string uninstallDisplayName = "Briech Ground Control Station";
+        static string msiProductVersion = "1.0.0";
 
         static string basedir = "";
 
@@ -88,11 +89,13 @@ namespace wix
             mainExecutableName = Path.GetFileName(mainExecutablePath);
 
             System.Diagnostics.FileVersionInfo fvi = FileVersionInfo.GetVersionInfo(mainExecutablePath);
+            var assemblyVersion = AssemblyName.GetAssemblyName(mainExecutablePath).Version;
 
             productDisplayName = FirstNonEmpty(fvi.ProductName, "Briech Ground Control Station", "Mission Planner");
             manufacturerName = FirstNonEmpty(fvi.CompanyName, "Briech UAS", "Briech UAS");
             installerDescription = FirstNonEmpty(fvi.FileDescription, productDisplayName + " Installer", "Mission Planner Installer");
             uninstallDisplayName = productDisplayName;
+            msiProductVersion = ResolveMsiProductVersion(assemblyVersion, fvi.ProductVersion, fvi.FileVersion);
 
             string outputfilename = args.Length > 1
                 ? args[1]
@@ -100,7 +103,7 @@ namespace wix
 
             sw = new StreamWriter(file);
 
-            header(fvi.ProductVersion);
+            header(msiProductVersion);
 
             sw.WriteLine("    <Directory Id=\"INSTALLDIR\" Name=\"" + productDisplayName + "\">");
 
@@ -119,7 +122,7 @@ namespace wix
 
     
 
-            string fn = outputfilename + "-" + fvi.ProductVersion;
+            string fn = outputfilename + "-" + msiProductVersion;
 
             StreamWriter st = new StreamWriter("create.bat", false);
 
@@ -228,6 +231,58 @@ namespace wix
             return string.Empty;
         }
 
+        static string ResolveMsiProductVersion(Version assemblyVersion, params string[] versionCandidates)
+        {
+            if (IsValidMsiVersion(assemblyVersion))
+            {
+                return ToMsiVersionString(assemblyVersion);
+            }
+
+            foreach (var candidate in versionCandidates)
+            {
+                if (Version.TryParse(candidate, out var parsed) && IsValidMsiVersion(parsed))
+                {
+                    return ToMsiVersionString(parsed);
+                }
+            }
+
+            return "1.0.0";
+        }
+
+        static bool IsValidMsiVersion(Version version)
+        {
+            if (version == null)
+            {
+                return false;
+            }
+
+            return version.Major >= 0 && version.Major < 256 &&
+                   version.Minor >= 0 && version.Minor < 256 &&
+                   version.Build >= 0 && version.Build < 65536;
+        }
+
+        static string ToMsiVersionString(Version version)
+        {
+            var build = version.Build >= 0 ? version.Build : 0;
+            return string.Format("{0}.{1}.{2}", version.Major, version.Minor, build);
+        }
+
+        static Version GetMainExecutableAssemblyVersion()
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(mainExecutablePath) && File.Exists(mainExecutablePath))
+                {
+                    return AssemblyName.GetAssemblyName(mainExecutablePath).Version;
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
         static void runProgram(string run)
         {
             System.Diagnostics.Process P = new System.Diagnostics.Process();
@@ -240,6 +295,8 @@ namespace wix
 
         static void header(string version)
         {
+            version = ResolveMsiProductVersion(GetMainExecutableAssemblyVersion(), version, msiProductVersion);
+
             string newid = System.Guid.NewGuid().ToString();
 
             newid = "*";
