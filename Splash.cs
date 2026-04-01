@@ -2,6 +2,7 @@
 using System.Drawing;
 using System.Reflection;
 using System.Windows.Forms;
+using MissionPlanner.Properties;
 using MissionPlanner.Utilities;
 
 namespace MissionPlanner
@@ -11,6 +12,8 @@ namespace MissionPlanner
         public Splash()
         {
             InitializeComponent();
+
+            ApplyBranding();
 
             if (Program.IconFile is Bitmap iconBitmap)
                 this.Icon = Icon.FromHandle(iconBitmap.GetHicon());
@@ -27,6 +30,29 @@ namespace MissionPlanner
             Console.WriteLine(strVersion);
 
             Console.WriteLine("Splash .ctor");
+        }
+
+        private void ApplyBranding()
+        {
+            BackColor = Color.FromArgb(10, 14, 20);
+
+            if (titanLogo != null)
+            {
+                titanLogo.BackColor = Color.Transparent;
+                titanLogo.SizeMode = PictureBoxSizeMode.Zoom;
+                titanLogo.Image = GetSplashImage() ?? titanLogo.Image;
+            }
+        }
+
+        private static Image GetSplashImage()
+        {
+            if (Resources.splashdark != null)
+                return (Image)Resources.splashdark.Clone();
+
+            if (Resources.logo_dark != null)
+                return (Image)Resources.logo_dark.Clone();
+
+            return null;
         }
     }
 }

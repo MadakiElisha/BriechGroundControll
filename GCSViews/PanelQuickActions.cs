@@ -87,9 +87,10 @@ namespace MissionPlanner.GCSViews
         private bool legacyActionsInitialized;
         private bool suppressLogUiEvents;
         private MethodInfo legacySetPlaybackSpeedMethod;
-        private MethodInfo legacyLogHandlerMethod;
+        private MethodInfo legacyFlightDataHandlerMethod;
         private MethodInfo legacyTrackScrollMethod;
         private FieldInfo legacyPlaybackSpeedField;
+        private FieldInfo legacyFlightDataActionsField;
         private readonly List<(DateTime time, string message, byte severity)> supplementalMessages =
             new List<(DateTime time, string message, byte severity)>();
 
@@ -692,7 +693,7 @@ namespace MissionPlanner.GCSViews
             string normalizedMode = string.IsNullOrWhiteSpace(mode) ? "UNKNOWN" : mode.ToUpperInvariant();
             lblMode.Text = $"Mode {normalizedMode}";
             lblStatus.Text = $"{(armed ? "ARMED" : "SAFE")}  |  {(connected ? "LIVE LINK" : "OFFLINE")}";
-            lblStatus.ForeColor = !connected ? Danger : armed ? Success : Warning;
+            lblStatus.ForeColor = !connected ? Danger : armed ? Danger : Warning;
             lblAdvisory.Text = !connected
                 ? "Awaiting vehicle link, telemetry, and mission activity."
                 : !string.IsNullOrWhiteSpace(alert)
@@ -715,22 +716,24 @@ namespace MissionPlanner.GCSViews
                 return;
 
             legacyActions.CMB_action.DataSource = Enum.GetNames(typeof(FlightData.actions));
-            legacyActions.BUTactiondo.Click += LegacyDoActionClick;
-            legacyActions.BUT_setwp.Click += LegacySetWaypointClick;
-            legacyActions.BUT_mountmode.Click += LegacySetMountClick;
-            legacyActions.BUTrestartmission.Click += LegacyRestartMissionClick;
-            legacyActions.BUT_resumemis.Click += LegacyResumeMissionClick;
-            legacyActions.modifyandSetSpeed.Click += LegacySetSpeedClick;
-            legacyActions.modifyandSetAlt.Click += LegacySetAltitudeClick;
-            legacyActions.modifyandSetLoiterRad.Click += LegacySetLoiterRadiusClick;
-            legacyActions.BUT_Homealt.Click += LegacyToggleHomeAltitudeClick;
-            legacyActions.BUT_RAWSensor.Click += LegacyOpenRawSensorClick;
-            legacyActions.BUT_joystick.Click += LegacyOpenJoystickClick;
-            legacyActions.BUT_SendMSG.Click += LegacySendMessageClick;
-            legacyActions.BUT_clear_track.Click += LegacyClearTrackClick;
-            legacyActions.BUT_Reboot.Click += LegacyRebootClick;
-            legacyActions.BUT_abortland.Click += LegacyAbortLandClick;
-            legacyActions.CMB_setwp.DropDown += (s, e) => RefreshWaypointList();
+            legacyActions.BUTactiondo.Click += ExecuteLegacyAction;
+            legacyActions.BUT_setwp.Click += ExecuteLegacySetWaypoint;
+            legacyActions.BUT_setmode.Click += ExecuteLegacySetMode;
+            legacyActions.BUT_mountmode.Click += ExecuteLegacySetMount;
+            legacyActions.BUTrestartmission.Click += ExecuteLegacyRestartMission;
+            legacyActions.BUT_resumemis.Click += ExecuteLegacyResumeMission;
+            legacyActions.modifyandSetSpeed.Click += ExecuteLegacySetSpeed;
+            legacyActions.modifyandSetAlt.Click += ExecuteLegacySetAltitude;
+            legacyActions.modifyandSetLoiterRad.Click += ExecuteLegacySetLoiterRadius;
+            legacyActions.BUT_Homealt.Click += ExecuteLegacyToggleHomeAltitude;
+            legacyActions.BUT_RAWSensor.Click += ExecuteLegacyOpenRawSensor;
+            legacyActions.BUT_joystick.Click += ExecuteLegacyOpenJoystick;
+            legacyActions.BUT_SendMSG.Click += ExecuteLegacySendMessage;
+            legacyActions.BUT_clear_track.Click += ExecuteLegacyClearTrack;
+            legacyActions.BUT_Reboot.Click += ExecuteLegacyReboot;
+            legacyActions.BUT_abortland.Click += ExecuteLegacyAbortLand;
+            legacyActions.CMB_setwp.DropDown += ExecuteLegacyWaypointDropDown;
+            legacyActions.CMB_modes.Click += ExecuteLegacyModesClick;
             legacyActionsInitialized = true;
         }
 
@@ -1142,17 +1145,216 @@ namespace MissionPlanner.GCSViews
 
             try
             {
-                legacyLogHandlerMethod = typeof(FlightData).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
-                if (legacyLogHandlerMethod == null)
+                legacyFlightDataHandlerMethod = typeof(FlightData).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+                if (legacyFlightDataHandlerMethod == null)
                     return false;
 
-                legacyLogHandlerMethod.Invoke(flightData, new object[] { this, EventArgs.Empty });
+                legacyFlightDataHandlerMethod.Invoke(flightData, new object[] { this, EventArgs.Empty });
                 return true;
             }
             catch
             {
                 return false;
             }
+        }
+
+        private bool InvokeLegacyFlightDataHandler(string methodName, object sender, EventArgs e)
+        {
+            var flightData = MainV2.instance?.FlightData;
+            if (flightData == null)
+                return false;
+
+            try
+            {
+                legacyFlightDataHandlerMethod = typeof(FlightData).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+                if (legacyFlightDataHandlerMethod == null)
+                    return false;
+
+                legacyFlightDataHandlerMethod.Invoke(flightData, new object[] { sender ?? this, e ?? EventArgs.Empty });
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private FlightDataActions GetPrimaryLegacyActionsControl()
+        {
+            var flightData = MainV2.instance?.FlightData;
+            if (flightData == null)
+                return null;
+
+            if (legacyFlightDataActionsField == null)
+                legacyFlightDataActionsField = typeof(FlightData).GetField("flightDataActions1", BindingFlags.Instance | BindingFlags.NonPublic);
+
+            return legacyFlightDataActionsField?.GetValue(flightData) as FlightDataActions;
+        }
+
+        private void SyncModernActionsToLegacy()
+        {
+            var target = GetPrimaryLegacyActionsControl();
+            if (legacyActions == null || target == null)
+                return;
+
+            target.CMB_action.Text = legacyActions.CMB_action.Text;
+            target.CMB_modes.Text = legacyActions.CMB_modes.Text;
+            target.CMB_setwp.SelectedIndex = legacyActions.CMB_setwp.SelectedIndex >= 0 &&
+                                             legacyActions.CMB_setwp.SelectedIndex < target.CMB_setwp.Items.Count
+                ? legacyActions.CMB_setwp.SelectedIndex
+                : target.CMB_setwp.SelectedIndex;
+            target.CMB_mountmode.Text = legacyActions.CMB_mountmode.Text;
+
+            target.modifyandSetSpeed.Value = legacyActions.modifyandSetSpeed.Value;
+            target.modifyandSetAlt.Value = legacyActions.modifyandSetAlt.Value;
+            target.modifyandSetLoiterRad.Value = legacyActions.modifyandSetLoiterRad.Value;
+        }
+
+        private void SyncLegacyActionsToModern()
+        {
+            var source = GetPrimaryLegacyActionsControl();
+            if (legacyActions == null || source == null)
+                return;
+
+            legacyActions.CMB_action.Text = source.CMB_action.Text;
+            legacyActions.modifyandSetSpeed.Value = source.modifyandSetSpeed.Value;
+            legacyActions.modifyandSetAlt.Value = source.modifyandSetAlt.Value;
+            legacyActions.modifyandSetLoiterRad.Value = source.modifyandSetLoiterRad.Value;
+
+            RefreshModeList(lastTelemetry);
+            if (!string.IsNullOrWhiteSpace(source.CMB_modes.Text))
+                legacyActions.CMB_modes.Text = source.CMB_modes.Text;
+
+            RefreshWaypointList();
+            if (source.CMB_setwp.SelectedIndex >= 0 && source.CMB_setwp.SelectedIndex < legacyActions.CMB_setwp.Items.Count)
+                legacyActions.CMB_setwp.SelectedIndex = source.CMB_setwp.SelectedIndex;
+
+            RefreshMountModes();
+            if (!string.IsNullOrWhiteSpace(source.CMB_mountmode.Text))
+                legacyActions.CMB_mountmode.Text = source.CMB_mountmode.Text;
+        }
+
+        private bool TryInvokeLegacyActionHandler(string methodName, object sender, EventArgs e)
+        {
+            SyncModernActionsToLegacy();
+            bool invoked = InvokeLegacyFlightDataHandler(methodName, sender, e);
+            SyncLegacyActionsToModern();
+            return invoked;
+        }
+
+        private void ExecuteLegacyAction(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("BUTactiondo_Click", sender, e))
+                LegacyDoActionClick(sender, e);
+        }
+
+        private void ExecuteLegacySetWaypoint(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("BUT_setwp_Click", sender, e))
+                LegacySetWaypointClick(sender, e);
+        }
+
+        private void ExecuteLegacySetMode(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("BUT_setmode_Click", sender, e))
+                MainV2.comPort.setMode(legacyActions.CMB_modes.Text);
+        }
+
+        private void ExecuteLegacySetMount(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("BUT_mountmode_Click", sender, e))
+                LegacySetMountClick(sender, e);
+        }
+
+        private void ExecuteLegacyRestartMission(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("BUTrestartmission_Click", sender, e))
+                LegacyRestartMissionClick(sender, e);
+        }
+
+        private void ExecuteLegacyResumeMission(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("BUT_resumemis_Click", sender, e))
+                LegacyResumeMissionClick(sender, e);
+        }
+
+        private void ExecuteLegacySetSpeed(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("modifyandSetSpeed_Click", sender, e))
+                LegacySetSpeedClick(sender, e);
+        }
+
+        private void ExecuteLegacySetAltitude(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("modifyandSetAlt_Click", sender, e))
+                LegacySetAltitudeClick(sender, e);
+        }
+
+        private void ExecuteLegacySetLoiterRadius(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("modifyandSetLoiterRad_Click", sender, e))
+                LegacySetLoiterRadiusClick(sender, e);
+        }
+
+        private void ExecuteLegacyToggleHomeAltitude(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("BUT_Homealt_Click", sender, e))
+                LegacyToggleHomeAltitudeClick(sender, e);
+        }
+
+        private void ExecuteLegacyOpenRawSensor(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("BUT_RAWSensor_Click", sender, e))
+                LegacyOpenRawSensorClick(sender, e);
+        }
+
+        private void ExecuteLegacyOpenJoystick(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("BUT_joystick_Click", sender, e))
+                LegacyOpenJoystickClick(sender, e);
+        }
+
+        private void ExecuteLegacySendMessage(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("BUT_SendMSG_Click", sender, e))
+                LegacySendMessageClick(sender, e);
+        }
+
+        private void ExecuteLegacyClearTrack(object sender, EventArgs e)
+        {
+            bool invoked = TryInvokeLegacyActionHandler("BUT_clear_track_Click", sender, e);
+            if (invoked)
+            {
+                ClearTrackRequested?.Invoke(this, EventArgs.Empty);
+            }
+            else
+            {
+                LegacyClearTrackClick(sender, e);
+            }
+        }
+
+        private void ExecuteLegacyReboot(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("BUT_Reboot_Click", sender, e))
+                LegacyRebootClick(sender, e);
+        }
+
+        private void ExecuteLegacyAbortLand(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("BUT_abortland_Click", sender, e))
+                LegacyAbortLandClick(sender, e);
+        }
+
+        private void ExecuteLegacyWaypointDropDown(object sender, EventArgs e)
+        {
+            RefreshWaypointList();
+            TryInvokeLegacyActionHandler("CMB_setwp_Click", sender, e);
+        }
+
+        private void ExecuteLegacyModesClick(object sender, EventArgs e)
+        {
+            if (!TryInvokeLegacyActionHandler("CMB_modes_Click", sender, e))
+                RefreshModeList(lastTelemetry);
         }
 
         private static string BuildSupplementalMessage(string title, string detail)

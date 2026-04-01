@@ -1540,7 +1540,7 @@ namespace MissionPlanner.Controls
             if (_isArmed)
             {
                 // Armed: Red background, white text
-                bgColor = _isHovered ? Color.FromArgb(255, 0, 0) : Color.FromArgb(0, 128, 0); //Made changes to button hover color and armed bg color to both red and green
+                bgColor = _isHovered ? Color.FromArgb(255, 64, 64) : Color.FromArgb(200, 35, 51);
                 textColor = Color.White;
             }
             else

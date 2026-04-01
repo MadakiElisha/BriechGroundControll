@@ -16,8 +16,8 @@ jobs:
     env:
       IS_DEV: ${{ github.ref == 'refs/heads/development' }}
       IS_MASTER: ${{ github.ref == 'refs/heads/master' }}
-      MSI_NAME: TitanPlanner.msi
-      ZIP_NAME: TitanPlanner.zip
+      MSI_NAME: BriechGroundControl.msi
+      ZIP_NAME: BriechGroundControl.zip
 
     steps:
       - uses: actions/checkout@v4
@@ -55,12 +55,12 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MissionPlannerBeta
+          name: BriechGroundControlRelease
           path: bin\Release\net461
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MSI
+          name: BriechGroundControlMSI
           path: ${{ env.MSI_NAME }}
 
       - name: Get version from version.txt
@@ -79,7 +79,7 @@ jobs:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
           automatic_release_tag: "development-build"
           prerelease: true
-          title: "Development Build"
+          title: "Briech Ground Control Development Build"
           files: |
             ${{ env.ZIP_NAME }}
             ${{ env.MSI_NAME }}
@@ -91,9 +91,9 @@ jobs:
         if: ${{ env.IS_MASTER == 'true' }}
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "TitanPlanner-${{ steps.version.outputs.VERSION }}"
+          automatic_release_tag: "BriechGroundControl-${{ steps.version.outputs.VERSION }}"
           prerelease: false
-          title: "TitanPlanner ${{ steps.version.outputs.VERSION }}"
+          title: "Briech Ground Control ${{ steps.version.outputs.VERSION }}"
           files: |
             ${{ env.ZIP_NAME }}
             ${{ env.MSI_NAME }}

@@ -135,7 +135,7 @@ namespace MissionPlanner.Controls
         private void timer1_Tick(object sender, EventArgs e)
         {
             var name = "None/Unknown";
-            var key = MainV2.comPort.MAV.signingKey;
+            var key = MainV2.comPort.MAV.SigningKey;
             if (key != null)
             {
                 foreach (var authKey in MAVAuthKeys.Keys)
