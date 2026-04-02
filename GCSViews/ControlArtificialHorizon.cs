@@ -129,10 +129,12 @@ namespace MissionPlanner.GCSViews
                 tapeWidth,
                 tapeHeight);
             var aoaRect = new Rectangle(rightTapeRect.Right + aoaStripGap, tapeTop + 10, aoaStripWidth, Math.Max(80, tapeHeight - 20));
+            int waypointLeft = Math.Max(outerPadding, rightTapeRect.Left - 12);
+            int waypointRight = Math.Min(Width - outerPadding, aoaRect.Right + 6);
             var waypointRect = new Rectangle(
-                rightTapeRect.Left,
+                waypointLeft,
                 rightTapeRect.Bottom + waypointFooterGap,
-                rightTapeRect.Width,
+                Math.Max(rightTapeRect.Width, waypointRight - waypointLeft),
                 waypointFooterHeight);
 
             DrawHeadingRibbon(graphics, headingRect);
