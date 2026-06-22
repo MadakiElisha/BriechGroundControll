@@ -54,16 +54,6 @@ jobs:
           & "$env:WIX\bin\light.exe" installer.wixobj "$env:WIX\bin\difxapp_x86.wixlib" -sval -o ${{ env.MSI_NAME }} -ext WiXNetFxExtension -ext WixDifxAppExtension -ext WixUIExtension.dll -ext WixUtilExtension -ext WixIisExtension
           Move-Item ${{ env.MSI_NAME }} ..\${{ env.MSI_NAME }}
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: BriechGroundControlRelease
-          path: bin\Release\net461
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: BriechGroundControlMSI
-          path: ${{ env.MSI_NAME }}
-
       - name: Get version from version.txt
         id: version
         if: ${{ env.IS_MASTER == 'true' }}
