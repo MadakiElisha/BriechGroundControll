@@ -1761,10 +1761,12 @@ namespace MissionPlanner.Controls
                 // Two-pass rendering: use larger near plane for terrain (better depth precision at high altitudes)
                 // Plane will be rendered in second pass with 0.1f near plane
                 float terrainNearPlane = _center.Alt > 500 ? 5.0f : (_center.Alt > 100 ? 1.0f : 0.1f);
-                projMatrix = OpenTK.Matrix4.CreatePerspectiveFieldOfView(
-                    (float) (_cameraFOV * MathHelper.deg2rad),
-                    (float) Width / Height, terrainNearPlane,
-                    renderDistance);
+                if (!TryCreateProjectionMatrix(terrainNearPlane, renderDistance, out projMatrix))
+                {
+                    if (Context.IsCurrent)
+                        Context.MakeCurrent(null);
+                    return;
+                }
 
                 {
                     // for unproject - updated on every draw
@@ -1870,10 +1872,12 @@ namespace MissionPlanner.Controls
                 // ============ PASS 2: EVERYTHING ELSE (with small near plane) ============
                 // Clear depth buffer and switch to 0.1f near plane for all other objects
                 GL.Clear(ClearBufferMask.DepthBufferBit);
-                var pass2ProjMatrix = OpenTK.Matrix4.CreatePerspectiveFieldOfView(
-                    (float) (_cameraFOV * MathHelper.deg2rad),
-                    (float) Width / Height, 0.1f,
-                    renderDistance);
+                if (!TryCreateProjectionMatrix(0.1f, renderDistance, out var pass2ProjMatrix))
+                {
+                    if (Context.IsCurrent)
+                        Context.MakeCurrent(null);
+                    return;
+                }
 
                 var beforewps = DateTime.Now;
                 GL.Enable(EnableCap.DepthTest);
@@ -2615,9 +2619,41 @@ namespace MissionPlanner.Controls
             }
         }
 
+        private bool TryCreateProjectionMatrix(float nearPlane, float farPlane, out Matrix4 projection)
+        {
+            projection = Matrix4.Identity;
+
+            int safeWidth = Math.Max(Width, ClientSize.Width);
+            int safeHeight = Math.Max(Height, ClientSize.Height);
+            if (safeWidth < 2 || safeHeight < 2)
+                return false;
+
+            if (nearPlane <= 0f || farPlane <= nearPlane)
+                return false;
+
+            float safeFovDegrees = Math.Max(30f, Math.Min(120f, _cameraFOV));
+            float safeFovRadians = (float)(safeFovDegrees * MathHelper.deg2rad);
+            float safeAspect = (float)safeWidth / safeHeight;
+
+            if (float.IsNaN(safeAspect) || float.IsInfinity(safeAspect) || safeAspect <= 0f)
+                return false;
+
+            projection = OpenTK.Matrix4.CreatePerspectiveFieldOfView(
+                safeFovRadians,
+                safeAspect,
+                nearPlane,
+                farPlane);
+            return true;
+        }
+
         private void test_Resize(object sender, EventArgs e)
         {
             if (!IsHandleCreated || IsDisposed || Disposing || Context == null)
+                return;
+
+            int safeWidth = Math.Max(Width, ClientSize.Width);
+            int safeHeight = Math.Max(Height, ClientSize.Height);
+            if (safeWidth < 2 || safeHeight < 2)
                 return;
 
             textureSemaphore.Wait();
@@ -2626,12 +2662,14 @@ namespace MissionPlanner.Controls
                 if (!Context.IsCurrent)
                     Context.MakeCurrent(this.WindowInfo);
 
-                GL.Viewport(0, 0, this.Width, this.Height);
+                GL.Viewport(0, 0, safeWidth, safeHeight);
                 float renderDistance = _center.Alt > 500 ? 100000f : 50000f;
-                projMatrix = OpenTK.Matrix4.CreatePerspectiveFieldOfView(
-                    (float) (_cameraFOV * MathHelper.deg2rad),
-                    (float) Width / Height, 0.1f,
-                    renderDistance);
+                if (!TryCreateProjectionMatrix(0.1f, renderDistance, out projMatrix))
+                {
+                    if (Context.IsCurrent)
+                        Context.MakeCurrent(null);
+                    return;
+                }
                 GL.UniformMatrix4(tileInfo.projectionSlot, 1, false, ref projMatrix.Row0.X);
                 {
                     // for unproject - updated on every draw

@@ -8,6 +8,44 @@ namespace MissionPlanner.GCSViews
 {
     public class ControlArtificialHorizon : Control
     {
+        public enum HudVitalTargetType
+        {
+            Core,
+            System,
+            Edge
+        }
+
+        public sealed class VitalDisplayOverride
+        {
+            public VitalDisplayOverride(string label, string value, string detail, Color accent)
+            {
+                Label = label;
+                Value = value;
+                Detail = detail;
+                Accent = accent;
+            }
+
+            public string Label { get; }
+            public string Value { get; }
+            public string Detail { get; }
+            public Color Accent { get; }
+        }
+
+        public sealed class HudVitalEditRequestedEventArgs : EventArgs
+        {
+            public HudVitalEditRequestedEventArgs(HudVitalTargetType targetType, int slotIndex)
+            {
+                TargetType = targetType;
+                SlotIndex = slotIndex;
+            }
+
+            public HudVitalTargetType TargetType { get; }
+            public bool IsCoreVital => TargetType == HudVitalTargetType.Core;
+            public bool IsSystemVital => TargetType == HudVitalTargetType.System;
+            public bool IsEdgeVital => TargetType == HudVitalTargetType.Edge;
+            public int SlotIndex { get; }
+        }
+
         public float Pitch { get; set; }
         public float Roll { get; set; }
         public float Heading { get; set; }
@@ -24,11 +62,27 @@ namespace MissionPlanner.GCSViews
         public float DistanceToWaypoint { get; set; }
         public int WaypointNumber { get; set; }
         public float DistanceToHome { get; set; }
+        public float DistanceTravelled { get; set; }
         public float AzToMav { get; set; }
         public int BatteryRemaining { get; set; }
+        public float BatteryVoltage { get; set; }
+        public float BatteryPowerWatts { get; set; }
+        public double EstimatedRemainingSeconds { get; set; }
+        public double TimeInAirSeconds { get; set; }
+        public float LinkQuality { get; set; }
+        public int GpsSatellites { get; set; }
+        public float GpsFixType { get; set; }
+        public float EfiRpm { get; set; }
+        public float EfiFuelFlow { get; set; }
+        public float EfiFuelConsumed { get; set; }
+        public float EfiFuelRemaining { get; set; } = -1f;
         public string Mode { get; set; } = "STANDBY";
         public bool Armed { get; set; }
         public bool Connected { get; set; }
+        public VitalDisplayOverride[] CoreVitalOverrides { get; set; }
+        public VitalDisplayOverride[] SystemVitalOverrides { get; set; }
+        public VitalDisplayOverride[] EdgeVitalOverrides { get; set; }
+        public event EventHandler<HudVitalEditRequestedEventArgs> VitalEditRequested;
 
         private readonly Color ribbonSurface = Color.FromArgb(15, 21, 32);
         private readonly Color tapeSurface = Color.FromArgb(17, 24, 35);
@@ -50,6 +104,9 @@ namespace MissionPlanner.GCSViews
         private readonly Color textSecondary = Color.FromArgb(150, 160, 178);
         private readonly Color statusDanger = Color.FromArgb(232, 82, 71);
         private readonly Color statusSafe = Color.FromArgb(232, 82, 71);
+        private readonly Color systemsStripSurface = Color.FromArgb(15, 21, 32);
+        private readonly Color systemsStripBorder = Color.FromArgb(58, 70, 92);
+        private readonly Color systemsStripDivider = Color.FromArgb(38, 47, 64);
 
         private readonly Pen horizonPen;
         private readonly Pen majorLadderPen;
@@ -63,6 +120,19 @@ namespace MissionPlanner.GCSViews
         private readonly Font tapeBadgeFont;
         private readonly Font footerFont;
         private readonly Font batteryFont;
+        private readonly Font systemsLabelFont;
+        private readonly Font systemsValueFont;
+        private readonly Font systemsValueCompactFont;
+        private readonly Font systemsDetailFont;
+        private readonly Font systemsDetailCompactFont;
+        private readonly Font coreVitalLabelFont;
+        private readonly Font coreVitalValueFont;
+        private readonly Font overlayLabelFont;
+        private readonly Font overlayValueFont;
+        private readonly Font overlayDetailFont;
+        private readonly Rectangle[] coreVitalHitAreas = new Rectangle[4];
+        private readonly Rectangle[] systemVitalHitAreas = new Rectangle[9];
+        private readonly Rectangle[] edgeVitalHitAreas = new Rectangle[2];
 
         public ControlArtificialHorizon()
         {
@@ -82,6 +152,16 @@ namespace MissionPlanner.GCSViews
             tapeBadgeFont = new Font("Segoe UI", 8.1f, FontStyle.Bold);
             footerFont = new Font("Segoe UI", 9f, FontStyle.Bold);
             batteryFont = new Font("Segoe UI", 9.1f, FontStyle.Bold);
+            systemsLabelFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+            systemsValueFont = new Font("Segoe UI", 13.8f, FontStyle.Bold);
+            systemsValueCompactFont = new Font("Segoe UI", 12.1f, FontStyle.Bold);
+            systemsDetailFont = new Font("Segoe UI", 7.9f, FontStyle.Regular);
+            systemsDetailCompactFont = new Font("Segoe UI", 7.1f, FontStyle.Regular);
+            coreVitalLabelFont = new Font("Segoe UI", 8.1f, FontStyle.Bold);
+            coreVitalValueFont = new Font("Segoe UI", 10.6f, FontStyle.Bold);
+            overlayLabelFont = new Font("Segoe UI", 8.0f, FontStyle.Bold);
+            overlayValueFont = new Font("Segoe UI", 10.6f, FontStyle.Bold);
+            overlayDetailFont = new Font("Segoe UI", 8.3f, FontStyle.Regular);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -92,24 +172,37 @@ namespace MissionPlanner.GCSViews
             graphics.Clear(BackColor);
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             graphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            ClearVitalHitAreas();
 
             if (Width < 220 || Height < 220)
                 return;
 
             int outerPadding = ClampInt(Math.Min(Height / 22, Width / 30), 8, 14);
             int ribbonHeight = ClampInt(Height / 9, 40, 54);
+            int coreVitalsHeight = 0;
+            int coreVitalsGap = 0;
+            int systemsStripHeight = ClampInt(Height / 3, 168, 210);
+            int systemsStripGap = ClampInt(Height / 60, 6, 10);
             int instrumentTop = outerPadding + ribbonHeight + 8;
-            int instrumentHeight = Math.Max(160, Height - instrumentTop - outerPadding);
+            int instrumentBottom = Height - outerPadding - systemsStripHeight - systemsStripGap - coreVitalsHeight - coreVitalsGap;
+            int instrumentHeight = Math.Max(160, instrumentBottom - instrumentTop);
             int arcReserve = ClampInt(instrumentHeight / 10, 24, 34);
             int tapeWidth = ClampInt(Width / 8, 66, 90);
             int aoaStripWidth = ClampInt(Width / 38, 18, 24);
             int aoaStripGap = ClampInt(Width / 80, 6, 10);
-            int waypointFooterHeight = ClampInt(Height / 18, 24, 30);
-            int waypointFooterGap = ClampInt(Height / 55, 6, 10);
             int gap = ClampInt(Width / 60, 8, 14);
 
             var headingRect = new Rectangle(outerPadding, outerPadding, Width - outerPadding * 2, ribbonHeight);
-            var batteryRect = new Rectangle(Width - outerPadding - 74, instrumentTop + 4, 74, 22);
+            var systemsStripRect = new Rectangle(
+                outerPadding,
+                Height - outerPadding - systemsStripHeight,
+                Width - outerPadding * 2,
+                systemsStripHeight);
+            var coreVitalsRect = new Rectangle(
+                outerPadding,
+                systemsStripRect.Top - coreVitalsGap - coreVitalsHeight,
+                Width - outerPadding * 2,
+                coreVitalsHeight);
 
             int centerAvailableWidth = Width - outerPadding * 2 - tapeWidth * 2 - gap * 2 - aoaStripWidth - aoaStripGap;
             int centerAvailableHeight = instrumentHeight - arcReserve - 12;
@@ -121,7 +214,7 @@ namespace MissionPlanner.GCSViews
             var globeRect = new Rectangle(globeLeft, globeTop, globeDiameter, globeDiameter);
 
             int tapeTop = instrumentTop + arcReserve + 8;
-            int tapeHeight = Math.Max(160, Height - tapeTop - outerPadding - waypointFooterHeight - waypointFooterGap - 8);
+            int tapeHeight = Math.Max(160, instrumentBottom - tapeTop - 4);
             var leftTapeRect = new Rectangle(outerPadding + 4, tapeTop, tapeWidth, tapeHeight);
             var rightTapeRect = new Rectangle(
                 Width - outerPadding - aoaStripWidth - aoaStripGap - tapeWidth - 4,
@@ -129,13 +222,6 @@ namespace MissionPlanner.GCSViews
                 tapeWidth,
                 tapeHeight);
             var aoaRect = new Rectangle(rightTapeRect.Right + aoaStripGap, tapeTop + 10, aoaStripWidth, Math.Max(80, tapeHeight - 20));
-            int waypointLeft = Math.Max(outerPadding, rightTapeRect.Left - 12);
-            int waypointRight = Math.Min(Width - outerPadding, aoaRect.Right + 6);
-            var waypointRect = new Rectangle(
-                waypointLeft,
-                rightTapeRect.Bottom + waypointFooterGap,
-                Math.Max(rightTapeRect.Width, waypointRight - waypointLeft),
-                waypointFooterHeight);
 
             DrawHeadingRibbon(graphics, headingRect);
             DrawRollScale(graphics, globeRect);
@@ -143,9 +229,32 @@ namespace MissionPlanner.GCSViews
             DrawSpeedTape(graphics, leftTapeRect);
             DrawAltitudeTape(graphics, rightTapeRect);
             DrawAoaEnvelope(graphics, aoaRect);
-            DrawWaypointReadout(graphics, waypointRect);
-            DrawBatteryBadge(graphics, batteryRect);
             DrawArmingAnnunciator(graphics, globeRect);
+            DrawLegacyEdgeVitals(graphics, globeRect, leftTapeRect, rightTapeRect, aoaRect, systemsStripRect);
+            DrawSystemsStrip(graphics, systemsStripRect);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            Cursor = HitTestVital(e.Location) != null ? Cursors.Hand : Cursors.Default;
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            Cursor = Cursors.Default;
+        }
+
+        protected override void OnMouseDoubleClick(MouseEventArgs e)
+        {
+            base.OnMouseDoubleClick(e);
+
+            var hit = HitTestVital(e.Location);
+            if (hit == null)
+                return;
+
+            VitalEditRequested?.Invoke(this, hit);
         }
 
         private void DrawHeadingRibbon(Graphics graphics, Rectangle bounds)
@@ -528,18 +637,18 @@ namespace MissionPlanner.GCSViews
             }
         }
 
-        private void DrawWaypointReadout(Graphics graphics, Rectangle bounds)
+        private void DrawWaypointReadout(Graphics graphics, Rectangle bounds, StringAlignment alignment = StringAlignment.Center, Color? colorOverride = null)
         {
             if (bounds.Width < 40 || bounds.Height < 16)
                 return;
 
             string footer = FormatWaypointFooter();
-            using (var textBrush = new SolidBrush(textSecondary))
+            using (var textBrush = new SolidBrush(colorOverride ?? textSecondary))
             {
                 var textRect = new RectangleF(bounds.Left + 2, bounds.Top, bounds.Width - 4, bounds.Height);
                 var format = new StringFormat
                 {
-                    Alignment = StringAlignment.Center,
+                    Alignment = alignment,
                     LineAlignment = StringAlignment.Center,
                     Trimming = StringTrimming.EllipsisCharacter,
                     FormatFlags = StringFormatFlags.NoWrap
@@ -549,9 +658,11 @@ namespace MissionPlanner.GCSViews
             }
         }
 
-        private void DrawBatteryBadge(Graphics graphics, Rectangle bounds)
+        private void DrawBatteryBadge(Graphics graphics, Rectangle bounds, VitalDisplayOverride vitalOverride)
         {
-            Color accent = Connected ? ModernUiPainter.GetBatteryColor(BatteryRemaining) : textSecondary;
+            Color accent = vitalOverride?.Accent ?? (Connected ? ModernUiPainter.GetBatteryColor(BatteryRemaining) : textSecondary);
+            string label = vitalOverride?.Label ?? "BAT";
+            string value = vitalOverride?.Value ?? (Connected ? $"{BatteryRemaining:0}%" : "--");
             ModernUiPainter.FillRoundedRectangle(graphics, Color.FromArgb(16, 20, 30), bounds, 11);
             ModernUiPainter.DrawRoundedRectangle(graphics, ModernUiPainter.WithAlpha(accent, 140), 1f, bounds, 11);
 
@@ -562,16 +673,14 @@ namespace MissionPlanner.GCSViews
 
             using (var borderPen = new Pen(accent, 1.2f))
             using (var fillBrush = new SolidBrush(accent))
-            using (var textBrush = new SolidBrush(accent))
+            using (var labelBrush = new SolidBrush(textSecondary))
+            using (var textBrush = new SolidBrush(textPrimary))
             {
                 graphics.DrawRectangle(borderPen, body);
                 graphics.DrawRectangle(borderPen, tip);
                 graphics.FillRectangle(fillBrush, new Rectangle(body.Left + 2, body.Top + 2, fillWidth, Math.Max(1, body.Height - 3)));
-
-                string label = Connected ? string.Format("{0}%", BatteryRemaining) : "--";
-                SizeF textSize = graphics.MeasureString(label, batteryFont);
-                graphics.DrawString(label, batteryFont, textBrush,
-                    body.Right + 8, bounds.Top + (bounds.Height - textSize.Height) / 2f - 1f);
+                graphics.DrawString(label, overlayLabelFont, labelBrush, body.Right + 8, bounds.Top + 2);
+                graphics.DrawString(value, overlayValueFont, textBrush, body.Right + 8, bounds.Top + 10);
             }
         }
 
@@ -590,6 +699,314 @@ namespace MissionPlanner.GCSViews
                 float y = globeRect.Top + globeRect.Height * 0.64f;
                 graphics.DrawString(label, statusTextFont, shadowBrush, x + 1.5f, y + 1.5f);
                 graphics.DrawString(label, statusTextFont, textBrush, x, y);
+            }
+        }
+
+        private void DrawLegacyEdgeVitals(Graphics graphics, Rectangle globeRect, Rectangle leftTapeRect, Rectangle rightTapeRect, Rectangle aoaRect, Rectangle systemsStripRect)
+        {
+            int upperBadgeHeight = 24;
+            int upperBadgeTop = Math.Min(leftTapeRect.Top - upperBadgeHeight - 12, globeRect.Top - upperBadgeHeight - 8);
+            upperBadgeTop = Math.Max(6, upperBadgeTop);
+
+            var linkRect = new Rectangle(leftTapeRect.Left + 2, upperBadgeTop, 82, 22);
+            int batteryWidth = Math.Max(74, aoaRect.Left - rightTapeRect.Left - 18);
+            var batteryRect = new Rectangle(
+                Math.Max(globeRect.Right - 4, aoaRect.Left - batteryWidth - 6),
+                upperBadgeTop,
+                batteryWidth,
+                upperBadgeHeight);
+
+            int lowerBandTop = globeRect.Bottom + 6;
+            int lowerBandBottom = systemsStripRect.Top - 8;
+            int lowerBandHeight = Math.Max(0, lowerBandBottom - lowerBandTop);
+            int lineHeight = lowerBandHeight >= 44 ? 16 : lowerBandHeight >= 34 ? 13 : 11;
+            int rowGap = lowerBandHeight >= 44 ? 3 : 2;
+            int leftBlockWidth = Math.Max(126, Math.Min(176, globeRect.Width / 2));
+            int rightBlockWidth = 132;
+            int rightBlockLeft = globeRect.Right - rightBlockWidth - 8;
+            int leftBlockLeft = globeRect.Left + 10;
+            int groupHeight = (lineHeight * 2) + rowGap;
+            int groupTop = lowerBandTop + Math.Max(0, (lowerBandHeight - groupHeight) / 2);
+
+            var fuelUsedRect = new Rectangle(leftBlockLeft, groupTop, leftBlockWidth, lineHeight);
+            var fuelRemRect = new Rectangle(leftBlockLeft, groupTop + lineHeight + rowGap, leftBlockWidth, lineHeight);
+            var waypointRect = new Rectangle(rightBlockLeft, groupTop, rightBlockWidth, lineHeight);
+            var rpmRect = new Rectangle(rightBlockLeft, groupTop + lineHeight + rowGap, rightBlockWidth, lineHeight);
+
+            edgeVitalHitAreas[0] = linkRect;
+            edgeVitalHitAreas[1] = batteryRect;
+
+            DrawLinkQualityBadge(graphics, linkRect, GetVitalOverride(EdgeVitalOverrides, 0));
+            DrawBatteryBadge(graphics, batteryRect, GetVitalOverride(EdgeVitalOverrides, 1));
+            DrawCompactTelemetryLine(graphics, fuelUsedRect, "FUEL USED", FormatFuelUsedValue(), Color.FromArgb(230, 174, 68), StringAlignment.Near);
+            DrawCompactTelemetryLine(graphics, fuelRemRect, "FUEL REM", FormatFuelRemainingValue(), Color.FromArgb(92, 202, 142), StringAlignment.Near);
+            DrawWaypointReadout(graphics, waypointRect, StringAlignment.Far, textPrimary);
+            DrawCompactTelemetryLine(graphics, rpmRect, "RPM", FormatRpmValue(), Color.FromArgb(235, 239, 245), StringAlignment.Far);
+        }
+
+        private void DrawLinkQualityBadge(Graphics graphics, Rectangle bounds, VitalDisplayOverride vitalOverride)
+        {
+            Color accent = vitalOverride?.Accent ?? ModernUiPainter.GetLinkColor(Connected, (int)Math.Round(LinkQuality));
+            string label = vitalOverride?.Label ?? "LQ";
+            string value = vitalOverride?.Value ?? (Connected ? $"{LinkQuality:0}%" : "--");
+
+            using (var accentBrush = new SolidBrush(accent))
+            using (var labelBrush = new SolidBrush(textSecondary))
+            using (var valueBrush = new SolidBrush(textPrimary))
+            {
+                graphics.FillRectangle(accentBrush, bounds.Left + 2, bounds.Top + 6, 2, Math.Max(8, bounds.Height - 12));
+                graphics.DrawString(label, overlayLabelFont, labelBrush, bounds.Left + 8, bounds.Top + 3);
+                graphics.DrawString(value, overlayValueFont, valueBrush, bounds.Left + 24, bounds.Top + 1);
+            }
+        }
+
+        private void DrawCompactTelemetryLine(Graphics graphics, Rectangle bounds, string label, string value, Color accent, StringAlignment alignment)
+        {
+            using (var labelBrush = new SolidBrush(ModernUiPainter.WithAlpha(accent, 180)))
+            using (var valueBrush = new SolidBrush(accent))
+            {
+                string safeLabel = string.IsNullOrWhiteSpace(label) ? string.Empty : label.Trim();
+                string safeValue = string.IsNullOrWhiteSpace(value) ? "--" : value.Trim();
+                float inset = 3f;
+                float gap = 8f;
+                float baselineY = bounds.Top + Math.Max(0f, (bounds.Height - overlayValueFont.GetHeight(graphics)) / 2f) - 1f;
+                SizeF labelSize = graphics.MeasureString(safeLabel, overlayLabelFont, int.MaxValue, StringFormat.GenericTypographic);
+                SizeF valueSize = graphics.MeasureString(safeValue, overlayValueFont, int.MaxValue, StringFormat.GenericTypographic);
+
+                if (alignment == StringAlignment.Far)
+                {
+                    float valueX = bounds.Right - inset - valueSize.Width;
+                    float labelX = Math.Max(bounds.Left + inset, valueX - gap - labelSize.Width);
+                    graphics.DrawString(safeLabel, overlayLabelFont, labelBrush, labelX, baselineY + 1f, StringFormat.GenericTypographic);
+                    graphics.DrawString(safeValue, overlayValueFont, valueBrush, valueX, baselineY, StringFormat.GenericTypographic);
+                }
+                else
+                {
+                    float labelX = bounds.Left + inset;
+                    float valueX = Math.Min(bounds.Right - inset - valueSize.Width, labelX + labelSize.Width + gap);
+                    graphics.DrawString(safeLabel, overlayLabelFont, labelBrush, labelX, baselineY + 1f, StringFormat.GenericTypographic);
+                    graphics.DrawString(safeValue, overlayValueFont, valueBrush, valueX, baselineY, StringFormat.GenericTypographic);
+                }
+            }
+        }
+
+        private void DrawSystemsStrip(Graphics graphics, Rectangle bounds)
+        {
+            if (bounds.Width < 300 || bounds.Height < 40)
+                return;
+
+            ModernUiPainter.FillRoundedRectangle(graphics, systemsStripSurface, bounds, 16);
+            ModernUiPainter.DrawRoundedRectangle(graphics, systemsStripBorder, 1f, bounds, 16);
+
+            var vitals = new[]
+            {
+                new SystemVital(
+                    "MODE",
+                    string.IsNullOrWhiteSpace(Mode) ? "STBY" : Mode.ToUpperInvariant(),
+                    Connected ? $"LINK {LinkQuality:0}%  |  {(Armed ? "ARMED" : "SAFE")}" : "Awaiting vehicle link",
+                    Connected ? (Armed ? statusDanger : Color.FromArgb(100, 184, 224)) : textSecondary),
+                new SystemVital(
+                    "BATTERY",
+                    Connected ? $"{BatteryRemaining:0}%" : "--",
+                    Connected ? $"{BatteryVoltage:0.0} V  |  {BatteryPowerWatts:0} W" : "Awaiting power telemetry",
+                    Connected ? ModernUiPainter.GetBatteryColor(BatteryRemaining) : textSecondary),
+                new SystemVital(
+                    "EST. REM",
+                    EstimatedRemainingSeconds > 0 ? ModernUiPainter.FormatDuration(EstimatedRemainingSeconds) : "--",
+                    EstimatedRemainingSeconds > 0 ? "Predicted endurance" : "Awaiting battery estimate",
+                    Color.FromArgb(230, 174, 68)),
+                new SystemVital(
+                    "ALTITUDE",
+                    $"{Altitude:0}{GetAltUnit()}",
+                    Connected ? $"V/S {FormatVerticalSpeedValue()}" : "Awaiting altitude telemetry",
+                    Color.FromArgb(94, 199, 230)),
+                new SystemVital(
+                    "GROUND SPD",
+                    FormatSpeedValue(GroundSpeed),
+                    Connected ? $"CRS {GroundCourse:000}" : "Awaiting groundspeed telemetry",
+                    Color.FromArgb(88, 146, 232)),
+                new SystemVital(
+                    "AIR SPEED",
+                    FormatSpeedValue(AirSpeed),
+                    Connected ? $"TGT {FormatSpeedValue(TargetSpeed)}" : "Awaiting airspeed telemetry",
+                    Color.FromArgb(226, 179, 82)),
+                new SystemVital(
+                    "TIME AIR",
+                    TimeInAirSeconds > 1 ? ModernUiPainter.FormatDuration(TimeInAirSeconds) : "00:00",
+                    $"TRACK {FormatDistanceValue(DistanceTravelled)}",
+                    Color.FromArgb(104, 129, 232)),
+                new SystemVital(
+                    "HOME",
+                    FormatDistanceValue(DistanceToHome),
+                    Connected ? $"BRG {NormalizeHeading(AzToMav + 180f):000}" : "Awaiting home reference",
+                    Color.FromArgb(92, 202, 142)),
+                new SystemVital(
+                    "NAV",
+                    FormatNavigationValue(),
+                    Connected ? $"GPS {GpsSatellites:0} SAT  |  FIX {GpsFixType:0}" : "Awaiting nav telemetry",
+                    Color.FromArgb(162, 110, 232))
+            };
+
+            for (int i = 0; i < vitals.Length; i++)
+            {
+                var vitalOverride = GetVitalOverride(SystemVitalOverrides, i);
+                if (vitalOverride != null)
+                    vitals[i] = new SystemVital(vitalOverride.Label, vitalOverride.Value, vitalOverride.Detail, vitalOverride.Accent);
+            }
+
+            int columns = 3;
+            int rows = (int)Math.Ceiling(vitals.Length / (double)columns);
+            int rowHeight = bounds.Height / rows;
+            int rowRemainder = bounds.Height - (rowHeight * rows);
+            int segmentWidth = bounds.Width / columns;
+            int segmentRemainder = bounds.Width - (segmentWidth * columns);
+
+            for (int row = 0, y = bounds.Top; row < rows; row++)
+            {
+                int height = rowHeight + (row == rows - 1 ? rowRemainder : 0);
+
+                for (int column = 0, x = bounds.Left; column < columns; column++)
+                {
+                    int index = (row * columns) + column;
+                    if (index >= vitals.Length)
+                        break;
+
+                    int width = segmentWidth + (column == columns - 1 ? segmentRemainder : 0);
+                    var segmentRect = new Rectangle(x, y, width, height);
+                    systemVitalHitAreas[index] = segmentRect;
+                    bool drawDivider = column < columns - 1;
+                    bool drawBottomDivider = row < rows - 1;
+                    DrawSystemVitalCell(graphics, segmentRect, vitals[index], drawDivider, drawBottomDivider);
+                    x += width;
+                }
+
+                y += height;
+            }
+        }
+
+        private void DrawCoreVitalsRibbon(Graphics graphics, Rectangle bounds)
+        {
+            if (bounds.Width < 220 || bounds.Height < 24)
+                return;
+
+            ModernUiPainter.FillRoundedRectangle(graphics, Color.FromArgb(13, 18, 28), bounds, 12);
+            ModernUiPainter.DrawRoundedRectangle(graphics, Color.FromArgb(50, 63, 84), 1f, bounds, 12);
+
+            var vitals = new[]
+            {
+                new SystemVital(
+                    "RPM",
+                    Connected && EfiRpm > 0 ? $"{EfiRpm:0}" : "--",
+                    string.Empty,
+                    Color.FromArgb(226, 179, 82)),
+                new SystemVital(
+                    "FUEL FLOW",
+                    Connected && EfiFuelFlow > 0 ? $"{EfiFuelFlow:0} cc/min" : "--",
+                    string.Empty,
+                    Color.FromArgb(92, 202, 142)),
+                new SystemVital(
+                    "BATTERY",
+                    Connected ? $"{BatteryRemaining:0}%  {BatteryVoltage:0.0}V" : "--",
+                    string.Empty,
+                    Connected ? ModernUiPainter.GetBatteryColor(BatteryRemaining) : textSecondary),
+                new SystemVital(
+                    "PWR",
+                    Connected ? $"{BatteryPowerWatts:0} W" : "--",
+                    string.Empty,
+                    Color.FromArgb(88, 182, 225))
+            };
+
+            for (int i = 0; i < vitals.Length; i++)
+            {
+                var vitalOverride = GetVitalOverride(CoreVitalOverrides, i);
+                if (vitalOverride != null)
+                    vitals[i] = new SystemVital(vitalOverride.Label, vitalOverride.Value, string.Empty, vitalOverride.Accent);
+            }
+
+            int segmentWidth = bounds.Width / vitals.Length;
+            int remainder = bounds.Width - (segmentWidth * vitals.Length);
+
+            using (var dividerPen = new Pen(Color.FromArgb(34, 46, 64), 1f))
+            {
+                for (int i = 0, x = bounds.Left; i < vitals.Length; i++)
+                {
+                    int width = segmentWidth + (i == vitals.Length - 1 ? remainder : 0);
+                    var segmentRect = new Rectangle(x, bounds.Top, width, bounds.Height);
+                    coreVitalHitAreas[i] = segmentRect;
+                    DrawCoreVitalCell(graphics, segmentRect, vitals[i]);
+
+                    if (i < vitals.Length - 1)
+                        graphics.DrawLine(dividerPen, segmentRect.Right, segmentRect.Top + 8, segmentRect.Right, segmentRect.Bottom - 8);
+
+                    x += width;
+                }
+            }
+        }
+
+        private void DrawCoreVitalCell(Graphics graphics, Rectangle bounds, SystemVital vital)
+        {
+            using (var accentBrush = new SolidBrush(vital.Accent))
+            using (var labelBrush = new SolidBrush(textSecondary))
+            using (var valueBrush = new SolidBrush(vital.Accent))
+            {
+                int contentLeft = bounds.Left + 12;
+                int contentWidth = Math.Max(40, bounds.Width - 24);
+                graphics.FillRectangle(accentBrush, contentLeft, bounds.Top + 7, Math.Min(26, contentWidth), 2);
+
+                var format = new StringFormat
+                {
+                    Alignment = StringAlignment.Near,
+                    LineAlignment = StringAlignment.Center,
+                    Trimming = StringTrimming.EllipsisCharacter,
+                    FormatFlags = StringFormatFlags.NoWrap
+                };
+
+                graphics.DrawString(vital.Label, coreVitalLabelFont, labelBrush,
+                    new RectangleF(contentLeft, bounds.Top + 10, contentWidth, 12), format);
+                graphics.DrawString(vital.Value, coreVitalValueFont, valueBrush,
+                    new RectangleF(contentLeft, bounds.Top + 18, contentWidth, bounds.Height - 22), format);
+            }
+        }
+
+        private void DrawSystemVitalCell(Graphics graphics, Rectangle bounds, SystemVital vital, bool drawDivider, bool drawBottomDivider)
+        {
+            int contentLeft = bounds.Left + 11;
+            int contentWidth = Math.Max(44, bounds.Width - 22);
+            bool compact = bounds.Height < 68;
+            float labelTop = compact ? bounds.Top + 12 : bounds.Top + 15;
+            float valueTop = compact ? bounds.Top + 24 : bounds.Top + 29;
+            float detailTop = compact ? bounds.Bottom - 18 : bounds.Bottom - 22;
+            Font valueFont = compact ? systemsValueCompactFont : systemsValueFont;
+            Font detailFont = compact ? systemsDetailCompactFont : systemsDetailFont;
+
+            using (var accentBrush = new SolidBrush(vital.Accent))
+            using (var labelBrush = new SolidBrush(textSecondary))
+            using (var valueBrush = new SolidBrush(vital.Accent))
+            using (var detailBrush = new SolidBrush(Color.FromArgb(184, 193, 208)))
+            using (var dividerPen = new Pen(systemsStripDivider, 1f))
+            {
+                graphics.FillRectangle(accentBrush, contentLeft, bounds.Top + 8, Math.Min(42, contentWidth), 3);
+
+                var labelRect = new RectangleF(contentLeft, labelTop, contentWidth, 12);
+                var valueRect = new RectangleF(contentLeft, valueTop, contentWidth, compact ? 16 : 18);
+                var detailRect = new RectangleF(contentLeft, detailTop, contentWidth, 14);
+                var format = new StringFormat
+                {
+                    Alignment = StringAlignment.Near,
+                    LineAlignment = StringAlignment.Center,
+                    Trimming = StringTrimming.EllipsisCharacter,
+                    FormatFlags = StringFormatFlags.NoWrap
+                };
+
+                graphics.DrawString(vital.Label, systemsLabelFont, labelBrush, labelRect, format);
+                graphics.DrawString(vital.Value, valueFont, valueBrush, valueRect, format);
+                graphics.DrawString(vital.Detail, detailFont, detailBrush, detailRect, format);
+
+                if (drawDivider)
+                    graphics.DrawLine(dividerPen, bounds.Right, bounds.Top + 12, bounds.Right, bounds.Bottom - 12);
+
+                if (drawBottomDivider)
+                    graphics.DrawLine(dividerPen, bounds.Left + 12, bounds.Bottom, bounds.Right - 12, bounds.Bottom);
             }
         }
 
@@ -629,6 +1046,42 @@ namespace MissionPlanner.GCSViews
         {
             string prefix = WaypointNumber > 0 ? string.Format("WP {0} <", WaypointNumber) : "WP <";
             return string.Format("{0} {1}", prefix, FormatDistanceValue(DistanceToWaypoint));
+        }
+
+        private string FormatFuelUsedValue()
+        {
+            return Connected && EfiFuelConsumed > 0 ? $"{EfiFuelConsumed:0} cc" : "--";
+        }
+
+        private string FormatFuelRemainingValue()
+        {
+            return Connected && EfiFuelRemaining >= 0 ? $"{EfiFuelRemaining:0} cc" : "--";
+        }
+
+        private string FormatRpmValue()
+        {
+            return Connected && EfiRpm > 0 ? $"{EfiRpm:0}" : "--";
+        }
+
+        private string FormatNavigationValue()
+        {
+            if (!Connected)
+                return "--";
+
+            if (WaypointNumber > 0)
+                return string.Format("WP {0}  {1}", WaypointNumber, FormatDistanceValue(DistanceToWaypoint));
+
+            return FormatDistanceValue(DistanceToWaypoint);
+        }
+
+        private string FormatSpeedValue(float speed)
+        {
+            return string.Format("{0:0.0}{1}", speed, GetSpeedUnit());
+        }
+
+        private string FormatVerticalSpeedValue()
+        {
+            return string.Format("{0:+0.0;-0.0;0.0}{1}", VerticalSpeed, GetSpeedUnit());
         }
 
         private static string FormatDistanceValue(float distance)
@@ -747,6 +1200,49 @@ namespace MissionPlanner.GCSViews
             return string.IsNullOrWhiteSpace(CurrentState.DistanceUnit) ? "m" : CurrentState.DistanceUnit;
         }
 
+        private void ClearVitalHitAreas()
+        {
+            for (int i = 0; i < coreVitalHitAreas.Length; i++)
+                coreVitalHitAreas[i] = Rectangle.Empty;
+
+            for (int i = 0; i < systemVitalHitAreas.Length; i++)
+                systemVitalHitAreas[i] = Rectangle.Empty;
+
+            for (int i = 0; i < edgeVitalHitAreas.Length; i++)
+                edgeVitalHitAreas[i] = Rectangle.Empty;
+        }
+
+        private HudVitalEditRequestedEventArgs HitTestVital(Point location)
+        {
+            for (int i = 0; i < edgeVitalHitAreas.Length; i++)
+            {
+                if (edgeVitalHitAreas[i].Contains(location))
+                    return new HudVitalEditRequestedEventArgs(HudVitalTargetType.Edge, i);
+            }
+
+            for (int i = 0; i < coreVitalHitAreas.Length; i++)
+            {
+                if (coreVitalHitAreas[i].Contains(location))
+                    return new HudVitalEditRequestedEventArgs(HudVitalTargetType.Core, i);
+            }
+
+            for (int i = 0; i < systemVitalHitAreas.Length; i++)
+            {
+                if (systemVitalHitAreas[i].Contains(location))
+                    return new HudVitalEditRequestedEventArgs(HudVitalTargetType.System, i);
+            }
+
+            return null;
+        }
+
+        private static VitalDisplayOverride GetVitalOverride(VitalDisplayOverride[] overrides, int index)
+        {
+            if (overrides == null || index < 0 || index >= overrides.Length)
+                return null;
+
+            return overrides[index];
+        }
+
         private static int ClampInt(int value, int min, int max)
         {
             return Math.Max(min, Math.Min(max, value));
@@ -773,9 +1269,35 @@ namespace MissionPlanner.GCSViews
                 tapeBadgeFont?.Dispose();
                 footerFont?.Dispose();
                 batteryFont?.Dispose();
+                systemsLabelFont?.Dispose();
+                systemsValueFont?.Dispose();
+                systemsValueCompactFont?.Dispose();
+                systemsDetailFont?.Dispose();
+                systemsDetailCompactFont?.Dispose();
+                coreVitalLabelFont?.Dispose();
+                coreVitalValueFont?.Dispose();
+                overlayLabelFont?.Dispose();
+                overlayValueFont?.Dispose();
+                overlayDetailFont?.Dispose();
             }
 
             base.Dispose(disposing);
+        }
+
+        private readonly struct SystemVital
+        {
+            public SystemVital(string label, string value, string detail, Color accent)
+            {
+                Label = label;
+                Value = value;
+                Detail = detail;
+                Accent = accent;
+            }
+
+            public string Label { get; }
+            public string Value { get; }
+            public string Detail { get; }
+            public Color Accent { get; }
         }
     }
 }

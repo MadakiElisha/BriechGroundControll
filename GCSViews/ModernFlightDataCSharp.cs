@@ -5,6 +5,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Windows.Forms;
 using GMap.NET;
 using GMap.NET.MapProviders;
@@ -21,7 +22,7 @@ namespace MissionPlanner.GCSViews
     /// <summary>
     /// Professional drone GCS flight data display - 100% C#
         /// Dark navy + gold professional aesthetic
-        /// 3-panel layout: Telemetry (left), stacked HUD + optional auxiliary deck with mission map (center), Quick Actions (right)
+        /// Integrated glass-cockpit layout: stacked HUD + optional auxiliary deck with mission map (center), operations panel (right)
     /// </summary>
     public partial class ModernFlightDataCSharp : MyUserControl, IActivate, IDeactivate
     {
@@ -33,18 +34,22 @@ namespace MissionPlanner.GCSViews
         private const int MapDeckMinWidth = 520;
         private const int HudDeckMinHeight = 320;
         private const int PreviewDeckMinHeight = 160;
+        private const int OperationsPanelMinHeight = 260;
         private const int ActionConsoleMinWidth = 360;
         private const int ActionConsoleMaxWidth = 720;
         private const int ActionConsoleDefaultWidth = 480;
         private const double HudColumnDefaultRatio = 0.32;
-        private const double HudDeckDefaultRatio = 0.60;
+        private const double RightColumnTopRatio = 0.66;
+        private const string HudCoreCustomizationSettingKey = "ModernFlightHudCoreVitalCustomizations";
+        private const string HudSystemCustomizationSettingKey = "ModernFlightHudSystemVitalCustomizations";
+        private const string HudEdgeCustomizationSettingKey = "ModernFlightHudEdgeVitalCustomizations";
 
         // Custom controls
         private TopStatusRail statusRail;
         private SplitContainer splitMain;
         private SplitContainer splitWorkspace;
         private SplitContainer splitCenter;
-        private SplitContainer splitHudStack;
+        private SplitContainer splitRightStack;
         private PanelTelemetry panelTelemetry;
         private PanelHudDeck panelHudDeck;
         private PanelAuxiliaryDeck panelAuxiliaryDeck;
@@ -53,7 +58,7 @@ namespace MissionPlanner.GCSViews
         private PanelQuickActions panelActions;
         private System.Windows.Forms.Timer telemetryTimer;
         private int? preferredHudWidth;
-        private int? preferredHudDeckHeight;
+        private int? preferredRightStackTopHeight;
         private int? preferredActionWidth;
         private bool suppressSplitterPreferenceCapture = true;
         private bool pendingDeferredLayout;
@@ -64,6 +69,11 @@ namespace MissionPlanner.GCSViews
         private string lastTimelineMode = "";
         private string lastTimelineAlert = "";
         private int lastTimelineWaypoint = -1;
+        private CurrentState lastHudTelemetry;
+        private bool lastHudConnected;
+        private readonly HudVitalCustomization[] hudCoreCustomizations = new HudVitalCustomization[4];
+        private readonly HudVitalCustomization[] hudSystemCustomizations = new HudVitalCustomization[9];
+        private readonly HudVitalCustomization[] hudEdgeCustomizations = new HudVitalCustomization[2];
 
         // Theme colors
         private readonly Color DarkNavy = Color.FromArgb(26, 31, 46);        // #1A1F2E
@@ -80,18 +90,13 @@ namespace MissionPlanner.GCSViews
             DoubleBuffered = true;
             Resize += ModernFlightDataCSharp_Resize;
             EnsureTimelineSeeded();
+            LoadHudVitalCustomizations();
+            ApplyHudVitalOverrides(null, false);
         }
 
         private void InitializeComponent()
         {
             this.SuspendLayout();
-
-            statusRail = new TopStatusRail
-            {
-                Dock = DockStyle.Top,
-                Height = 104,
-                BackColor = VeryDarkNavy
-            };
 
             // Main container - 3-panel layout
             splitMain = new SplitContainer
@@ -109,6 +114,8 @@ namespace MissionPlanner.GCSViews
                 BackColor = VeryDarkNavy
             };
             splitMain.Panel1.Controls.Add(panelTelemetry);
+            splitMain.Panel1Collapsed = true;
+            splitMain.IsSplitterFixed = true;
 
             // CENTER PANEL - HUD + 3D Display
             splitCenter = new SplitContainer
@@ -126,6 +133,7 @@ namespace MissionPlanner.GCSViews
                 Dock = DockStyle.Fill,
                 BackColor = VeryDarkNavy
             };
+            hudDisplay.VitalEditRequested += HudDisplay_VitalEditRequested;
             panelHudDeck = new PanelHudDeck(hudDisplay)
             {
                 Dock = DockStyle.Fill,
@@ -138,19 +146,7 @@ namespace MissionPlanner.GCSViews
                 BackColor = VeryDarkNavy
             };
             panelAuxiliaryDeck.VisibilityPreferenceChanged += PanelAuxiliaryDeck_VisibilityPreferenceChanged;
-
-            splitHudStack = new SplitContainer
-            {
-                Dock = DockStyle.Fill,
-                Orientation = Orientation.Horizontal,
-                SplitterWidth = 5,
-                BorderStyle = BorderStyle.None,
-                BackColor = VeryDarkNavy
-            };
-            splitHudStack.SplitterMoved += SplitHudStack_SplitterMoved;
-            splitHudStack.Panel1.Controls.Add(panelHudDeck);
-            splitHudStack.Panel2.Controls.Add(panelAuxiliaryDeck);
-            splitCenter.Panel1.Controls.Add(splitHudStack);
+            splitCenter.Panel1.Controls.Add(panelHudDeck);
 
             // Mission map (right center)
             panelMap3D = new PanelMap3DDeck
@@ -180,8 +176,22 @@ namespace MissionPlanner.GCSViews
                 BackColor = VeryDarkNavy
             };
             panelActions.ClearTrackRequested += PanelActions_ClearTrackRequested;
+            panelActions.LayoutPreferenceChanged += PanelActions_LayoutPreferenceChanged;
+            panelActions.MinimumSize = new Size(panelActions.MinimumPanelWidth, 0);
             preferredActionWidth = panelActions.ActivePreferredWidth;
-            splitWorkspace.Panel2.Controls.Add(panelActions);
+
+            splitRightStack = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Horizontal,
+                SplitterWidth = 5,
+                BorderStyle = BorderStyle.None,
+                BackColor = VeryDarkNavy
+            };
+            splitRightStack.SplitterMoved += SplitRightStack_SplitterMoved;
+            splitRightStack.Panel1.Controls.Add(panelActions);
+            splitRightStack.Panel2.Controls.Add(panelAuxiliaryDeck);
+            splitWorkspace.Panel2.Controls.Add(splitRightStack);
 
             splitMain.Panel2.Controls.Add(splitWorkspace);
 
@@ -194,8 +204,6 @@ namespace MissionPlanner.GCSViews
             workspace.Controls.Add(splitMain);
 
             this.Controls.Add(workspace);
-            this.Controls.Add(statusRail);
-
             // Telemetry update timer
             telemetryTimer = new System.Windows.Forms.Timer();
             telemetryTimer.Interval = 100; // 10Hz
@@ -240,7 +248,7 @@ namespace MissionPlanner.GCSViews
             if (resetPreferences)
             {
                 preferredHudWidth = null;
-                preferredHudDeckHeight = null;
+                preferredRightStackTopHeight = null;
                 preferredActionWidth = null;
             }
 
@@ -282,26 +290,23 @@ namespace MissionPlanner.GCSViews
 
             try
             {
-                int viewWidth = Math.Max(ClientSize.Width, 960);
-                if (splitMain.Width > TelemetryMinWidth + CenterContentMinWidth + splitMain.SplitterWidth)
-                {
-                    int desiredTelemetryWidth = Math.Max(TelemetryMinWidth, Math.Min(TelemetryDefaultWidth, viewWidth / 6));
-                    int maxTelemetryWidth = splitMain.Width - CenterContentMinWidth - splitMain.SplitterWidth;
-                    splitMain.SplitterDistance = Math.Max(TelemetryMinWidth,
-                        Math.Min(desiredTelemetryWidth, maxTelemetryWidth));
-                }
+                splitMain.Panel1Collapsed = true;
+                splitMain.IsSplitterFixed = true;
 
                 int workspaceAvailableWidth = Math.Max(0, splitWorkspace.Width - splitWorkspace.SplitterWidth);
-                if (workspaceAvailableWidth > ActionConsoleMinWidth + CenterContentMinWidth)
+                int dynamicMinActionWidth = panelActions?.MinimumPanelWidth ?? ActionConsoleMinWidth;
+                if (workspaceAvailableWidth > dynamicMinActionWidth + CenterContentMinWidth)
                 {
-                    int minActionWidth = ActionConsoleMinWidth;
-                    int minCenterWidth = CenterContentMinWidth;
+                    int minActionWidth = dynamicMinActionWidth;
+                    int minCenterWidth = Math.Min(CenterContentMinWidth, Math.Max(200, workspaceAvailableWidth - minActionWidth));
                     int maxActionWidth = Math.Max(minActionWidth, workspaceAvailableWidth - minCenterWidth);
 
                     splitWorkspace.Panel1MinSize = minCenterWidth;
                     splitWorkspace.Panel2MinSize = minActionWidth;
+                    splitWorkspace.IsSplitterFixed = panelActions?.IsCollapsed == true;
 
-                    int desiredActionWidth = preferredActionWidth ??
+                    int desiredActionWidth = panelActions?.ActivePreferredWidth ??
+                                             preferredActionWidth ??
                                              Math.Max(minActionWidth, Math.Min(ActionConsoleDefaultWidth, ActionConsoleMaxWidth));
                     desiredActionWidth = Math.Max(minActionWidth, Math.Min(desiredActionWidth, maxActionWidth));
                     splitWorkspace.SplitterDistance = Math.Max(minCenterWidth,
@@ -316,22 +321,22 @@ namespace MissionPlanner.GCSViews
                     splitCenter.SplitterDistance = Math.Max(HudMinWidth, Math.Min(desiredHudWidth, maxHudWidth));
                 }
 
-                if (splitHudStack != null)
+                if (splitRightStack != null)
                 {
-                    splitHudStack.Panel2Collapsed = false;
+                    splitRightStack.Panel2Collapsed = false;
 
-                    int stackAvailableHeight = Math.Max(0, splitHudStack.Height - splitHudStack.SplitterWidth);
-                    if (stackAvailableHeight > HudDeckMinHeight + PreviewDeckMinHeight)
+                    int stackAvailableHeight = Math.Max(0, splitRightStack.Height - splitRightStack.SplitterWidth);
+                    if (stackAvailableHeight > OperationsPanelMinHeight + PreviewDeckMinHeight)
                     {
-                        splitHudStack.Panel1MinSize = HudDeckMinHeight;
-                        splitHudStack.Panel2MinSize = PreviewDeckMinHeight;
+                        splitRightStack.Panel1MinSize = OperationsPanelMinHeight;
+                        splitRightStack.Panel2MinSize = PreviewDeckMinHeight;
 
-                        int desiredHudHeight = preferredHudDeckHeight ??
-                                               Math.Max(HudDeckMinHeight,
-                                                   (int)Math.Round(stackAvailableHeight * HudDeckDefaultRatio));
-                        int maxHudHeight = stackAvailableHeight - PreviewDeckMinHeight;
-                        splitHudStack.SplitterDistance = Math.Max(HudDeckMinHeight,
-                            Math.Min(desiredHudHeight, maxHudHeight));
+                        int desiredTopHeight = preferredRightStackTopHeight ??
+                                               Math.Max(OperationsPanelMinHeight,
+                                                   (int)Math.Round(stackAvailableHeight * RightColumnTopRatio));
+                        int maxTopHeight = stackAvailableHeight - PreviewDeckMinHeight;
+                        splitRightStack.SplitterDistance = Math.Max(OperationsPanelMinHeight,
+                            Math.Min(desiredTopHeight, maxTopHeight));
                     }
                 }
             }
@@ -354,7 +359,24 @@ namespace MissionPlanner.GCSViews
             if (splitWorkspace == null || suppressSplitterPreferenceCapture)
                 return;
 
+            if (panelActions?.IsCollapsed == true)
+                return;
+
             preferredActionWidth = splitWorkspace.Panel2.Width;
+        }
+
+        private void PanelActions_LayoutPreferenceChanged(object sender, EventArgs e)
+        {
+            if (panelActions == null || splitWorkspace == null)
+                return;
+
+            panelActions.MinimumSize = new Size(panelActions.MinimumPanelWidth, 0);
+            splitWorkspace.IsSplitterFixed = panelActions.IsCollapsed;
+
+            if (!panelActions.IsCollapsed)
+                preferredActionWidth = Math.Max(panelActions.MinimumPanelWidth, panelActions.ActivePreferredWidth);
+
+            UpdateResponsiveLayout();
         }
 
         private void PanelActions_ClearTrackRequested(object sender, EventArgs e)
@@ -365,12 +387,71 @@ namespace MissionPlanner.GCSViews
                 MainV2.comPort.MAV.camerapoints.Clear();
         }
 
-        private void SplitHudStack_SplitterMoved(object sender, SplitterEventArgs e)
+        private static double ResolveHudRemainingSeconds(CurrentState cs)
         {
-            if (splitHudStack == null || suppressSplitterPreferenceCapture)
+            if (cs == null)
+                return 0;
+
+            if (cs.battery_remainmin > 0.1)
+                return cs.battery_remainmin * 60.0;
+
+            double consumedPercent = 100 - Math.Max(0, Math.Min(100, cs.battery_remaining));
+            if (consumedPercent < 5 || cs.timeInAir < 120)
+                return 0;
+
+            double secondsPerPercent = cs.timeInAir / consumedPercent;
+            return Math.Max(0, secondsPerPercent * cs.battery_remaining);
+        }
+
+        private static float ResolveHudFuelRemaining(CurrentState cs)
+        {
+            if (cs == null)
+                return -1f;
+
+            if (!TryGetFuelCapacityCc(out float capacityCc))
+                return -1f;
+
+            return Math.Max(0f, capacityCc - cs.efi_fuelconsumed);
+        }
+
+        private static bool TryGetFuelCapacityCc(out float capacityCc)
+        {
+            capacityCc = 0f;
+            var parameters = MainV2.comPort?.MAV?.param;
+            if (parameters == null)
+                return false;
+
+            string[] candidateKeys =
+            {
+                "FUEL_TANK_CAPACITY",
+                "FUEL_TANK_CC",
+                "FUEL_CAPACITY",
+                "TANK_CAPACITY",
+                "EFI_FUEL_CAPACITY"
+            };
+
+            foreach (string key in candidateKeys)
+            {
+                if (!parameters.ContainsKey(key) || parameters[key] == null)
+                    continue;
+
+                float value = (float)parameters[key].Value;
+                if (value > 0f)
+                {
+                    capacityCc = value;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void SplitRightStack_SplitterMoved(object sender, SplitterEventArgs e)
+        {
+            if (splitRightStack == null || suppressSplitterPreferenceCapture)
                 return;
 
-            preferredHudDeckHeight = splitHudStack.SplitterDistance;
+            preferredRightStackTopHeight = splitRightStack.SplitterDistance;
         }
 
         private void PanelAuxiliaryDeck_VisibilityPreferenceChanged(object sender, EventArgs e)
@@ -381,14 +462,14 @@ namespace MissionPlanner.GCSViews
 
         private void ApplyAuxiliaryDeckVisibility()
         {
-            if (splitHudStack == null || panelAuxiliaryDeck == null)
+            if (splitRightStack == null || panelAuxiliaryDeck == null)
                 return;
 
             suppressSplitterPreferenceCapture = true;
 
             try
             {
-                splitHudStack.Panel2Collapsed = false;
+                splitRightStack.Panel2Collapsed = false;
             }
             finally
             {
@@ -401,6 +482,526 @@ namespace MissionPlanner.GCSViews
             ScheduleDeferredLayout(true);
         }
 
+        private void HudDisplay_VitalEditRequested(object sender, ControlArtificialHorizon.HudVitalEditRequestedEventArgs e)
+        {
+            OpenHudVitalEditor(e.TargetType, e.SlotIndex);
+        }
+
+        private void OpenHudVitalEditor(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            var customizations = GetHudVitalCustomizationSet(targetType);
+            if (customizations == null || slotIndex < 0 || slotIndex >= customizations.Length)
+                return;
+
+            using (var proxy = CreateHudVitalQuickViewProxy(targetType, slotIndex))
+            using (var editor = new QuickViewOptions(proxy))
+            {
+                editor.StartPosition = FormStartPosition.CenterParent;
+                ThemeManager.ApplyThemeTo(editor);
+                editor.ShowDialog(FindForm());
+                ApplyHudVitalQuickViewProxy(targetType, slotIndex, proxy);
+            }
+        }
+
+        private QuickView CreateHudVitalQuickViewProxy(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            Color accent = ResolveHudEditorColor(targetType, slotIndex);
+
+            return new QuickView
+            {
+                Tag = ResolveHudEditorSourceTag(targetType, slotIndex),
+                desc = ResolveHudEditorLabel(targetType, slotIndex),
+                numberColor = accent,
+                numberColorBackup = accent,
+                numberformat = ResolveHudEditorFormat(targetType, slotIndex),
+                scale = ResolveHudEditorScale(targetType, slotIndex),
+                offset = ResolveHudEditorOffset(targetType, slotIndex),
+                isGauge = ResolveHudEditorGaugeEnabled(targetType, slotIndex),
+                gaugeMin = ResolveHudEditorGaugeMin(targetType, slotIndex),
+                gaugeMax = ResolveHudEditorGaugeMax(targetType, slotIndex)
+            };
+        }
+
+        private void ApplyHudVitalQuickViewProxy(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex, QuickView proxy)
+        {
+            string sourceTag = proxy.Tag as string;
+            if (string.IsNullOrWhiteSpace(sourceTag))
+                return;
+
+            var customizations = GetHudVitalCustomizationSet(targetType);
+            if (customizations == null || slotIndex < 0 || slotIndex >= customizations.Length)
+                return;
+
+            customizations[slotIndex] = new HudVitalCustomization
+            {
+                SourceTag = sourceTag,
+                Label = proxy.desc,
+                AccentColor = proxy.numberColorBackup,
+                NumberFormat = string.IsNullOrWhiteSpace(proxy.numberformat) ? "0.00" : proxy.numberformat,
+                Scale = proxy.scale,
+                Offset = proxy.offset,
+                GaugeEnabled = proxy.isGauge,
+                GaugeMin = proxy.gaugeMin,
+                GaugeMax = proxy.gaugeMax
+            };
+
+            SaveHudVitalCustomizations();
+            ApplyHudVitalOverrides(lastHudTelemetry, lastHudConnected);
+            hudDisplay.Invalidate();
+        }
+
+        private void LoadHudVitalCustomizations()
+        {
+            LoadHudVitalCustomizationSet(HudCoreCustomizationSettingKey, hudCoreCustomizations);
+            LoadHudVitalCustomizationSet(HudSystemCustomizationSettingKey, hudSystemCustomizations);
+            LoadHudVitalCustomizationSet(HudEdgeCustomizationSettingKey, hudEdgeCustomizations);
+        }
+
+        private static void LoadHudVitalCustomizationSet(string settingKey, HudVitalCustomization[] target)
+        {
+            for (int i = 0; i < target.Length; i++)
+                target[i] = null;
+
+            try
+            {
+                var rawValue = Settings.Instance[settingKey];
+                if (rawValue == null)
+                    return;
+
+                string[] tokens = rawValue.ToString().Split(new[] { "||" }, StringSplitOptions.None);
+                for (int i = 0; i < target.Length && i < tokens.Length; i++)
+                    target[i] = HudVitalCustomization.TryDeserialize(tokens[i]);
+            }
+            catch
+            {
+            }
+        }
+
+        private void SaveHudVitalCustomizations()
+        {
+            try
+            {
+                Settings.Instance[HudCoreCustomizationSettingKey] = string.Join("||", hudCoreCustomizations.Select(HudVitalCustomization.Serialize));
+                Settings.Instance[HudSystemCustomizationSettingKey] = string.Join("||", hudSystemCustomizations.Select(HudVitalCustomization.Serialize));
+                Settings.Instance[HudEdgeCustomizationSettingKey] = string.Join("||", hudEdgeCustomizations.Select(HudVitalCustomization.Serialize));
+                Settings.Instance.Save();
+            }
+            catch
+            {
+            }
+        }
+
+        private void ApplyHudVitalOverrides(CurrentState cs, bool connected)
+        {
+            hudDisplay.CoreVitalOverrides = BuildHudVitalOverrideSet(hudCoreCustomizations, cs, connected, true);
+            hudDisplay.SystemVitalOverrides = BuildHudVitalOverrideSet(hudSystemCustomizations, cs, connected, false);
+            hudDisplay.EdgeVitalOverrides = BuildHudVitalOverrideSet(hudEdgeCustomizations, cs, connected, true);
+        }
+
+        private HudVitalCustomization[] GetHudVitalCustomizationSet(ControlArtificialHorizon.HudVitalTargetType targetType)
+        {
+            switch (targetType)
+            {
+                case ControlArtificialHorizon.HudVitalTargetType.Core:
+                    return hudCoreCustomizations;
+                case ControlArtificialHorizon.HudVitalTargetType.System:
+                    return hudSystemCustomizations;
+                case ControlArtificialHorizon.HudVitalTargetType.Edge:
+                    return hudEdgeCustomizations;
+                default:
+                    return null;
+            }
+        }
+
+        private ControlArtificialHorizon.VitalDisplayOverride[] BuildHudVitalOverrideSet(
+            HudVitalCustomization[] customizations,
+            CurrentState cs,
+            bool connected,
+            bool isCoreVital)
+        {
+            var overrides = new ControlArtificialHorizon.VitalDisplayOverride[customizations.Length];
+            for (int i = 0; i < customizations.Length; i++)
+            {
+                if (customizations[i] == null || string.IsNullOrWhiteSpace(customizations[i].SourceTag))
+                    continue;
+
+                overrides[i] = BuildHudVitalOverride(customizations[i], cs, connected, isCoreVital);
+            }
+
+            return overrides;
+        }
+
+        private ControlArtificialHorizon.VitalDisplayOverride BuildHudVitalOverride(
+            HudVitalCustomization customization,
+            CurrentState cs,
+            bool connected,
+            bool isCoreVital)
+        {
+            string sourceKey = ResolveHudTelemetrySourceKey(customization.SourceTag);
+            string label = string.IsNullOrWhiteSpace(customization.Label)
+                ? GetHudTelemetryDisplayName(sourceKey, cs)
+                : customization.Label;
+            string value = "--";
+
+            if (connected && cs != null)
+            {
+                object rawValue = typeof(CurrentState).GetProperty(sourceKey ?? string.Empty)?.GetValue(cs, null);
+                value = FormatHudTelemetryValue(rawValue, customization);
+            }
+
+            string detail = isCoreVital ? string.Empty : BuildHudVitalDetail(customization, sourceKey, cs, connected);
+            return new ControlArtificialHorizon.VitalDisplayOverride(label, value, detail, customization.AccentColor);
+        }
+
+        private static string BuildHudVitalDetail(HudVitalCustomization customization, string sourceKey, CurrentState cs, bool connected)
+        {
+            if (!connected || cs == null)
+                return "Awaiting telemetry";
+
+            if (customization.GaugeEnabled)
+                return $"Range {customization.GaugeMin:0.##} to {customization.GaugeMax:0.##}";
+
+            return GetHudTelemetryDisplayName(sourceKey, cs);
+        }
+
+        private HudVitalCustomization GetHudVitalCustomization(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            var customizations = GetHudVitalCustomizationSet(targetType);
+            if (customizations == null)
+                return null;
+
+            return slotIndex >= 0 && slotIndex < customizations.Length ? customizations[slotIndex] : null;
+        }
+
+        private string ResolveHudEditorSourceTag(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            var customization = GetHudVitalCustomization(targetType, slotIndex);
+            if (customization != null && !string.IsNullOrWhiteSpace(customization.SourceTag))
+                return customization.SourceTag;
+
+            return GetHudDefaultSourceTag(targetType, slotIndex);
+        }
+
+        private string ResolveHudEditorLabel(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            var customization = GetHudVitalCustomization(targetType, slotIndex);
+            if (customization != null && !string.IsNullOrWhiteSpace(customization.Label))
+                return customization.Label;
+
+            return GetHudDefaultLabel(targetType, slotIndex);
+        }
+
+        private Color ResolveHudEditorColor(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            var customization = GetHudVitalCustomization(targetType, slotIndex);
+            return customization?.AccentColor ?? GetHudDefaultAccent(targetType, slotIndex);
+        }
+
+        private string ResolveHudEditorFormat(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            var customization = GetHudVitalCustomization(targetType, slotIndex);
+            if (customization != null && !string.IsNullOrWhiteSpace(customization.NumberFormat))
+                return customization.NumberFormat;
+
+            switch (ResolveHudTelemetrySourceKey(ResolveHudEditorSourceTag(targetType, slotIndex)))
+            {
+                case "timeInAir":
+                case "battery_remainmin":
+                    return "mm\\:ss";
+                case "battery_voltage":
+                case "groundspeed":
+                case "airspeed":
+                case "targetairspeed":
+                case "verticalspeed":
+                case "alt":
+                case "altasl":
+                    return "0.0";
+                case "armed":
+                case "failsafe":
+                    return "0";
+                default:
+                    return "0";
+            }
+        }
+
+        private double ResolveHudEditorScale(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            return GetHudVitalCustomization(targetType, slotIndex)?.Scale ?? 1.0;
+        }
+
+        private double ResolveHudEditorOffset(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            return GetHudVitalCustomization(targetType, slotIndex)?.Offset ?? 0.0;
+        }
+
+        private bool ResolveHudEditorGaugeEnabled(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            return GetHudVitalCustomization(targetType, slotIndex)?.GaugeEnabled ?? false;
+        }
+
+        private double ResolveHudEditorGaugeMin(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            return GetHudVitalCustomization(targetType, slotIndex)?.GaugeMin ?? 0.0;
+        }
+
+        private double ResolveHudEditorGaugeMax(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            return GetHudVitalCustomization(targetType, slotIndex)?.GaugeMax ?? 100.0;
+        }
+
+        private static string ResolveHudTelemetrySourceKey(string sourceTag)
+        {
+            if (string.IsNullOrWhiteSpace(sourceTag))
+                return "battery_remaining";
+
+            if (sourceTag.StartsWith("customfield:", StringComparison.OrdinalIgnoreCase))
+                return CurrentState.GetCustomField(sourceTag.Substring("customfield:".Length));
+
+            return sourceTag;
+        }
+
+        private static string GetHudTelemetryDisplayName(string sourceKey, CurrentState cs)
+        {
+            if (!string.IsNullOrWhiteSpace(sourceKey) && cs != null)
+                return cs.GetNameandUnit(sourceKey);
+
+            return string.IsNullOrWhiteSpace(sourceKey) ? "Telemetry" : sourceKey.Replace('_', ' ').ToUpperInvariant();
+        }
+
+        private static string FormatHudTelemetryValue(object rawValue, HudVitalCustomization customization)
+        {
+            if (rawValue == null)
+                return "--";
+
+            if (rawValue is bool booleanValue)
+                return booleanValue ? "TRUE" : "FALSE";
+
+            if (!TryConvertHudValueToDouble(rawValue, out double numericValue))
+                return Convert.ToString(rawValue, CultureInfo.InvariantCulture) ?? "--";
+
+            double adjustedValue = (numericValue * customization.Scale) + customization.Offset;
+            string format = string.IsNullOrWhiteSpace(customization.NumberFormat) ? "0.00" : customization.NumberFormat;
+
+            try
+            {
+                if (format.Contains(":"))
+                    return TimeSpan.FromSeconds(adjustedValue).ToString(format);
+
+                return adjustedValue.ToString(format, CultureInfo.InvariantCulture);
+            }
+            catch (FormatException)
+            {
+                return adjustedValue.ToString("0.00", CultureInfo.InvariantCulture);
+            }
+        }
+
+        private static bool TryConvertHudValueToDouble(object rawValue, out double value)
+        {
+            if (rawValue == null)
+            {
+                value = 0;
+                return false;
+            }
+
+            try
+            {
+                value = Convert.ToDouble(rawValue, CultureInfo.InvariantCulture);
+                return true;
+            }
+            catch
+            {
+                value = 0;
+                return false;
+            }
+        }
+
+        private static string GetHudDefaultSourceTag(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            if (targetType == ControlArtificialHorizon.HudVitalTargetType.Edge)
+            {
+                switch (slotIndex)
+                {
+                    case 0: return "linkqualitygcs";
+                    case 1: return "battery_remaining";
+                    default: return "battery_remaining";
+                }
+            }
+
+            if (targetType == ControlArtificialHorizon.HudVitalTargetType.Core)
+            {
+                switch (slotIndex)
+                {
+                    case 0: return "efi_rpm";
+                    case 1: return "efi_fuelflow";
+                    case 2: return "battery_remaining";
+                    case 3: return "watts";
+                    default: return "battery_remaining";
+                }
+            }
+
+            switch (slotIndex)
+            {
+                case 0: return "armed";
+                case 1: return "battery_remaining";
+                case 2: return "battery_remainmin";
+                case 3: return "alt";
+                case 4: return "groundspeed";
+                case 5: return "airspeed";
+                case 6: return "timeInAir";
+                case 7: return "DistToHome";
+                case 8: return "wp_dist";
+                default: return "battery_remaining";
+            }
+        }
+
+        private static string GetHudDefaultLabel(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            if (targetType == ControlArtificialHorizon.HudVitalTargetType.Edge)
+            {
+                switch (slotIndex)
+                {
+                    case 0: return "LINK";
+                    case 1: return "BAT";
+                    default: return "VITAL";
+                }
+            }
+
+            if (targetType == ControlArtificialHorizon.HudVitalTargetType.Core)
+            {
+                switch (slotIndex)
+                {
+                    case 0: return "RPM";
+                    case 1: return "FUEL FLOW";
+                    case 2: return "BATTERY";
+                    case 3: return "PWR";
+                    default: return "VITAL";
+                }
+            }
+
+            switch (slotIndex)
+            {
+                case 0: return "MODE";
+                case 1: return "BATTERY";
+                case 2: return "EST. REM";
+                case 3: return "ALTITUDE";
+                case 4: return "GROUND SPD";
+                case 5: return "AIR SPEED";
+                case 6: return "TIME AIR";
+                case 7: return "HOME";
+                case 8: return "NAV";
+                default: return "VITAL";
+            }
+        }
+
+        private static Color GetHudDefaultAccent(ControlArtificialHorizon.HudVitalTargetType targetType, int slotIndex)
+        {
+            if (targetType == ControlArtificialHorizon.HudVitalTargetType.Edge)
+            {
+                switch (slotIndex)
+                {
+                    case 0: return Color.FromArgb(88, 182, 225);
+                    case 1: return Color.FromArgb(230, 99, 83);
+                    default: return Color.FromArgb(111, 120, 138);
+                }
+            }
+
+            if (targetType == ControlArtificialHorizon.HudVitalTargetType.Core)
+            {
+                switch (slotIndex)
+                {
+                    case 0: return Color.FromArgb(226, 179, 82);
+                    case 1: return Color.FromArgb(92, 202, 142);
+                    case 2: return Color.FromArgb(88, 182, 225);
+                    case 3: return Color.FromArgb(88, 182, 225);
+                    default: return Color.FromArgb(111, 120, 138);
+                }
+            }
+
+            switch (slotIndex)
+            {
+                case 0: return Color.FromArgb(100, 184, 224);
+                case 1: return Color.FromArgb(230, 99, 83);
+                case 2: return Color.FromArgb(230, 174, 68);
+                case 3: return Color.FromArgb(94, 199, 230);
+                case 4: return Color.FromArgb(88, 146, 232);
+                case 5: return Color.FromArgb(226, 179, 82);
+                case 6: return Color.FromArgb(104, 129, 232);
+                case 7: return Color.FromArgb(92, 202, 142);
+                case 8: return Color.FromArgb(162, 110, 232);
+                default: return Color.FromArgb(111, 120, 138);
+            }
+        }
+
+        private sealed class HudVitalCustomization
+        {
+            public string SourceTag { get; set; }
+            public string Label { get; set; }
+            public Color AccentColor { get; set; } = Color.FromArgb(111, 120, 138);
+            public string NumberFormat { get; set; } = "0.00";
+            public double Scale { get; set; } = 1.0;
+            public double Offset { get; set; }
+            public bool GaugeEnabled { get; set; }
+            public double GaugeMin { get; set; }
+            public double GaugeMax { get; set; } = 100.0;
+
+            public static string Serialize(HudVitalCustomization customization)
+            {
+                if (customization == null || string.IsNullOrWhiteSpace(customization.SourceTag))
+                    return string.Empty;
+
+                return string.Join(";",
+                    EncodePart(customization.SourceTag),
+                    EncodePart(customization.Label),
+                    customization.AccentColor.ToArgb().ToString(CultureInfo.InvariantCulture),
+                    EncodePart(customization.NumberFormat),
+                    customization.Scale.ToString("R", CultureInfo.InvariantCulture),
+                    customization.Offset.ToString("R", CultureInfo.InvariantCulture),
+                    customization.GaugeEnabled ? "1" : "0",
+                    customization.GaugeMin.ToString("R", CultureInfo.InvariantCulture),
+                    customization.GaugeMax.ToString("R", CultureInfo.InvariantCulture));
+            }
+
+            public static HudVitalCustomization TryDeserialize(string raw)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                    return null;
+
+                try
+                {
+                    string[] parts = raw.Split(';');
+                    if (parts.Length < 9)
+                        return null;
+
+                    return new HudVitalCustomization
+                    {
+                        SourceTag = DecodePart(parts[0]),
+                        Label = DecodePart(parts[1]),
+                        AccentColor = Color.FromArgb(int.Parse(parts[2], CultureInfo.InvariantCulture)),
+                        NumberFormat = DecodePart(parts[3]),
+                        Scale = double.Parse(parts[4], CultureInfo.InvariantCulture),
+                        Offset = double.Parse(parts[5], CultureInfo.InvariantCulture),
+                        GaugeEnabled = parts[6] == "1",
+                        GaugeMin = double.Parse(parts[7], CultureInfo.InvariantCulture),
+                        GaugeMax = double.Parse(parts[8], CultureInfo.InvariantCulture)
+                    };
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            private static string EncodePart(string value)
+            {
+                return Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(value ?? string.Empty));
+            }
+
+            private static string DecodePart(string value)
+            {
+                return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(value ?? string.Empty));
+            }
+        }
+
         private void TelemetryTimer_Tick(object sender, EventArgs e)
         {
             try
@@ -410,6 +1011,8 @@ namespace MissionPlanner.GCSViews
 
                 if (cs == null)
                 {
+                    lastHudTelemetry = null;
+                    lastHudConnected = isConnected;
                     hudDisplay.Connected = isConnected;
                     hudDisplay.Armed = false;
                     hudDisplay.Mode = "STANDBY";
@@ -429,10 +1032,23 @@ namespace MissionPlanner.GCSViews
                     hudDisplay.DistanceToWaypoint = 0;
                     hudDisplay.WaypointNumber = 0;
                     hudDisplay.DistanceToHome = 0;
+                    hudDisplay.DistanceTravelled = 0;
                     hudDisplay.AzToMav = 0;
                     hudDisplay.BatteryRemaining = 0;
+                    hudDisplay.BatteryVoltage = 0;
+                    hudDisplay.BatteryPowerWatts = 0;
+                    hudDisplay.EstimatedRemainingSeconds = 0;
+                    hudDisplay.TimeInAirSeconds = 0;
+                    hudDisplay.LinkQuality = 0;
+                    hudDisplay.GpsSatellites = 0;
+                    hudDisplay.GpsFixType = 0;
+                    hudDisplay.EfiRpm = 0;
+                    hudDisplay.EfiFuelFlow = 0;
+                    hudDisplay.EfiFuelConsumed = 0;
+                    hudDisplay.EfiFuelRemaining = -1;
+                    ApplyHudVitalOverrides(null, isConnected);
                     hudDisplay.Invalidate();
-                    statusRail.SetOffline(isConnected);
+                    statusRail?.SetOffline(isConnected);
                     panelHudDeck.SetOffline(isConnected);
                     panelAuxiliaryDeck.SetOffline(isConnected);
                     panelMap3D.SetOffline(isConnected);
@@ -442,6 +1058,8 @@ namespace MissionPlanner.GCSViews
                 }
 
                 // Update HUD
+                lastHudTelemetry = cs;
+                lastHudConnected = isConnected;
                 hudDisplay.Pitch = (float)cs.pitch;
                 hudDisplay.Roll = (float)cs.roll;
                 hudDisplay.Heading = (float)cs.yaw;
@@ -450,7 +1068,7 @@ namespace MissionPlanner.GCSViews
                 hudDisplay.Mode = cs.mode;
                 hudDisplay.Armed = cs.armed;
                 hudDisplay.Connected = isConnected;
-                hudDisplay.Altitude = cs.altasl;
+                hudDisplay.Altitude = cs.alt;
                 hudDisplay.TargetAltitude = cs.targetalt;
                 hudDisplay.GroundSpeed = cs.groundspeed;
                 hudDisplay.AirSpeed = cs.airspeed;
@@ -461,8 +1079,21 @@ namespace MissionPlanner.GCSViews
                 hudDisplay.DistanceToWaypoint = cs.wp_dist;
                 hudDisplay.WaypointNumber = (int)Math.Round(cs.wpno);
                 hudDisplay.DistanceToHome = cs.DistToHome;
+                hudDisplay.DistanceTravelled = cs.distTraveled;
                 hudDisplay.AzToMav = cs.AZToMAV;
                 hudDisplay.BatteryRemaining = cs.battery_remaining;
+                hudDisplay.BatteryVoltage = (float)cs.battery_voltage;
+                hudDisplay.BatteryPowerWatts = (float)cs.watts;
+                hudDisplay.EstimatedRemainingSeconds = ResolveHudRemainingSeconds(cs);
+                hudDisplay.TimeInAirSeconds = cs.timeInAir;
+                hudDisplay.LinkQuality = cs.linkqualitygcs;
+                hudDisplay.GpsSatellites = (int)Math.Round(cs.satcount);
+                hudDisplay.GpsFixType = cs.gpsstatus;
+                hudDisplay.EfiRpm = cs.efi_rpm;
+                hudDisplay.EfiFuelFlow = cs.efi_fuelflow;
+                hudDisplay.EfiFuelConsumed = cs.efi_fuelconsumed;
+                hudDisplay.EfiFuelRemaining = ResolveHudFuelRemaining(cs);
+                ApplyHudVitalOverrides(cs, isConnected);
                 hudDisplay.Invalidate();
                 panelHudDeck.UpdateFlightState(cs.mode, cs.armed, (float)cs.yaw, cs.battery_remaining);
                 panelAuxiliaryDeck.UpdateTelemetry(cs);
@@ -473,7 +1104,7 @@ namespace MissionPlanner.GCSViews
                 panelTelemetry.UpdateTelemetry(cs);
 
                 // Update status and actions
-                statusRail.UpdateTelemetry(cs, isConnected);
+                statusRail?.UpdateTelemetry(cs, isConnected);
                 panelActions.UpdateTelemetry(cs, isConnected);
                 TrackFlightEvents(cs, isConnected);
             }
@@ -527,7 +1158,7 @@ namespace MissionPlanner.GCSViews
             if (!string.Equals(lastTimelineMode, mode, StringComparison.OrdinalIgnoreCase))
             {
                 panelActions.PushEvent(FlightEventSeverity.Info, $"Mode changed to {mode}",
-                    $"WP {cs.wpno:F0}  |  Alt {cs.altasl:F0} m  |  GS {cs.groundspeed:F1} m/s");
+                    $"WP {cs.wpno:F0}  |  Alt {cs.alt:F0} m  |  GS {cs.groundspeed:F1} m/s");
             }
 
             string alert = string.IsNullOrWhiteSpace(cs.messageHigh) ? "" : cs.messageHigh.Trim();
@@ -1379,6 +2010,8 @@ namespace MissionPlanner.GCSViews
         {
             switch (ResolveTelemetrySourceKey(sourceTag))
             {
+                case "alt":
+                case "altasl":
                 case "linkqualitygcs":
                 case "battery_remaining":
                 case "satcount":
@@ -2031,7 +2664,7 @@ namespace MissionPlanner.GCSViews
                 livePreview ? "LIVE 3D" : connected ? "SYNCING" : "OFFLINE",
                 livePreview ? "3D situational - live" : connected ? "3D view syncing" : "3D view standing by",
                 livePreview
-                    ? $"{mode}  |  Alt {cs.altasl:F0} m  |  GS {cs.groundspeed:F1} m/s"
+                    ? $"{mode}  |  Alt {cs.alt:F0} m  |  GS {cs.groundspeed:F1} m/s"
                     : connected
                         ? "Vehicle linked. Waiting for valid position and attitude telemetry."
                         : "Connect a vehicle to begin the live 3D situational view.",
@@ -2046,7 +2679,7 @@ namespace MissionPlanner.GCSViews
                         ? "Connect vehicle\r\nfor 3D situational view"
                         : !hasPosition
                             ? "Waiting for valid position\r\nand attitude telemetry"
-                            : $"{mode}\r\nAlt {cs.altasl:F0} m  |  GS {cs.groundspeed:F1} m/s",
+                            : $"{mode}\r\nAlt {cs.alt:F0} m  |  GS {cs.groundspeed:F1} m/s",
                 livePreview);
 
             if (!livePreview)
@@ -2818,10 +3451,10 @@ namespace MissionPlanner.GCSViews
                 case "altitude":
                     return new TelemetryMetricSnapshot(
                         "ALTITUDE",
-                        $"{cs.altasl:F0} m",
+                        $"{cs.alt:F0} m",
                         $"Home {cs.DistToHome:F0} m",
                         accent,
-                        Clamp01(cs.altasl / 150f));
+                        Clamp01(Math.Max(0f, cs.alt) / 150f));
 
                 case "ground_speed":
                     return new TelemetryMetricSnapshot(
@@ -3144,7 +3777,7 @@ namespace MissionPlanner.GCSViews
             switch (key)
             {
                 case "altitude":
-                    return "altasl";
+                    return "alt";
                 case "ground_speed":
                     return "groundspeed";
                 case "battery":
@@ -3212,6 +3845,7 @@ namespace MissionPlanner.GCSViews
             string sourceTag = ResolveEditorSourceTag(cardIndex);
             switch (ResolveTelemetrySourceKey(sourceTag))
             {
+                case "alt":
                 case "altasl":
                 case "satcount":
                 case "wp_dist":
@@ -3312,6 +3946,7 @@ namespace MissionPlanner.GCSViews
         private Label lblMapOverlaySubtitle;
         private Button btnSatellite;
         private Button btnTerrain;
+        private Button btnAutoPan;
         private Button btnZoomIn;
         private Button btnZoomOut;
         private Panel previewBorderPanel;
@@ -3332,7 +3967,7 @@ namespace MissionPlanner.GCSViews
         private GMarkerGoogle homeMarker;
         private GMapMarkerPlane aircraftMarker;
         private readonly List<PointLatLng> breadcrumbPoints = new List<PointLatLng>();
-        private int lastMissionWaypointCount = -1;
+        private string lastMissionOverlaySignature = "";
         private DateTime lastMissionOverlayRefresh = DateTime.MinValue;
         private Map3D mapView;
         private bool previewAvailable;
@@ -3345,6 +3980,7 @@ namespace MissionPlanner.GCSViews
         private bool updatingMapPosition;
         private bool updatingMapZoom;
         private DateTime manualNavigationUntilUtc = DateTime.MinValue;
+        private bool autoPanEnabled = true;
         private bool resizingPreview;
         private Point previewResizeStartCursor;
         private Size previewResizeStartSize;
@@ -3468,7 +4104,7 @@ namespace MissionPlanner.GCSViews
                 MinZoom = 2,
                 MouseWheelZoomType = GMap.NET.MouseWheelZoomType.MousePositionWithoutCenter,
                 NegativeMode = false,
-                PolygonsEnabled = false,
+                PolygonsEnabled = true,
                 RetryLoadTile = 0,
                 RoutesEnabled = true,
                 ScaleMode = ScaleModes.Fractional,
@@ -3526,6 +4162,7 @@ namespace MissionPlanner.GCSViews
             tacticalMap.Overlays.Add(mapOverlay);
 
             selectedMapProvider = GMapProviders.GoogleSatelliteMap;
+            autoPanEnabled = Settings.Instance.GetBoolean("CHK_autopan", true);
 
             tacticalMap.MapProvider = selectedMapProvider;
             LoadSavedMapView();
@@ -3600,6 +4237,10 @@ namespace MissionPlanner.GCSViews
             btnTerrain = CreateMapButton("Terrain");
             btnTerrain.Click += (s, e) => SetMapProvider(GMapProviders.GoogleTerrainMap);
             mapButtonBar.Controls.Add(btnTerrain);
+
+            btnAutoPan = CreateMapButton("Auto Pan");
+            btnAutoPan.Click += (s, e) => SetAutoPanEnabled(!autoPanEnabled, true);
+            mapButtonBar.Controls.Add(btnAutoPan);
 
             btnZoomIn = CreateMapButton("+");
             btnZoomIn.Click += (s, e) =>
@@ -3802,14 +4443,17 @@ namespace MissionPlanner.GCSViews
             int zoomButtonWidth = 28;
             int terrainButtonWidth = GetMapButtonWidth(btnTerrain, 84, 24);
             int satelliteButtonWidth = GetMapButtonWidth(btnSatellite, 96, 24);
+            int autoPanButtonWidth = GetMapButtonWidth(btnAutoPan, 92, 24);
 
             btnSatellite.Margin = new Padding(0, 0, 6, 0);
             btnTerrain.Margin = new Padding(0, 0, 6, 0);
+            btnAutoPan.Margin = new Padding(0, 0, 6, 0);
             btnZoomIn.Margin = new Padding(0, 0, 4, 0);
             btnZoomOut.Margin = Padding.Empty;
 
             btnSatellite.Size = new Size(satelliteButtonWidth, 22);
             btnTerrain.Size = new Size(terrainButtonWidth, 22);
+            btnAutoPan.Size = new Size(autoPanButtonWidth, 22);
             btnZoomIn.Size = new Size(zoomButtonWidth, 22);
             btnZoomOut.Size = new Size(zoomButtonWidth, 22);
 
@@ -3982,7 +4626,7 @@ namespace MissionPlanner.GCSViews
             ApplyDeckState(connected, hasPosition,
                 connected && hasPosition ? "LIVE MAP" : connected ? "SYNCING" : "OFFLINE",
                 hasPosition
-                    ? $"{mode}  |  {cs.lat:F5}, {cs.lng:F5}  |  Alt {cs.altasl:F0} m"
+                    ? $"{mode}  |  {cs.lat:F5}, {cs.lng:F5}  |  Alt {cs.alt:F0} m"
                     : connected
                         ? "Vehicle linked. Waiting for a stable position fix for the mission map."
                         : "Connect a vehicle to begin the live mission map.");
@@ -4105,7 +4749,7 @@ namespace MissionPlanner.GCSViews
                 return;
             }
 
-            lblPreviewState.Text = $"{mode}\r\nAlt {cs.altasl:F0} m  |  GS {cs.groundspeed:F1} m/s";
+            lblPreviewState.Text = $"{mode}\r\nAlt {cs.alt:F0} m  |  GS {cs.groundspeed:F1} m/s";
             lblPreviewState.Visible = false;
             mapView.Visible = true;
         }
@@ -4135,7 +4779,7 @@ namespace MissionPlanner.GCSViews
                 aircraftMarker.Nav_bearing = cs.nav_bearing;
                 aircraftMarker.Target = cs.target_bearing;
 
-                if (!tacticalMap.IsDragging && !IsManualNavigationActive())
+                if (autoPanEnabled && !tacticalMap.IsDragging && !IsManualNavigationActive())
                 {
                     if (tacticalMap.Position.IsEmpty ||
                         GMapProviders.EmptyProvider.Projection.GetDistance(tacticalMap.Position, currentPoint) > 0.05)
@@ -4226,14 +4870,6 @@ namespace MissionPlanner.GCSViews
                 return;
             }
 
-            var now = DateTime.UtcNow;
-            if (missionOverlay != null &&
-                missionItems.Count == lastMissionWaypointCount &&
-                lastMissionOverlayRefresh.AddSeconds(2) > now)
-            {
-                return;
-            }
-
             var homeplla = new PointLatLngAlt(
                 cs.HomeLocation.Lat,
                 cs.HomeLocation.Lng,
@@ -4262,8 +4898,21 @@ namespace MissionPlanner.GCSViews
             if (routeMissionItems.Count > 0)
                 routeMissionItems.RemoveAt(0);
 
+            bool useOverlay2 = Settings.Instance.GetBoolean("UseWPOverlay2", true);
+            string missionSignature = BuildMissionOverlaySignature(homeplla, routeMissionItems, useOverlay2,
+                MainV2.comPort.MAV.cs.vehicleClass);
+            var now = DateTime.UtcNow;
+            bool overlayAttached = missionOverlay != null && tacticalMap.Overlays.Contains(missionOverlay);
+
+            if (overlayAttached &&
+                missionSignature == lastMissionOverlaySignature &&
+                lastMissionOverlayRefresh.AddMilliseconds(750) > now)
+            {
+                return;
+            }
+
             GMapOverlay activeOverlay;
-            if (Settings.Instance.GetBoolean("UseWPOverlay2", true))
+            if (useOverlay2)
             {
                 var wpOverlay2 = new WPOverlay2
                 {
@@ -4293,21 +4942,105 @@ namespace MissionPlanner.GCSViews
                 activeOverlay = wpOverlay.overlay;
             }
 
-            ClearMissionOverlay();
+            if (tacticalMap != null)
+            {
+                var existing = tacticalMap.Overlays.Where(overlay =>
+                        overlay != mapOverlay &&
+                        overlay.Id == activeOverlay.Id)
+                    .ToList();
+
+                foreach (var overlay in existing)
+                {
+                    tacticalMap.Overlays.Remove(overlay);
+                    if (!ReferenceEquals(overlay, missionOverlay))
+                        DisposeMissionOverlayRoutes(overlay);
+                }
+
+                if (missionOverlay != null &&
+                    !ReferenceEquals(missionOverlay, activeOverlay) &&
+                    tacticalMap.Overlays.Contains(missionOverlay))
+                {
+                    tacticalMap.Overlays.Remove(missionOverlay);
+                }
+            }
+
+            DisposeMissionOverlayRoutes(missionOverlay);
 
             missionOverlay = activeOverlay;
 
             int insertIndex = mapOverlay != null
-                ? tacticalMap.Overlays.IndexOf(mapOverlay)
-                : tacticalMap.Overlays.Count;
+                ? tacticalMap.Overlays.IndexOf(mapOverlay) + 1
+                : Math.Min(1, tacticalMap.Overlays.Count);
             if (insertIndex < 0)
+                insertIndex = tacticalMap.Overlays.Count;
+            if (insertIndex > tacticalMap.Overlays.Count)
                 insertIndex = tacticalMap.Overlays.Count;
 
             tacticalMap.Overlays.Insert(insertIndex, missionOverlay);
             missionOverlay.ForceUpdate();
+            EnsureMissionOverlayVisible(missionOverlay, HasValidCoordinate(cs.lat, cs.lng));
 
-            lastMissionWaypointCount = missionItems.Count;
+            lastMissionOverlaySignature = missionSignature;
             lastMissionOverlayRefresh = now;
+        }
+
+        private void EnsureMissionOverlayVisible(GMapOverlay overlay, bool hasAircraft)
+        {
+            if (tacticalMap == null || overlay == null || IsManualNavigationActive())
+                return;
+
+            if (hasAircraft && autoPanEnabled)
+                return;
+
+            RectLatLng viewArea = tacticalMap.ViewArea;
+            if (!viewArea.IsEmpty && MissionOverlayHasVisiblePoint(overlay, viewArea))
+                return;
+
+            RectLatLng? missionBounds = tacticalMap.GetRectOfAllRoutes(overlay.Id) ??
+                                        tacticalMap.GetRectOfAllMarkers(overlay.Id);
+            if (!missionBounds.HasValue || missionBounds.Value.IsEmpty)
+                return;
+
+            RectLatLng fitBounds = missionBounds.Value;
+            double latPadding = Math.Max(0.0008, fitBounds.HeightLat * 0.12);
+            double lngPadding = Math.Max(0.0008, fitBounds.WidthLng * 0.12);
+            fitBounds.Inflate(latPadding, lngPadding);
+            tacticalMap.SetZoomToFitRect(fitBounds);
+        }
+
+        private static bool MissionOverlayHasVisiblePoint(GMapOverlay overlay, RectLatLng viewArea)
+        {
+            foreach (var marker in overlay.Markers)
+            {
+                if (marker.IsVisible && viewArea.Contains(marker.Position))
+                    return true;
+            }
+
+            foreach (var route in overlay.Routes)
+            {
+                if (!route.IsVisible)
+                    continue;
+
+                foreach (PointLatLng point in route.Points)
+                {
+                    if (viewArea.Contains(point))
+                        return true;
+                }
+            }
+
+            foreach (var polygon in overlay.Polygons)
+            {
+                if (!polygon.IsVisible)
+                    continue;
+
+                foreach (PointLatLng point in polygon.Points)
+                {
+                    if (viewArea.Contains(point))
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         private void ClearMissionOverlay()
@@ -4333,7 +5066,26 @@ namespace MissionPlanner.GCSViews
 
             DisposeMissionOverlayRoutes(missionOverlay);
             missionOverlay = null;
-            lastMissionWaypointCount = -1;
+            lastMissionOverlaySignature = "";
+        }
+
+        private static string BuildMissionOverlaySignature(PointLatLngAlt home, List<Locationwp> missionItems,
+            bool useOverlay2, VehicleClass vehicleClass)
+        {
+            var builder = new StringBuilder();
+            builder.Append(useOverlay2 ? "v2|" : "legacy|");
+            builder.Append((int)vehicleClass).Append('|');
+            builder.AppendFormat(CultureInfo.InvariantCulture, "{0:F7},{1:F7},{2:F2}|", home.Lat, home.Lng, home.Alt);
+
+            foreach (var item in missionItems)
+            {
+                builder.Append((int)item.id).Append(':');
+                builder.AppendFormat(CultureInfo.InvariantCulture, "{0:F7},{1:F7},{2:F2}|", item.lat, item.lng, item.alt);
+                builder.AppendFormat(CultureInfo.InvariantCulture, "{0:F3},{1:F3},{2:F3},{3:F3}|", item.p1, item.p2, item.p3, item.p4);
+                builder.Append(item.frame).Append(';');
+            }
+
+            return builder.ToString();
         }
 
         private static void DisposeMissionOverlayRoutes(GMapOverlay overlay)
@@ -4432,6 +5184,11 @@ namespace MissionPlanner.GCSViews
 
             ApplyMapButtonStyle(btnSatellite, selectedMapProvider == GMapProviders.GoogleSatelliteMap);
             ApplyMapButtonStyle(btnTerrain, selectedMapProvider == GMapProviders.GoogleTerrainMap);
+            if (btnAutoPan != null)
+            {
+                btnAutoPan.Text = autoPanEnabled ? "Auto Pan On" : "Auto Pan Off";
+                ApplyMapButtonStyle(btnAutoPan, autoPanEnabled);
+            }
         }
 
         private void TacticalMap_OnPositionChanged(PointLatLng point)
@@ -4439,7 +5196,8 @@ namespace MissionPlanner.GCSViews
             if (updatingMapPosition)
                 return;
 
-            MarkManualNavigation();
+            if (autoPanEnabled)
+                MarkManualNavigation();
         }
 
         private void TacticalMap_OnMapZoomChanged()
@@ -4447,7 +5205,8 @@ namespace MissionPlanner.GCSViews
             if (updatingMapZoom)
                 return;
 
-            MarkManualNavigation();
+            if (autoPanEnabled)
+                MarkManualNavigation();
         }
 
         private void MarkManualNavigation()
@@ -4474,6 +5233,35 @@ namespace MissionPlanner.GCSViews
             {
                 updatingMapPosition = false;
             }
+        }
+
+        private void SetAutoPanEnabled(bool enabled, bool recenterNow)
+        {
+            autoPanEnabled = enabled;
+
+            try
+            {
+                Settings.Instance["CHK_autopan"] = enabled.ToString();
+                Settings.Instance.Save();
+            }
+            catch (Exception ex)
+            {
+                log.Debug($"Modern flight autopan save error: {ex.Message}");
+            }
+
+            if (!enabled)
+            {
+                manualNavigationUntilUtc = DateTime.MaxValue;
+            }
+            else
+            {
+                manualNavigationUntilUtc = DateTime.MinValue;
+
+                if (recenterNow && tacticalMap != null && aircraftMarker != null && aircraftMarker.IsVisible)
+                    SetMapPositionInternal(aircraftMarker.Position);
+            }
+
+            ApplyMapProviderButtonState();
         }
 
         private void SetMapZoomInternal(double zoom)

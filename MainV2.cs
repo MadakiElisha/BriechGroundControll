@@ -5511,10 +5511,31 @@ namespace MissionPlanner
 
         protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
         {
-            using (var brush = new LinearGradientBrush(e.AffectedBounds,
+            var bounds = e.AffectedBounds;
+
+            // WinForms can briefly hand us an empty paint rectangle during startup,
+            // resize, or collapse transitions. Gradient brushes reject zero-sized
+            // rectangles, so fall back to the toolstrip client area or skip paint.
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+                bounds = e.ToolStrip?.ClientRectangle ?? Rectangle.Empty;
+
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+                return;
+
+            if (bounds.Width < 2 || bounds.Height < 2)
+            {
+                using (var solidBrush = new SolidBrush(_darkBackground))
+                {
+                    e.Graphics.FillRectangle(solidBrush, bounds);
+                }
+
+                return;
+            }
+
+            using (var brush = new LinearGradientBrush(bounds,
                 Color.FromArgb(18, 24, 36), _darkBackground, LinearGradientMode.Vertical))
             {
-                e.Graphics.FillRectangle(brush, e.AffectedBounds);
+                e.Graphics.FillRectangle(brush, bounds);
             }
         }
 

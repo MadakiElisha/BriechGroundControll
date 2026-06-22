@@ -17,6 +17,11 @@ namespace MissionPlanner.GCSViews
 {
     public class PanelQuickActions : Panel
     {
+        private const string RightPanelCollapsedKey = "ModernFlight.RightPanelCollapsed";
+        private const int ExpandedPreferredPanelWidth = 480;
+        private const int ExpandedMinimumPanelWidth = 360;
+        private const int CollapsedRailWidth = 18;
+
         private enum OperationsTab
         {
             Actions,
@@ -42,15 +47,18 @@ namespace MissionPlanner.GCSViews
         private readonly Font subtitleFont = new Font("Segoe UI", 9f, FontStyle.Regular);
         private readonly Font metaFont = new Font("Segoe UI", 8f, FontStyle.Bold);
 
+        private Panel headerShell;
         private Label lblTitle;
         private Label lblMode;
         private Label lblStatus;
         private Label lblAdvisory;
         private TableLayoutPanel tabBar;
+        private Panel edgeCollapseHost;
         private Button btnActionsTab;
         private Button btnMessagesTab;
         private Button btnPreflightTab;
         private Button btnLogsTab;
+        private Button btnEdgeCollapse;
         private Panel pageHost;
         private Panel actionsPage;
         private Panel messagesPage;
@@ -91,22 +99,28 @@ namespace MissionPlanner.GCSViews
         private MethodInfo legacyTrackScrollMethod;
         private FieldInfo legacyPlaybackSpeedField;
         private FieldInfo legacyFlightDataActionsField;
+        private bool panelCollapsed;
         private readonly List<(DateTime time, string message, byte severity)> supplementalMessages =
             new List<(DateTime time, string message, byte severity)>();
 
         public event EventHandler ClearTrackRequested;
-        public int ActivePreferredWidth => GetPreferredWidth(activeTab);
+        public event EventHandler LayoutPreferenceChanged;
+        public int ActivePreferredWidth => panelCollapsed ? CollapsedRailWidth : GetPreferredWidth(activeTab);
+        public int MinimumPanelWidth => panelCollapsed ? CollapsedRailWidth : ExpandedMinimumPanelWidth;
+        public bool IsCollapsed => panelCollapsed;
 
         public PanelQuickActions()
         {
             DoubleBuffered = true;
             BackColor = Color.FromArgb(10, 14, 20);
-            Padding = new Padding(10);
+            Padding = Padding.Empty;
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer |
                      ControlStyles.ResizeRedraw, true);
 
+            LoadShellPreferences();
             InitializeShell();
             SelectTab(OperationsTab.Messages);
+            ApplyShellState(false);
             UpdateTelemetry(null, false);
         }
 
@@ -164,12 +178,18 @@ namespace MissionPlanner.GCSViews
 
         private void InitializeShell()
         {
-            tabBar = new TableLayoutPanel
+            headerShell = new Panel
             {
                 Dock = DockStyle.Top,
                 Height = 42,
+                BackColor = Surface
+            };
+
+            tabBar = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
                 BackColor = Surface,
-                Padding = new Padding(8, 6, 8, 6),
+                Padding = new Padding(8, 6, 4, 6),
                 ColumnCount = 4,
                 RowCount = 1,
                 AutoSize = false
@@ -188,8 +208,11 @@ namespace MissionPlanner.GCSViews
             tabBar.Controls.Add(btnMessagesTab, 1, 0);
             tabBar.Controls.Add(btnPreflightTab, 2, 0);
             tabBar.Controls.Add(btnLogsTab, 3, 0);
+            headerShell.Controls.Add(tabBar);
 
-            pageHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Padding = new Padding(0, 10, 0, 0) };
+            edgeCollapseHost = BuildEdgeCollapseHost();
+
+            pageHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Padding = new Padding(8, 10, 0, 0) };
             actionsPage = BuildActionsPage();
             messagesPage = BuildMessagesPage();
             preflightPage = BuildPreflightPage();
@@ -200,7 +223,41 @@ namespace MissionPlanner.GCSViews
             pageHost.Controls.Add(actionsPage);
 
             Controls.Add(pageHost);
-            Controls.Add(tabBar);
+            Controls.Add(headerShell);
+            Controls.Add(edgeCollapseHost);
+        }
+
+        private Panel BuildEdgeCollapseHost()
+        {
+            var rail = new Panel
+            {
+                Dock = DockStyle.Left,
+                Width = CollapsedRailWidth,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0, 10, 0, 10)
+            };
+
+            btnEdgeCollapse = new Button
+            {
+                Dock = DockStyle.Fill,
+                Text = "<",
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI Symbol", 8.5f, FontStyle.Bold),
+                BackColor = SurfaceRaised,
+                ForeColor = TextPrimary,
+                Cursor = Cursors.Hand,
+                TextAlign = ContentAlignment.MiddleCenter,
+                UseMnemonic = false,
+                Margin = Padding.Empty
+            };
+            btnEdgeCollapse.FlatAppearance.BorderSize = 1;
+            btnEdgeCollapse.FlatAppearance.BorderColor = Border;
+            btnEdgeCollapse.FlatAppearance.MouseDownBackColor = SurfaceRaised;
+            btnEdgeCollapse.FlatAppearance.MouseOverBackColor = SurfaceRaised;
+            btnEdgeCollapse.Click += (s, e) => SetCollapsed(!panelCollapsed);
+
+            rail.Controls.Add(btnEdgeCollapse);
+            return rail;
         }
 
         private Panel BuildActionsPage()
@@ -685,6 +742,71 @@ namespace MissionPlanner.GCSViews
             button.FlatAppearance.BorderSize = active ? 2 : 1;
         }
 
+        private void LoadShellPreferences()
+        {
+            try
+            {
+                panelCollapsed = Settings.Instance.GetBoolean(RightPanelCollapsedKey, false);
+            }
+            catch
+            {
+                panelCollapsed = false;
+            }
+        }
+
+        private void SaveShellPreferences()
+        {
+            try
+            {
+                Settings.Instance[RightPanelCollapsedKey] = panelCollapsed.ToString();
+                Settings.Instance.Save();
+            }
+            catch
+            {
+            }
+        }
+
+        private void SetCollapsed(bool collapsed)
+        {
+            if (panelCollapsed == collapsed)
+                return;
+
+            panelCollapsed = collapsed;
+            ApplyShellState();
+        }
+
+        private void ApplyShellState(bool raiseLayoutEvent = true)
+        {
+            if (tabBar != null)
+                tabBar.Visible = !panelCollapsed;
+            if (pageHost != null)
+                pageHost.Visible = !panelCollapsed;
+            if (headerShell != null)
+                headerShell.Height = panelCollapsed ? 0 : 42;
+
+            if (btnEdgeCollapse != null)
+            {
+                btnEdgeCollapse.Text = panelCollapsed ? ">" : "<";
+                ApplyUtilityButtonStyle(btnEdgeCollapse, panelCollapsed);
+            }
+
+            SaveShellPreferences();
+
+            if (raiseLayoutEvent)
+                LayoutPreferenceChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void ApplyUtilityButtonStyle(Button button, bool active)
+        {
+            if (button == null)
+                return;
+
+            button.BackColor = active ? Color.FromArgb(28, 54, 73) : SurfaceRaised;
+            button.ForeColor = TextPrimary;
+            button.FlatAppearance.BorderColor = active ? Info : Border;
+            button.FlatAppearance.BorderSize = active ? 2 : 1;
+        }
+
         private void UpdateHeader(bool armed, bool connected, string mode, string alert)
         {
             if (lblMode == null || lblStatus == null || lblAdvisory == null)
@@ -819,7 +941,7 @@ namespace MissionPlanner.GCSViews
 
         private int GetPreferredWidth(OperationsTab tab)
         {
-            return 480;
+            return ExpandedPreferredPanelWidth;
         }
 
         private void UpdateMessages(CurrentState cs)
