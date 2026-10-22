@@ -172,12 +172,11 @@ namespace MissionPlanner.GCSViews
             panelActions = new PanelQuickActions
             {
                 Dock = DockStyle.Fill,
-                MinimumSize = new Size(ActionConsoleMinWidth, 0),
                 BackColor = VeryDarkNavy
             };
             panelActions.ClearTrackRequested += PanelActions_ClearTrackRequested;
             panelActions.LayoutPreferenceChanged += PanelActions_LayoutPreferenceChanged;
-            panelActions.MinimumSize = new Size(panelActions.MinimumPanelWidth, 0);
+            panelActions.MinimumSize = Size.Empty;
             preferredActionWidth = panelActions.ActivePreferredWidth;
 
             splitRightStack = new SplitContainer
@@ -293,56 +292,103 @@ namespace MissionPlanner.GCSViews
                 splitMain.Panel1Collapsed = true;
                 splitMain.IsSplitterFixed = true;
 
+                // The action console's own MinimumSize must never be wider than the space we can give it,
+                // otherwise it overflows the window on small / high-DPI screens. The split handles minimums.
+                if (panelActions.MinimumSize != Size.Empty)
+                    panelActions.MinimumSize = Size.Empty;
+
+                // Workspace: centre (HUD + map) | action console
                 int workspaceAvailableWidth = Math.Max(0, splitWorkspace.Width - splitWorkspace.SplitterWidth);
-                int dynamicMinActionWidth = panelActions?.MinimumPanelWidth ?? ActionConsoleMinWidth;
-                if (workspaceAvailableWidth > dynamicMinActionWidth + CenterContentMinWidth)
-                {
-                    int minActionWidth = dynamicMinActionWidth;
-                    int minCenterWidth = Math.Min(CenterContentMinWidth, Math.Max(200, workspaceAvailableWidth - minActionWidth));
-                    int maxActionWidth = Math.Max(minActionWidth, workspaceAvailableWidth - minCenterWidth);
+                int minActionWidth = panelActions.MinimumPanelWidth;
+                splitWorkspace.IsSplitterFixed = panelActions.IsCollapsed;
+                int desiredActionWidth = panelActions.ActivePreferredWidth > 0
+                    ? panelActions.ActivePreferredWidth
+                    : (preferredActionWidth ?? ActionConsoleDefaultWidth);
+                desiredActionWidth = Math.Min(desiredActionWidth, ActionConsoleMaxWidth);
 
-                    splitWorkspace.Panel1MinSize = minCenterWidth;
-                    splitWorkspace.Panel2MinSize = minActionWidth;
-                    splitWorkspace.IsSplitterFixed = panelActions?.IsCollapsed == true;
+                // on narrow screens give the console at most ~38% of the width so the HUD/map stay usable
+                if (!panelActions.IsCollapsed && workspaceAvailableWidth > 0)
+                    desiredActionWidth = Math.Min(desiredActionWidth,
+                        Math.Max((int)(workspaceAvailableWidth * 0.38), Math.Min(minActionWidth, workspaceAvailableWidth / 3)));
 
-                    int desiredActionWidth = panelActions?.ActivePreferredWidth ??
-                                             preferredActionWidth ??
-                                             Math.Max(minActionWidth, Math.Min(ActionConsoleDefaultWidth, ActionConsoleMaxWidth));
-                    desiredActionWidth = Math.Max(minActionWidth, Math.Min(desiredActionWidth, maxActionWidth));
-                    splitWorkspace.SplitterDistance = Math.Max(minCenterWidth,
-                        Math.Min(workspaceAvailableWidth - desiredActionWidth, workspaceAvailableWidth - minActionWidth));
-                }
+                ApplySplit(splitWorkspace, CenterContentMinWidth, minActionWidth,
+                    workspaceAvailableWidth - desiredActionWidth, FixedSide.Panel2);
 
-                if (splitCenter.Width > HudMinWidth + MapDeckMinWidth + splitCenter.SplitterWidth)
-                {
-                    int desiredHudWidth = preferredHudWidth ?? Math.Max(HudMinWidth,
-                        (int)Math.Round((splitCenter.Width - splitCenter.SplitterWidth) * HudColumnDefaultRatio));
-                    int maxHudWidth = splitCenter.Width - MapDeckMinWidth - splitCenter.SplitterWidth;
-                    splitCenter.SplitterDistance = Math.Max(HudMinWidth, Math.Min(desiredHudWidth, maxHudWidth));
-                }
+                // Centre: HUD | tactical map
+                int centerAvailable = Math.Max(0, splitCenter.Width - splitCenter.SplitterWidth);
+                int desiredHudWidth = preferredHudWidth ??
+                                      (int)Math.Round(centerAvailable * HudColumnDefaultRatio);
+                ApplySplit(splitCenter, HudMinWidth, MapDeckMinWidth, desiredHudWidth, FixedSide.Panel1);
 
+                // Right column: operations | auxiliary deck
                 if (splitRightStack != null)
                 {
                     splitRightStack.Panel2Collapsed = false;
 
                     int stackAvailableHeight = Math.Max(0, splitRightStack.Height - splitRightStack.SplitterWidth);
-                    if (stackAvailableHeight > OperationsPanelMinHeight + PreviewDeckMinHeight)
-                    {
-                        splitRightStack.Panel1MinSize = OperationsPanelMinHeight;
-                        splitRightStack.Panel2MinSize = PreviewDeckMinHeight;
-
-                        int desiredTopHeight = preferredRightStackTopHeight ??
-                                               Math.Max(OperationsPanelMinHeight,
-                                                   (int)Math.Round(stackAvailableHeight * RightColumnTopRatio));
-                        int maxTopHeight = stackAvailableHeight - PreviewDeckMinHeight;
-                        splitRightStack.SplitterDistance = Math.Max(OperationsPanelMinHeight,
-                            Math.Min(desiredTopHeight, maxTopHeight));
-                    }
+                    int desiredTopHeight = preferredRightStackTopHeight ??
+                                           (int)Math.Round(stackAvailableHeight * RightColumnTopRatio);
+                    ApplySplit(splitRightStack, OperationsPanelMinHeight, PreviewDeckMinHeight, desiredTopHeight,
+                        FixedSide.Panel1);
                 }
+            }
+            catch (Exception ex)
+            {
+                log.Error("UpdateResponsiveLayout", ex);
             }
             finally
             {
                 suppressSplitterPreferenceCapture = false;
+            }
+        }
+
+        private enum FixedSide
+        {
+            Panel1,
+            Panel2
+        }
+
+        /// <summary>
+        /// Sets a splitter so both panels always fit inside the container. When the container is
+        /// smaller than the two ideal minimums, the minimums are scaled down proportionally instead
+        /// of letting a panel be pushed off screen (the cause of the UI not fitting smaller or
+        /// high-DPI displays).
+        /// </summary>
+        private static void ApplySplit(SplitContainer split, int idealMin1, int idealMin2, int desiredDistance,
+            FixedSide keep)
+        {
+            if (split == null || split.IsDisposed)
+                return;
+
+            int length = split.Orientation == Orientation.Vertical ? split.Width : split.Height;
+            int available = length - split.SplitterWidth;
+            if (available <= 2)
+                return;
+
+            int min1 = Math.Max(0, idealMin1);
+            int min2 = Math.Max(0, idealMin2);
+            if (min1 + min2 > available)
+            {
+                double factor = (double)available / Math.Max(1, min1 + min2);
+                min1 = (int)Math.Floor(min1 * factor);
+                min2 = Math.Max(0, available - min1);
+            }
+
+            int distance = Math.Max(min1, Math.Min(desiredDistance, available - min2));
+
+            try
+            {
+                // relax the limits first so the new distance is always accepted
+                split.Panel1MinSize = 0;
+                split.Panel2MinSize = 0;
+                if (split.SplitterDistance != distance)
+                    split.SplitterDistance = distance;
+                split.Panel1MinSize = min1;
+                split.Panel2MinSize = min2;
+            }
+            catch (Exception ex)
+            {
+                log.Debug("ApplySplit " + split.Name + ": " + ex.Message);
             }
         }
 
@@ -370,7 +416,7 @@ namespace MissionPlanner.GCSViews
             if (panelActions == null || splitWorkspace == null)
                 return;
 
-            panelActions.MinimumSize = new Size(panelActions.MinimumPanelWidth, 0);
+            panelActions.MinimumSize = Size.Empty;
             splitWorkspace.IsSplitterFixed = panelActions.IsCollapsed;
 
             if (!panelActions.IsCollapsed)

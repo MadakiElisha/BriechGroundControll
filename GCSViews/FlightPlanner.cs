@@ -243,6 +243,8 @@ namespace MissionPlanner.GCSViews
             cmb_missiontype.DataSource = new List<MAVLink.MAV_MISSION_TYPE>()
                 {MAVLink.MAV_MISSION_TYPE.MISSION, MAVLink.MAV_MISSION_TYPE.FENCE, MAVLink.MAV_MISSION_TYPE.RALLY};
 
+            SetupPlanningVehicleMenu();
+
             updateCMDParams();
 
             foreach (DataGridViewColumn commandsColumn in Commands.Columns)
@@ -1478,7 +1480,7 @@ namespace MissionPlanner.GCSViews
                     {
                         wpOverlay2 = new WPOverlay2()
                         {
-                            VehicleClass = MainV2.comPort.MAV.cs.vehicleClass,
+                            VehicleClass = GetPlanningVehicleClass(),
                             ShowPlusMarkers = true,
                         };
                         wpOverlay2.overlay.Id = "WPOverlay";
@@ -2750,6 +2752,8 @@ namespace MissionPlanner.GCSViews
                     rallyPointsToolStripMenuItem.Visible = true;
                 }
             }
+
+            UpdatePlanningVehicleMenu();
 
             isMouseClickOffMenu = false; // Just incase
         }
@@ -5749,6 +5753,86 @@ namespace MissionPlanner.GCSViews
             MainMap_OnMapZoomChanged();
         }
 
+        private const string PlanningVehicleSettingKey = "Planner_VehicleClass";
+        private ToolStripMenuItem planningVehicleToolStripMenuItem;
+        private MissionPlanner.VehicleClass? lastPlanningClass;
+
+        /// <summary>
+        /// The vehicle class whose mission commands the Plan tab offers. A connected vehicle
+        /// always decides (and is remembered); offline it is the remembered or user-chosen class,
+        /// so planning a Plane/VTOL mission before connecting no longer falls back to the Copter list.
+        /// </summary>
+        private MissionPlanner.VehicleClass GetPlanningVehicleClass()
+        {
+            var cs = MainV2.comPort?.MAV?.cs;
+            bool connected = MainV2.comPort?.BaseStream != null && MainV2.comPort.BaseStream.IsOpen;
+
+            if (connected && cs != null && IsPlannableClass(cs.vehicleClass))
+            {
+                if (Settings.Instance[PlanningVehicleSettingKey] != cs.vehicleClass.ToString())
+                    Settings.Instance[PlanningVehicleSettingKey] = cs.vehicleClass.ToString();
+                return cs.vehicleClass;
+            }
+
+            MissionPlanner.VehicleClass saved;
+            if (Enum.TryParse(Settings.Instance[PlanningVehicleSettingKey] ?? "", out saved) && IsPlannableClass(saved))
+                return saved;
+
+            if (cs != null && IsPlannableClass(cs.vehicleClass))
+                return cs.vehicleClass;
+
+            return MissionPlanner.VehicleClass.Copter;
+        }
+
+        private static bool IsPlannableClass(MissionPlanner.VehicleClass vc)
+        {
+            return vc == MissionPlanner.VehicleClass.Copter || vc == MissionPlanner.VehicleClass.Plane ||
+                   vc == MissionPlanner.VehicleClass.Rover;
+        }
+
+        private void SetupPlanningVehicleMenu()
+        {
+            if (planningVehicleToolStripMenuItem != null || contextMenuStrip1 == null)
+                return;
+
+            planningVehicleToolStripMenuItem = new ToolStripMenuItem("Planning Vehicle (mission commands)");
+            foreach (var vc in new[]
+                     {
+                         MissionPlanner.VehicleClass.Plane, MissionPlanner.VehicleClass.Copter,
+                         MissionPlanner.VehicleClass.Rover
+                     })
+            {
+                var item = new ToolStripMenuItem(vc == MissionPlanner.VehicleClass.Plane ? "Plane / VTOL" : vc.ToString())
+                {
+                    Tag = vc
+                };
+                item.Click += (s, e) =>
+                {
+                    Settings.Instance[PlanningVehicleSettingKey] = ((MissionPlanner.VehicleClass)((ToolStripMenuItem)s).Tag).ToString();
+                    updateCMDParams();
+                    writeKML();
+                };
+                planningVehicleToolStripMenuItem.DropDownItems.Add(item);
+            }
+
+            contextMenuStrip1.Items.Add(planningVehicleToolStripMenuItem);
+        }
+
+        private void UpdatePlanningVehicleMenu()
+        {
+            if (planningVehicleToolStripMenuItem == null)
+                return;
+
+            bool connected = MainV2.comPort?.BaseStream != null && MainV2.comPort.BaseStream.IsOpen;
+            var current = GetPlanningVehicleClass();
+            planningVehicleToolStripMenuItem.Enabled = !connected;
+            planningVehicleToolStripMenuItem.ToolTipText = connected
+                ? "Set by the connected vehicle"
+                : "Choose which vehicle's mission commands to plan with while offline";
+            foreach (ToolStripMenuItem item in planningVehicleToolStripMenuItem.DropDownItems)
+                item.Checked = item.Tag is MissionPlanner.VehicleClass vc && vc == current;
+        }
+
         private void readCMDXML()
         {
             cmdParamNames.Clear();
@@ -5768,17 +5852,19 @@ namespace MissionPlanner.GCSViews
                 st = File.OpenRead(file);
             }
 
-            log.Info("Reading MAV_CMD for " + MainV2.comPort.MAV.cs.firmware);
+            var planningClass = GetPlanningVehicleClass();
+            lastPlanningClass = planningClass;
+            log.Info("Reading MAV_CMD for " + MainV2.comPort.MAV.cs.firmware + " planning as " + planningClass);
 
             using (XmlReader reader = XmlReader.Create(st))
             {
                 reader.Read();
                 reader.ReadStartElement("CMD");
-                if (MainV2.comPort.MAV.cs.vehicleClass == VehicleClass.Plane)
+                if (planningClass == MissionPlanner.VehicleClass.Plane)
                 {
                     reader.ReadToFollowing("APM");
                 }
-                else if (MainV2.comPort.MAV.cs.vehicleClass == VehicleClass.Rover)
+                else if (planningClass == MissionPlanner.VehicleClass.Rover)
                 {
                     reader.ReadToFollowing("APRover");
                 }
@@ -6955,6 +7041,10 @@ Column 1: Field type (RALLY is the only one at the moment -- may have RALLY_LAND
                 bool hasLocation = MainV2.comPort.MAV.cs.lat != 0 || MainV2.comPort.MAV.cs.lng != 0;
                 if (BUT_center_on_mav.Enabled != hasLocation)
                     BUT_center_on_mav.Enabled = hasLocation;
+
+                // refresh the mission command list when the vehicle type changes (connect/disconnect)
+                if (!Commands.IsCurrentCellInEditMode && GetPlanningVehicleClass() != lastPlanningClass)
+                    updateCMDParams();
 
                 if (isMouseDown || CurentRectMarker != null)
                     return;

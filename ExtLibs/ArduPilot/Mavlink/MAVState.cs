@@ -50,6 +50,14 @@ namespace MissionPlanner
         [IgnoreDataMember]
         public MAVLinkInterface parent;
 
+        /// <summary>
+        /// PARAM_VALUE indexes seen from this vehicle since the last full param request.
+        /// Used to poll only the params that are actually missing. Lock on the set before use.
+        /// </summary>
+        [JsonIgnore]
+        [IgnoreDataMember]
+        public readonly HashSet<int> ParamIndexesReceived = new HashSet<int>();
+
         public MAVState(MAVLinkInterface mavLinkInterface, byte sysid, byte compid)
         {
             this.parent = mavLinkInterface;

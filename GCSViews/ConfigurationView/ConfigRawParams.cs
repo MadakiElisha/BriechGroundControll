@@ -33,8 +33,17 @@ namespace MissionPlanner.GCSViews.ConfigurationView
         // Changes made to the params between writing to the copter
         private readonly Hashtable _changes = new Hashtable();
         // ?
-        internal static bool startup = true;
-        internal static List<DataGridViewRow> rowlist = new List<DataGridViewRow>();
+        // Per instance: this control is hosted several times (CONFIG tab plus the Fly view tabs),
+        // and a DataGridViewRow can only belong to one grid, so the rows must not be shared.
+        internal bool startup = true;
+        internal List<DataGridViewRow> rowlist = new List<DataGridViewRow>();
+
+        // Keeps the grid in step with the vehicle: params that arrive after the list was first
+        // drawn (slow link, background poll of missing params, reconnect) are added automatically.
+        private System.Windows.Forms.Timer paramWatchTimer;
+        private Label lblParamCount;
+        private int shownParamCount = -1;
+        private int lastSeenParamCount = -1;
 
         // Used by Param Tree to filter by prefix
         private string filterPrefix = "";
@@ -47,6 +56,88 @@ namespace MissionPlanner.GCSViews.ConfigurationView
         public ConfigRawParams()
         {
             InitializeComponent();
+
+            lblParamCount = new Label
+            {
+                AutoSize = true,
+                Margin = new Padding(8, 9, 3, 3),
+                Text = ""
+            };
+            tableLayoutPanel1.Controls.Add(lblParamCount);
+
+            paramWatchTimer = new System.Windows.Forms.Timer { Interval = 1500 };
+            paramWatchTimer.Tick += ParamWatchTimer_Tick;
+            paramWatchTimer.Start();
+            Disposed += (s, e) =>
+            {
+                paramWatchTimer.Stop();
+                paramWatchTimer.Dispose();
+            };
+        }
+
+        private void ParamWatchTimer_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                if (IsDisposed || !IsHandleCreated || !Visible)
+                    return;
+
+                var param = MainV2.comPort?.MAV?.param;
+                if (param == null)
+                    return;
+
+                int current = param.Count;
+                int reported = param.TotalReported;
+                UpdateParamCountLabel(reported);
+
+                // wait until the count settles before redrawing, a full download changes it constantly
+                if (current != lastSeenParamCount)
+                {
+                    lastSeenParamCount = current;
+                    return;
+                }
+
+                if (current == shownParamCount || startup)
+                    return;
+
+                // never throw away edits in progress
+                if (Params.IsCurrentCellInEditMode || _changes.Count > 0)
+                    return;
+
+                log.InfoFormat("Param list changed {0} -> {1}, refreshing grid", shownParamCount, current);
+                startup = true;
+                processToScreen();
+                startup = false;
+                if (!string.IsNullOrEmpty(txt_search.Text) || filterPrefix != "" || chk_modified.Checked ||
+                    chk_none_default.Checked)
+                    filterList(txt_search.Text);
+            }
+            catch (Exception ex)
+            {
+                log.Error(ex);
+            }
+        }
+
+        private void UpdateParamCountLabel(int reported)
+        {
+            if (lblParamCount == null)
+                return;
+
+            int shown = Math.Max(0, shownParamCount);
+            string text;
+            if (reported > shown)
+            {
+                text = shown + " of " + reported + " params - fetching missing...";
+                lblParamCount.ForeColor = Color.Orange;
+            }
+            else
+            {
+                text = shown + " params";
+                lblParamCount.ForeColor = ForeColor;
+            }
+
+            if (lblParamCount.Text != text)
+                lblParamCount.Text = text;
         }
 
         public void Activate()
@@ -606,12 +697,17 @@ namespace MissionPlanner.GCSViews.ConfigurationView
 
             log.Info("about to sort");
 
+            Params.SortCompare -= OnParamsOnSortCompare;
             Params.SortCompare += OnParamsOnSortCompare;
 
             Params.Sort(Params.Columns[Command.Index], ListSortDirection.Ascending);
 
             Params.Visible = true;
             Params.ResumeLayout();
+
+            shownParamCount = rowlist.Count;
+            lastSeenParamCount = MainV2.comPort?.MAV?.param?.Count ?? shownParamCount;
+            UpdateParamCountLabel(MainV2.comPort?.MAV?.param?.TotalReported ?? 0);
 
             if (splitContainer1.Panel1Collapsed == false)
             {

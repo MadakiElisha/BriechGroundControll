@@ -1045,6 +1045,18 @@ namespace MissionPlanner
                         this.Height = Settings.Instance.GetInt32("MainHeight");
                     if (Settings.Instance["MainWidth"] != null)
                         this.Width = Settings.Instance.GetInt32("MainWidth");
+
+                    // never restore a window bigger than the screen it opens on (e.g. a size saved on a
+                    // larger monitor, or a higher display scaling), otherwise parts of the UI are off screen
+                    var workingArea = Screen.FromPoint(this.Location).WorkingArea;
+                    if (this.Width > workingArea.Width)
+                        this.Width = workingArea.Width;
+                    if (this.Height > workingArea.Height)
+                        this.Height = workingArea.Height;
+                    if (this.Left < workingArea.Left || this.Right > workingArea.Right)
+                        this.Left = Math.Max(workingArea.Left, Math.Min(this.Left, workingArea.Right - this.Width));
+                    if (this.Top < workingArea.Top || this.Bottom > workingArea.Bottom)
+                        this.Top = Math.Max(workingArea.Top, Math.Min(this.Top, workingArea.Bottom - this.Height));
                 }
                 else
                 {
@@ -1347,6 +1359,130 @@ namespace MissionPlanner
             }
 
             MainMenu.ResumeLayout();
+
+            MainMenu.SizeChanged -= MainMenu_SizeChanged_FitToolbar;
+            MainMenu.SizeChanged += MainMenu_SizeChanged_FitToolbar;
+            if (toolbarCompactLevel == -1 && MenuArduPilot != null)
+                MenuArduPilotWanted = MenuArduPilot.Available;
+            toolbarCompactLevel = -1; // sizes were just reset to full, re-evaluate
+            FitToolbarToWidth();
+        }
+
+        // Base widths of the top navigation buttons, so the toolbar can be compacted and restored.
+        private readonly Dictionary<ToolStripItem, int> navButtonBaseWidths = new Dictionary<ToolStripItem, int>();
+        private int toolbarCompactLevel = -1;
+        private bool fittingToolbar;
+
+        private void MainMenu_SizeChanged_FitToolbar(object sender, EventArgs e)
+        {
+            FitToolbarToWidth();
+        }
+
+        /// <summary>
+        /// Keeps every toolbar item on screen. The toolbar does not overflow, so on narrower or
+        /// high-DPI displays the right-hand items (Connect, link selector) used to be dropped.
+        /// Steps down through progressively more compact layouts until everything fits.
+        /// </summary>
+        private void FitToolbarToWidth()
+        {
+            if (fittingToolbar || MainMenu == null || MainMenu.IsDisposed || navButtonBaseWidths.Count == 0)
+                return;
+
+            int available = MainMenu.ClientSize.Width - MainMenu.Padding.Horizontal - 8;
+            if (available <= 0)
+                return;
+
+            fittingToolbar = true;
+            try
+            {
+                int level = 0;
+                for (; level < 3; level++)
+                {
+                    if (MeasureToolbar(level) <= available)
+                        break;
+                }
+
+                if (level == toolbarCompactLevel)
+                    return;
+
+                toolbarCompactLevel = level;
+                MainMenu.SuspendLayout();
+                ApplyToolbarCompactLevel(level);
+                MainMenu.ResumeLayout();
+                log.InfoFormat("Toolbar compact level {0} for width {1}", level, available);
+            }
+            catch (Exception ex)
+            {
+                log.Error(ex);
+            }
+            finally
+            {
+                fittingToolbar = false;
+            }
+        }
+
+        // level 0: full size, 1: narrower buttons + hide brand logo, 2: icons only, 3: icons only, narrowest
+        private int NavWidthFor(ToolStripItem item, int level)
+        {
+            int baseWidth = navButtonBaseWidths[item];
+            switch (level)
+            {
+                case 0:
+                    return baseWidth;
+                case 1:
+                    return Math.Max(66, baseWidth - 14);
+                case 2:
+                    return 52;
+                default:
+                    return 44;
+            }
+        }
+
+        private int MeasureToolbar(int level)
+        {
+            int total = 0;
+            foreach (ToolStripItem item in MainMenu.Items)
+            {
+                if (!item.Available && item != MenuArduPilot)
+                    continue;
+
+                int width;
+                if (navButtonBaseWidths.ContainsKey(item))
+                    width = NavWidthFor(item, level);
+                else if (item == MenuArduPilot)
+                    width = level == 0 && MenuArduPilotWanted ? 210 : 0;
+                else if (item == toolStripConnectionControl)
+                    width = level == 0 ? 241 : 200;
+                else
+                    width = item.Width;
+
+                if (width > 0)
+                    total += width + item.Margin.Horizontal;
+            }
+
+            return total;
+        }
+
+        private bool MenuArduPilotWanted = true;
+
+        private void ApplyToolbarCompactLevel(int level)
+        {
+            foreach (var kvp in navButtonBaseWidths)
+            {
+                var button = kvp.Key;
+                button.Width = NavWidthFor(button, level);
+                button.DisplayStyle = level >= 2
+                    ? ToolStripItemDisplayStyle.Image
+                    : ToolStripItemDisplayStyle.ImageAndText;
+                button.Padding = level >= 2 ? new Padding(2) : new Padding(8, 2, 8, 2);
+                button.ToolTipText = button.Text;
+            }
+
+            if (MenuArduPilot != null)
+                MenuArduPilot.Available = level == 0 && MenuArduPilotWanted;
+
+            if (toolStripConnectionControl != null)
+                toolStripConnectionControl.Width = level == 0 ? 241 : 200;
         }
 
         private void ConfigureNavigationButton(ToolStripButton button, int width, int height, Color textColor)
@@ -1356,6 +1492,7 @@ namespace MissionPlanner
 
             button.AutoSize = false;
             button.Size = new Size(width, height);
+            navButtonBaseWidths[button] = width;
             button.Margin = new Padding(3, 9, 3, 7);
             button.Padding = new Padding(8, 2, 8, 2);
             button.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
@@ -3384,7 +3521,7 @@ namespace MissionPlanner
                                 try
                                 {
                                     // poll only when not armed
-                                    if (!port.MAV.cs.armed && DateTime.UtcNow > connecttime.AddSeconds(60))
+                                    if (!port.MAV.cs.armed && DateTime.UtcNow > connecttime.AddSeconds(30))
                                     {
                                         port.getParamPoll();
                                         port.getParamPoll();

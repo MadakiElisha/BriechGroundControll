@@ -1907,6 +1907,13 @@ Mission Planner waits for 2 valid heartbeat packets before connecting
                             MAVlist[sysid, compid].param.TotalReported =
                                 mavlist.Count;
                             MAVlist[sysid, compid].param.AddRange(mavlist);
+                            var seenftp = MAVlist[sysid, compid].ParamIndexesReceived;
+                            lock (seenftp)
+                            {
+                                seenftp.Clear();
+                                for (int pi = 0; pi < mavlist.Count; pi++)
+                                    seenftp.Add(pi);
+                            }
                             var gen = new MavlinkParse();
                             mavlist.ForEach(a =>
                             {
@@ -2098,6 +2105,9 @@ Mission Planner waits for 2 valid heartbeat packets before connecting
             }, (byte)sysid, (byte)compid);
 
 
+            lock (MAVlist[sysid, compid].ParamIndexesReceived)
+                MAVlist[sysid, compid].ParamIndexesReceived.Clear();
+
             generatePacket((byte)MAVLINK_MSG_ID.PARAM_REQUEST_LIST, req);
 
             short tenbytenindex = 0;
@@ -2108,18 +2118,19 @@ Mission Planner waits for 2 valid heartbeat packets before connecting
                 // Check overall timeout to prevent infinite loop
                 if (DateTime.Now > overallTimeout)
                 {
-                    log.Warn("getParamListAsync: Overall timeout reached after 5 minutes");
+                    log.WarnFormat("getParamListAsync: overall timeout after 5 minutes, got {0} of {1}",
+                        indexsreceived.Count, param_total);
                     if (frmProgressReporter != null)
-                        frmProgressReporter.doWorkArgs.ErrorMessage = "Timeout getting parameters";
+                        frmProgressReporter.doWorkArgs.ErrorMessage =
+                            "Timeout getting parameters - got " + indexsreceived.Count + " of " + param_total +
+                            ". The rest will keep downloading in the background.";
                     UnSubscribeToPacketType(sub1);
                     UnSubscribeToPacketType(sub2);
-                    // Return what we have so far
-                    if (newparamlist.Count > 0)
-                    {
-                        MAVlist[sysid, compid].param.Clear();
-                        MAVlist[sysid, compid].param.TotalReported = param_total;
-                        MAVlist[sysid, compid].param.AddRange(newparamlist);
-                    }
+                    // Merge what we have so far - never drop params we already knew about.
+                    // TotalReported stays at the vehicle's count so getParamPoll keeps fetching the missing ones.
+                    foreach (var p in newparamlist.ToArray())
+                        MAVlist[sysid, compid].param[p.Name] = p;
+                    MAVlist[sysid, compid].param.TotalReported = param_total;
                     return MAVlist[sysid, compid].param;
                 }
 
@@ -2280,7 +2291,29 @@ Mission Planner waits for 2 valid heartbeat packets before connecting
             }
 
             // if we are connected as primary to a vehicle where we dont have all the params, poll for them
-            short i = (short) (_parampoll % MAV.param.TotalReported);
+            int total = MAV.param.TotalReported;
+            if (total <= 0)
+                return;
+
+            // prefer an index we have never seen, otherwise fall back to walking the list
+            short i = (short) (_parampoll % total);
+            var seen = MAV.ParamIndexesReceived;
+            lock (seen)
+            {
+                if (seen.Count > 0 && seen.Count < total)
+                {
+                    for (int n = 0; n < total; n++)
+                    {
+                        int candidate = (_parampoll + n) % total;
+                        if (!seen.Contains(candidate))
+                        {
+                            i = (short) candidate;
+                            _parampoll = candidate;
+                            break;
+                        }
+                    }
+                }
+            }
 
             GetParam((byte) sysidcurrent, (byte) compidcurrent, "", i, false);
 
@@ -5814,6 +5847,14 @@ Mission Planner waits for 2 valid heartbeat packets before connecting
 
                 if (value.param_count != ushort.MaxValue)
                     MAVlist[sysid, compid].param.TotalReported = value.param_count;
+
+                // remember which indexes we have, so the background poll only asks for missing ones
+                if (value.param_index != ushort.MaxValue)
+                {
+                    var seen = MAVlist[sysid, compid].ParamIndexesReceived;
+                    lock (seen)
+                        seen.Add(value.param_index);
+                }
             }
             else if (buffer.msgid == (byte) MAVLINK_MSG_ID.TIMESYNC)
             {
