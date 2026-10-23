@@ -15,6 +15,12 @@ namespace MissionPlanner.Controls
         private List<float> _normals;
         private bool _isLoaded = false;
         private MAVLink.MAV_TYPE? _loadedMavType = null;
+        private bool _loadedAsQuadPlane = false;
+
+        // Q_ENABLE lookup is a linear scan of the param list, so only re-check it periodically
+        private bool _cachedIsQuadPlane = false;
+        private DateTime _lastQuadPlaneCheck = DateTime.MinValue;
+        private object _lastQuadPlaneParamList = null;
         private string _customSTLPath = "";
 
         public List<float> Vertices => _vertices;
@@ -50,11 +56,16 @@ namespace MissionPlanner.Controls
             }
             catch { }
 
+            // Quadplanes normally report FIXED_WING (Q_MAV_TYPE=0) and are only recognisable once the
+            // Q_ENABLE param has downloaded, which is after the first frame is drawn on connect.
+            bool isQuadPlane = IsFixedWingLike(currentMavType) && IsQuadPlaneCached();
+
             // Check if we need to reload due to vehicle type change (only when using default STL)
             bool usingCustomSTL = !string.IsNullOrEmpty(_customSTLPath) && File.Exists(_customSTLPath);
-            if (_isLoaded && !usingCustomSTL && _loadedMavType.HasValue && _loadedMavType.Value != currentMavType)
+            if (_isLoaded && !usingCustomSTL && _loadedMavType.HasValue &&
+                (_loadedMavType.Value != currentMavType || _loadedAsQuadPlane != isQuadPlane))
             {
-                // Vehicle type changed, force reload
+                // Vehicle type changed (or params revealed a quadplane), force reload
                 _isLoaded = false;
             }
 
@@ -69,8 +80,9 @@ namespace MissionPlanner.Controls
                 }
                 else
                 {
-                    stlContent = GetDefaultSTLForMavType(currentMavType);
+                    stlContent = GetDefaultSTLForMavType(currentMavType, isQuadPlane);
                     _loadedMavType = currentMavType;
+                    _loadedAsQuadPlane = isQuadPlane;
                 }
 
                 if (string.IsNullOrEmpty(stlContent))
@@ -96,6 +108,38 @@ namespace MissionPlanner.Controls
         public void Invalidate()
         {
             _isLoaded = false;
+            _lastQuadPlaneCheck = DateTime.MinValue;
+        }
+
+        private static bool IsFixedWingLike(MAVLink.MAV_TYPE mavType)
+        {
+            // anything ArduPlane may report for a quadplane when Q_MAV_TYPE is AUTO / fixed wing;
+            // GENERIC covers the first frames before the heartbeat type is known
+            return mavType == MAVLink.MAV_TYPE.FIXED_WING || mavType == MAVLink.MAV_TYPE.GENERIC;
+        }
+
+        /// <summary>
+        /// Q_ENABLE check, refreshed at most once a second, or immediately when the vehicle's
+        /// param list object changes (connect / reconnect / switching vehicle).
+        /// </summary>
+        private bool IsQuadPlaneCached()
+        {
+            object paramList = null;
+            try
+            {
+                paramList = MainV2.comPort?.MAV?.param;
+            }
+            catch { }
+
+            if (!ReferenceEquals(paramList, _lastQuadPlaneParamList) ||
+                (DateTime.UtcNow - _lastQuadPlaneCheck).TotalSeconds >= 1)
+            {
+                _lastQuadPlaneParamList = paramList;
+                _lastQuadPlaneCheck = DateTime.UtcNow;
+                _cachedIsQuadPlane = IsQuadPlaneByParam();
+            }
+
+            return _cachedIsQuadPlane;
         }
 
         /// <summary>
@@ -107,9 +151,11 @@ namespace MissionPlanner.Controls
             try
             {
                 var param = MainV2.comPort?.MAV?.param;
-                if (param != null && param.ContainsKey("Q_ENABLE"))
+                var qEnable = param?["Q_ENABLE"];
+                if (qEnable != null)
                 {
-                    return param["Q_ENABLE"].Value == 1.0;
+                    // 1 = enabled, 2 = enabled with VTOL AUTO - both are quadplanes
+                    return qEnable.Value > 0.5;
                 }
             }
             catch { }
@@ -121,12 +167,12 @@ namespace MissionPlanner.Controls
         /// Uses specific models for different vehicle types, with fallbacks.
         /// Also checks Q_ENABLE parameter for quadplanes that report as FIXED_WING.
         /// </summary>
-        private string GetDefaultSTLForMavType(MAVLink.MAV_TYPE mavType)
+        private string GetDefaultSTLForMavType(MAVLink.MAV_TYPE mavType, bool isQuadPlane)
         {
             string stl = null;
 
-            // Check for quadplane via Q_ENABLE parameter (some quadplanes report as FIXED_WING)
-            if (mavType == MAVLink.MAV_TYPE.FIXED_WING && IsQuadPlaneByParam())
+            // Check for quadplane via Q_ENABLE parameter (quadplanes report FIXED_WING by default)
+            if (isQuadPlane)
             {
                 stl = MissionPlanner.Properties.Resources.quadplane_stl;
                 if (string.IsNullOrEmpty(stl)) stl = MissionPlanner.Properties.Resources.plane_stl;
