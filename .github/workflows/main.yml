@@ -34,11 +34,38 @@ jobs:
           nuget locals all -clear
           msbuild -v:m -restore -t:Build -p:Configuration=Release MissionPlanner.sln
 
-      - name: Unit tests (MAVLink sysid, parameter aliases, flight commands)
+      - name: Unit tests
         shell: pwsh
         run: |
-          dotnet test MissionPlannerTests/MissionPlannerTests.csproj --configuration Release --no-build --filter "FullyQualifiedName~Sysid32Tests|FullyQualifiedName~ParamAliasesTests|FullyQualifiedName~FlightCommandProfileTests" --logger "trx;LogFileName=unit.trx"
+          # offline tests only: MAVLink sysid, parameter aliases, flight commands, firmware filter, board detect
+          dotnet test MissionPlannerTests/MissionPlannerTests.csproj --configuration Release --no-build --filter "FullyQualifiedName~Sysid32Tests|FullyQualifiedName~MissionPlanner.ArduPilot.Tests|FullyQualifiedName~BoardDetectTests" --logger "trx;LogFileName=unit.trx"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Quadplane SITL smoke test
+        # informational until it has proven stable: it depends on firmware.ardupilot.org being reachable
+        continue-on-error: true
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $sitl = Join-Path $env:RUNNER_TEMP "sitl"
+          New-Item -ItemType Directory -Force -Path $sitl | Out-Null
+          $base = "https://firmware.ardupilot.org/Tools/MissionPlanner/sitl/PlaneStable"
+          Invoke-WebRequest "$base/ArduPlane.elf" -OutFile "$sitl\ArduPlane.exe"
+          foreach ($dll in "cygatomic-1.dll","cyggcc_s-1.dll","cyggcc_s-seh-1.dll","cyggomp-1.dll","cygiconv-2.dll","cygintl-8.dll","cygquadmath-0.dll","cygssp-0.dll","cygstdc++-6.dll","cygwin1.dll") {
+            try { Invoke-WebRequest "$base/$dll" -OutFile "$sitl\$dll" } catch { Write-Host "optional $dll not found" }
+          }
+          Invoke-WebRequest "https://raw.githubusercontent.com/ArduPilot/ardupilot/master/Tools/autotest/default_params/quadplane.parm" -OutFile "$sitl\quadplane.parm"
+          # Briech helipad, 300 m AMSL, heading 0
+          $p = Start-Process -FilePath "$sitl\ArduPlane.exe" -WorkingDirectory $sitl -PassThru -NoNewWindow `
+               -ArgumentList "-Mquadplane","-O8.89331,7.26416,300,0","-s1","--serial0","tcp:0","--defaults","quadplane.parm"
+          try {
+            $env:BRIECH_SITL_TCP = "127.0.0.1:5760"
+            dotnet test MissionPlannerTests/MissionPlannerTests.csproj --configuration Release --no-build --filter "TestCategory=SITL" --logger "trx;LogFileName=sitl.trx" --logger "console;verbosity=detailed"
+            $code = $LASTEXITCODE
+          } finally {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
+          exit $code
 
       - name: Cleanup
         shell: pwsh
