@@ -56,6 +56,11 @@ namespace wix
 
         static string mainexeid = "";
         static string mainExecutablePath = "";
+        // Briech GCS has its own UpgradeCode. It used to share Mission Planner's
+        // {625389D7-EB3C-4d77-A5F6-A285CF99437D}, so installing one silently removed the other.
+        // Never change this again: it is what lets a new Briech MSI replace an older Briech install.
+        const string BriechUpgradeCode = "{378D7F89-3E6B-4CBB-9DA9-7B802F82E655}";
+
         static string mainExecutableName = "BriechGroundControl.exe";
         static string productDisplayName = "Briech Ground Control Station";
         static string manufacturerName = "Briech UAS";
@@ -107,7 +112,7 @@ namespace wix
 
             sw.WriteLine("    <Directory Id=\"INSTALLDIR\" Name=\"" + productDisplayName + "\">");
 
-            sw.WriteLine(@"        <Component Id=""InstallDirPermissions"" Guid=""{525389D7-EB3C-4d77-A5F6-A285CF99437D}"" KeyPath=""yes""> 
+            sw.WriteLine(@"        <Component Id=""InstallDirPermissions"" Guid=""{73AB6787-5889-445F-A064-86D127A9C44E}"" KeyPath=""yes""> 
             <CreateFolder> 
                 <Permission User=""Everyone"" GenericAll=""yes"" /> 
             </CreateFolder>
@@ -305,11 +310,11 @@ namespace wix
 <Wix xmlns=""http://schemas.microsoft.com/wix/2006/wi"" xmlns:netfx=""http://schemas.microsoft.com/wix/NetFxExtension"" xmlns:difx=""http://schemas.microsoft.com/wix/DifxAppExtension"" xmlns:iis='http://schemas.microsoft.com/wix/IIsExtension' >
 
 
-    <Product Id=""" + newid + @""" Name=""" + productDisplayName + @""" Language=""1033"" Version=""" + version + @""" Manufacturer=""" + manufacturerName + @""" UpgradeCode=""{625389D7-EB3C-4d77-A5F6-A285CF99437D}"">
+    <Product Id=""" + newid + @""" Name=""" + productDisplayName + @""" Language=""1033"" Version=""" + version + @""" Manufacturer=""" + manufacturerName + @""" UpgradeCode=""" + BriechUpgradeCode + @""">
 
     <Package Description=""" + installerDescription + @""" Comments=""" + installerDescription + @""" Manufacturer=""" + manufacturerName + @""" InstallerVersion=""200"" Compressed=""yes"" />
 
-    <Upgrade Id=""{625389D7-EB3C-4d77-A5F6-A285CF99437D}"">
+    <Upgrade Id=""" + BriechUpgradeCode + @""">
         <UpgradeVersion OnlyDetect=""yes"" Minimum=""" + version + @""" Property=""NEWERVERSIONDETECTED"" IncludeMinimum=""no"" />
         <UpgradeVersion OnlyDetect=""no"" Minimum=""0.0.0"" Maximum=""" + version + @""" Property=""OLDERVERSIONBEINGUPGRADED"" IncludeMinimum=""yes"" IncludeMaximum=""yes"" />
     </Upgrade>
@@ -321,6 +326,16 @@ namespace wix
     <SetProperty Action='SetTARGETDIR' Before='LaunchConditions' Id='TARGETDIR' Value=""[ProgramFilesFolder]"" />
 
     <PropertyRef Id=""NETFRAMEWORK45"" />
+
+    <!-- Briech builds before the UpgradeCode change can't be upgraded in place (they carry Mission Planner's
+         UpgradeCode). Installing next to one would leave two products owning the same files, so stop and ask
+         for the old one to be removed first. Upgrades between builds with the new code are unaffected. -->
+    <Property Id=""OLDBRIECHEXE"">
+        <DirectorySearch Id=""OldBriechDir"" Path=""[ProgramFilesFolder]" + productDisplayName + @""" Depth=""0"">
+            <FileSearch Id=""OldBriechExe"" Name=""" + mainExecutableName + @""" />
+        </DirectorySearch>
+    </Property>
+    <Condition Message=""An older " + productDisplayName + @" is installed. Uninstall it from Windows Settings, Apps (your settings and flight logs are kept), then run this installer again.""><![CDATA[Installed OR OLDERVERSIONBEINGUPGRADED OR NEWERVERSIONDETECTED OR NOT OLDBRIECHEXE]]></Condition>
 
     <Condition Message=""This application requires .NET Framework 4.7.2 or later. Please install the .NET Framework then run this installer again.""><![CDATA[Installed OR NETFRAMEWORK45 >= ""#461808""]]></Condition>
 
@@ -396,7 +411,7 @@ namespace wix
         <Component Id=""ApplicationShortcut"" Guid=""*"">
             <Shortcut Id=""ApplicationStartMenuShortcut10"" Name=""" + productDisplayName + @""" Description=""" + installerDescription + @""" Target=""[INSTALLDIR]" + mainExecutableName + @""" WorkingDirectory=""INSTALLDIR"" />
             <Shortcut Id=""UninstallProduct"" Name=""Uninstall " + uninstallDisplayName + @""" Description=""Uninstalls " + uninstallDisplayName + @""" Target=""[System64Folder]msiexec.exe"" Arguments=""/x [ProductCode]"" />
-            <RegistryValue Root=""HKCU"" Key=""Software\MichaelOborne\MissionPlanner"" Name=""installed"" Type=""integer"" Value=""1"" KeyPath=""yes"" />
+            <RegistryValue Root=""HKCU"" Key=""Software\BriechUAS\BriechGCS"" Name=""installed"" Type=""integer"" Value=""1"" KeyPath=""yes"" />
 
             <RemoveFolder Id=""dltApplicationProgramsFolder"" Directory=""ApplicationProgramsFolder"" On=""uninstall"" />
 

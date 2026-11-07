@@ -175,6 +175,15 @@ namespace MissionPlanner
         [MethodImpl(MethodImplOptions.NoInlining)]
         public static void Start(string[] args)
         {
+            // Keep Briech settings apart from a stock Mission Planner install on the same PC.
+            // First run copies the existing settings across and keeps pointing at the old flight logs.
+            var oldLogs = Settings.MigrateAppConfigName("Briech GCS", "Mission Planner");
+            if (oldLogs != null && string.IsNullOrEmpty(Settings.Instance["logdirectory"]))
+            {
+                Settings.Instance["logdirectory"] = oldLogs;
+                Settings.Instance.Save();
+            }
+
             HandleTDEditionUpgrade();
             Program.args = args;
             Console.WriteLine(
