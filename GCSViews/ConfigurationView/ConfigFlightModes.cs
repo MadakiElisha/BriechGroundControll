@@ -563,9 +563,9 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             try
             {
                 if (MainV2.comPort.MAV.param.ContainsKey("FLTMODE_CH"))
-                    MainV2.comPort.setParam((byte)MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, "FLTMODE_CH", selected);
+                    MainV2.comPort.setParam(MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, "FLTMODE_CH", selected);
                 else if (MainV2.comPort.MAV.param.ContainsKey("MODE_CH"))
-                    MainV2.comPort.setParam((byte)MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, "MODE_CH", selected);
+                    MainV2.comPort.setParam(MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, "MODE_CH", selected);
             }
             catch
             {
