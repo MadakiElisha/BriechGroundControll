@@ -7508,6 +7508,9 @@ namespace MissionPlanner.GCSViews
 
         private Form _undockedQuickForm = null;
 
+        // upstream skips the Quick tab while it is undocked; Briech undocks it into _undockedQuickForm
+        private bool tabQuickDetached => _undockedQuickForm != null && !_undockedQuickForm.IsDisposed;
+
         private void undockDockToolStripMenuItem_Click(object sender, EventArgs e)
         {
             // If already undocked, just bring the existing window to front
