@@ -1389,7 +1389,7 @@ namespace MissionPlanner.GCSViews
         private void ExecuteLegacySetMode(object sender, EventArgs e)
         {
             if (!TryInvokeLegacyActionHandler("BUT_setmode_Click", sender, e))
-                MainV2.comPort.setMode(legacyActions.CMB_modes.Text);
+                _ = FlightCommands.SetModeInteractiveAsync(FindForm(), legacyActions.CMB_modes.Text);
         }
 
         private void ExecuteLegacySetMount(object sender, EventArgs e)
@@ -1683,95 +1683,13 @@ namespace MissionPlanner.GCSViews
             if (!EnsureConnected("Resume mission", "Connect the vehicle before resuming a mission."))
                 return;
 
-            string lastWp = Math.Max(1, MainV2.comPort.MAV.cs.lastautowp).ToString(CultureInfo.InvariantCulture);
-            if (DialogResult.OK != InputBox.Show("Resume at", "Resume mission at waypoint#", ref lastWp))
-                return;
-
             try
             {
-                int timeout = 0;
-                int lastWpNo = int.Parse(lastWp, CultureInfo.InvariantCulture);
-                var lastWpData = MainV2.comPort.getWP((ushort)lastWpNo);
-                var commands = new List<MissionPlanner.Utilities.Locationwp>();
-                ushort wpCount = MainV2.comPort.getWPCount();
-
-                for (ushort index = 0; index < wpCount; index++)
+                if (FlightCommands.ResumeMissionInteractive(FindForm()))
                 {
-                    var wpData = MainV2.comPort.getWP(index);
-                    if (index < lastWpNo && index != 0)
-                    {
-                        if (wpData.id != (ushort)MAVLink.MAV_CMD.TAKEOFF && wpData.id < (ushort)MAVLink.MAV_CMD.LAST)
-                            continue;
-                        if (wpData.id > (ushort)MAVLink.MAV_CMD.DO_LAST)
-                            continue;
-                    }
-
-                    commands.Add(wpData);
+                    FlightPlanner.instance?.BUT_read_Click(this, null);
+                    PushEvent(FlightEventSeverity.Success, "Mission resumed", "Mission rewritten and resume sequence finished.");
                 }
-
-                ushort wpNo = 0;
-                MainV2.comPort.setWPTotal((ushort)commands.Count);
-                foreach (var location in commands)
-                {
-                    var answer = MainV2.comPort.setWP(location, wpNo, (MAVLink.MAV_FRAME)location.frame);
-                    if (answer != MAVLink.MAV_MISSION_RESULT.MAV_MISSION_ACCEPTED)
-                    {
-                        ModernCommandDialog.ShowNotice(this, "Resume mission failed", $"Upload failed for waypoint {wpNo}.", Danger);
-                        return;
-                    }
-
-                    wpNo++;
-                }
-
-                MainV2.comPort.setWPACK();
-                FlightPlanner.instance?.BUT_read_Click(this, EventArgs.Empty);
-                MainV2.comPort.setWPCurrent(MainV2.comPort.MAV.sysid, MainV2.comPort.MAV.compid, 1);
-
-                if (MainV2.comPort.MAV.cs.firmware == Firmwares.ArduCopter2)
-                {
-                    while (!string.Equals(MainV2.comPort.MAV.cs.mode, "GUIDED", StringComparison.OrdinalIgnoreCase))
-                    {
-                        MainV2.comPort.setMode("GUIDED");
-                        Thread.Sleep(1000);
-                        Application.DoEvents();
-                        if (++timeout > 30)
-                            throw new TimeoutException("Timed out switching to GUIDED.");
-                    }
-
-                    timeout = 0;
-                    while (!MainV2.comPort.MAV.cs.armed)
-                    {
-                        MainV2.comPort.doARM(true);
-                        Thread.Sleep(1000);
-                        Application.DoEvents();
-                        if (++timeout > 30)
-                            throw new TimeoutException("Timed out arming vehicle.");
-                    }
-
-                    timeout = 0;
-                    while (MainV2.comPort.MAV.cs.alt < (lastWpData.alt - 2))
-                    {
-                        if (!MainV2.comPort.doCommand(MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, MAVLink.MAV_CMD.TAKEOFF, 0, 0, 0, 0, 0, 0, lastWpData.alt))
-                            throw new InvalidOperationException("Takeoff command was not acknowledged.");
-
-                        Thread.Sleep(1000);
-                        Application.DoEvents();
-                        if (++timeout > 40)
-                            throw new TimeoutException("Timed out climbing to resume altitude.");
-                    }
-                }
-
-                timeout = 0;
-                while (!string.Equals(MainV2.comPort.MAV.cs.mode, "AUTO", StringComparison.OrdinalIgnoreCase))
-                {
-                    MainV2.comPort.setMode("AUTO");
-                    Thread.Sleep(1000);
-                    Application.DoEvents();
-                    if (++timeout > 30)
-                        throw new TimeoutException("Timed out switching back to AUTO.");
-                }
-
-                PushEvent(FlightEventSeverity.Success, "Mission resumed", $"Resume workflow completed from waypoint {lastWpNo}.");
             }
             catch (Exception ex)
             {
