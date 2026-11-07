@@ -58,7 +58,7 @@ namespace MissionPlanner
         [IgnoreDataMember]
         public readonly HashSet<int> ParamIndexesReceived = new HashSet<int>();
 
-        public MAVState(MAVLinkInterface mavLinkInterface, byte sysid, byte compid)
+        public MAVState(MAVLinkInterface mavLinkInterface, uint sysid, byte compid)
         {
             this.parent = mavLinkInterface;
             this.sysid = sysid;
@@ -106,6 +106,7 @@ namespace MissionPlanner
             this.aptype = 0;
             this.apname = 0;
             this.recvpacketcount = 0;
+            this.recvpacketmask = 0;
             this.VersionString = "";
             this.SoftwareVersions = "";
             this.SerialString = "";
@@ -141,11 +142,11 @@ namespace MissionPlanner
         /// </summary>
         public CurrentState cs = new CurrentState();
 
-        private byte _sysid = 0;
+        private uint _sysid = 0;
         /// <summary>
         /// mavlink remote sysid
         /// </summary>
-        public byte sysid
+        public uint sysid
         {
             get { return _sysid; }
             set { _sysid = value; }
@@ -338,6 +339,10 @@ namespace MissionPlanner
         public Proximity Proximity;
 
         internal int recvpacketcount = 0;
+        /// <summary>
+        /// bit n set: seq (recvpacketcount - n - 1) has been received, used to tell late packets from seq wraps
+        /// </summary>
+        internal ulong recvpacketmask = 0;
         public Int64 time_offset_ns { get; set; }
         public CameraProtocol Camera { get; set; }
         
