@@ -49,3 +49,10 @@ obj3/
 
 /.claude
 Msi/drivers.wxs
+
+# local build/verification output
+/artifacts/
+/build_verify.log
+/.dotnet/
+/.dotnet-home/
+/.dotnetcli/

@@ -920,23 +920,33 @@ namespace MissionPlanner.GCSViews
 
             try
             {
-                if (param.ContainsKey("WP_SPEED_MAX"))
-                    legacyActions.modifyandSetSpeed.Value = (decimal)((float)param["WP_SPEED_MAX"] / 100.0);
-                else if (param.ContainsKey("TRIM_ARSPD_CM"))
-                    legacyActions.modifyandSetSpeed.Value = (decimal)((float)param["TRIM_ARSPD_CM"] / 100.0);
-                else if (param.ContainsKey("TRIM_THROTTLE"))
-                    legacyActions.modifyandSetSpeed.Value = (decimal)(float)param["TRIM_THROTTLE"];
+                // WP_SPD / WPNAV_SPEED (copter), AIRSPEED_CRUISE / TRIM_ARSPD_CM (plane), WP_SPEED (rover),
+                // TRIM_THROTTLE (plane without airspeed) - always in the units the speed box sends.
+                var kind = MissionPlanner.ArduPilot.ParamAliases.GetSpeedSetpoint(param, out var speed, out _);
+                if (kind != MissionPlanner.ArduPilot.ParamAliases.SpeedKind.None)
+                    legacyActions.modifyandSetSpeed.Value = ClampTo(legacyActions.modifyandSetSpeed, speed);
             }
             catch { }
 
             try
             {
-                if (param.ContainsKey("WP_LOITER_RAD"))
-                    legacyActions.modifyandSetLoiterRad.Value = (decimal)((float)param["WP_LOITER_RAD"] * CurrentState.multiplierdist);
-                else if (param.ContainsKey("LOITER_RAD"))
-                    legacyActions.modifyandSetLoiterRad.Value = (decimal)((float)param["LOITER_RAD"] * CurrentState.multiplierdist);
+                double rad;
+                if (MissionPlanner.ArduPilot.ParamAliases.TryGet(param, "WP_LOITER_RAD", out rad) ||
+                    MissionPlanner.ArduPilot.ParamAliases.TryGet(param, "LOITER_RAD", out rad))
+                    legacyActions.modifyandSetLoiterRad.Value =
+                        ClampTo(legacyActions.modifyandSetLoiterRad, rad * CurrentState.multiplierdist);
             }
             catch { }
+        }
+
+        // NumericUpDown throws when a value is outside Minimum/Maximum, which used to leave the box stale
+        private static decimal ClampTo(MissionPlanner.Controls.ModifyandSet box, double value)
+        {
+            var v = (decimal)value;
+            var n = box.NumericUpDown;
+            if (v < n.Minimum) return n.Minimum;
+            if (v > n.Maximum) return n.Maximum;
+            return v;
         }
 
         private int GetPreferredWidth(OperationsTab tab)
@@ -1379,7 +1389,7 @@ namespace MissionPlanner.GCSViews
         private void ExecuteLegacySetMode(object sender, EventArgs e)
         {
             if (!TryInvokeLegacyActionHandler("BUT_setmode_Click", sender, e))
-                MainV2.comPort.setMode(legacyActions.CMB_modes.Text);
+                _ = FlightCommands.SetModeInteractiveAsync(FindForm(), legacyActions.CMB_modes.Text);
         }
 
         private void ExecuteLegacySetMount(object sender, EventArgs e)
@@ -1584,7 +1594,7 @@ namespace MissionPlanner.GCSViews
                 if (selectedAction == FlightData.actions.Engine_Start || selectedAction == FlightData.actions.Engine_Stop)
                 {
                     bool start = selectedAction == FlightData.actions.Engine_Start;
-                    TryRunCommand(() => MainV2.comPort.doEngineControl((byte)MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, start),
+                    TryRunCommand(() => MainV2.comPort.doEngineControl(MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, start),
                         start ? "Engine start requested" : "Engine stop requested",
                         start ? "Engine start command dispatched." : "Engine stop command dispatched.");
                     return;
@@ -1646,9 +1656,9 @@ namespace MissionPlanner.GCSViews
             {
                 int selected = Convert.ToInt32(legacyActions.CMB_mountmode.SelectedValue);
                 if (MainV2.comPort.MAV.param.ContainsKey("MNT_MODE"))
-                    MainV2.comPort.setParam((byte)MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, "MNT_MODE", selected);
+                    MainV2.comPort.setParam(MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, "MNT_MODE", selected);
                 else
-                    MainV2.comPort.doCommand((byte)MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, MAVLink.MAV_CMD.DO_MOUNT_CONTROL, 0, 0, 0, 0, 0, 0, selected);
+                    MainV2.comPort.doCommand(MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, MAVLink.MAV_CMD.DO_MOUNT_CONTROL, 0, 0, 0, 0, 0, 0, selected);
 
                 PushEvent(FlightEventSeverity.Success, "Mount mode updated", "Payload mount mode has been updated.");
             }
@@ -1673,95 +1683,13 @@ namespace MissionPlanner.GCSViews
             if (!EnsureConnected("Resume mission", "Connect the vehicle before resuming a mission."))
                 return;
 
-            string lastWp = Math.Max(1, MainV2.comPort.MAV.cs.lastautowp).ToString(CultureInfo.InvariantCulture);
-            if (DialogResult.OK != InputBox.Show("Resume at", "Resume mission at waypoint#", ref lastWp))
-                return;
-
             try
             {
-                int timeout = 0;
-                int lastWpNo = int.Parse(lastWp, CultureInfo.InvariantCulture);
-                var lastWpData = MainV2.comPort.getWP((ushort)lastWpNo);
-                var commands = new List<MissionPlanner.Utilities.Locationwp>();
-                ushort wpCount = MainV2.comPort.getWPCount();
-
-                for (ushort index = 0; index < wpCount; index++)
+                if (FlightCommands.ResumeMissionInteractive(FindForm()))
                 {
-                    var wpData = MainV2.comPort.getWP(index);
-                    if (index < lastWpNo && index != 0)
-                    {
-                        if (wpData.id != (ushort)MAVLink.MAV_CMD.TAKEOFF && wpData.id < (ushort)MAVLink.MAV_CMD.LAST)
-                            continue;
-                        if (wpData.id > (ushort)MAVLink.MAV_CMD.DO_LAST)
-                            continue;
-                    }
-
-                    commands.Add(wpData);
+                    FlightPlanner.instance?.BUT_read_Click(this, null);
+                    PushEvent(FlightEventSeverity.Success, "Mission resumed", "Mission rewritten and resume sequence finished.");
                 }
-
-                ushort wpNo = 0;
-                MainV2.comPort.setWPTotal((ushort)commands.Count);
-                foreach (var location in commands)
-                {
-                    var answer = MainV2.comPort.setWP(location, wpNo, (MAVLink.MAV_FRAME)location.frame);
-                    if (answer != MAVLink.MAV_MISSION_RESULT.MAV_MISSION_ACCEPTED)
-                    {
-                        ModernCommandDialog.ShowNotice(this, "Resume mission failed", $"Upload failed for waypoint {wpNo}.", Danger);
-                        return;
-                    }
-
-                    wpNo++;
-                }
-
-                MainV2.comPort.setWPACK();
-                FlightPlanner.instance?.BUT_read_Click(this, EventArgs.Empty);
-                MainV2.comPort.setWPCurrent(MainV2.comPort.MAV.sysid, MainV2.comPort.MAV.compid, 1);
-
-                if (MainV2.comPort.MAV.cs.firmware == Firmwares.ArduCopter2)
-                {
-                    while (!string.Equals(MainV2.comPort.MAV.cs.mode, "GUIDED", StringComparison.OrdinalIgnoreCase))
-                    {
-                        MainV2.comPort.setMode("GUIDED");
-                        Thread.Sleep(1000);
-                        Application.DoEvents();
-                        if (++timeout > 30)
-                            throw new TimeoutException("Timed out switching to GUIDED.");
-                    }
-
-                    timeout = 0;
-                    while (!MainV2.comPort.MAV.cs.armed)
-                    {
-                        MainV2.comPort.doARM(true);
-                        Thread.Sleep(1000);
-                        Application.DoEvents();
-                        if (++timeout > 30)
-                            throw new TimeoutException("Timed out arming vehicle.");
-                    }
-
-                    timeout = 0;
-                    while (MainV2.comPort.MAV.cs.alt < (lastWpData.alt - 2))
-                    {
-                        if (!MainV2.comPort.doCommand((byte)MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, MAVLink.MAV_CMD.TAKEOFF, 0, 0, 0, 0, 0, 0, lastWpData.alt))
-                            throw new InvalidOperationException("Takeoff command was not acknowledged.");
-
-                        Thread.Sleep(1000);
-                        Application.DoEvents();
-                        if (++timeout > 40)
-                            throw new TimeoutException("Timed out climbing to resume altitude.");
-                    }
-                }
-
-                timeout = 0;
-                while (!string.Equals(MainV2.comPort.MAV.cs.mode, "AUTO", StringComparison.OrdinalIgnoreCase))
-                {
-                    MainV2.comPort.setMode("AUTO");
-                    Thread.Sleep(1000);
-                    Application.DoEvents();
-                    if (++timeout > 30)
-                        throw new TimeoutException("Timed out switching back to AUTO.");
-                }
-
-                PushEvent(FlightEventSeverity.Success, "Mission resumed", $"Resume workflow completed from waypoint {lastWpNo}.");
             }
             catch (Exception ex)
             {
@@ -1775,7 +1703,9 @@ namespace MissionPlanner.GCSViews
             if (!EnsureConnected("Set speed", "Connect the vehicle before applying speed changes."))
                 return;
 
-            TryRunCommand(() => MainV2.comPort.doCommandAsync(MainV2.comPort.MAV.sysid, MainV2.comPort.MAV.compid, MAVLink.MAV_CMD.DO_CHANGE_SPEED, 0, (float)legacyActions.modifyandSetSpeed.Value, 0, 0, 0, 0, 0).GetAwaiter().GetResult(),
+            ParamAliases.ChangeSpeedArguments(MainV2.comPort.MAV.param, (float)legacyActions.modifyandSetSpeed.Value,
+                out var p1, out var p2, out var p3);
+            TryRunCommand(() => MainV2.comPort.doCommandAsync(MainV2.comPort.MAV.sysid, MainV2.comPort.MAV.compid, MAVLink.MAV_CMD.DO_CHANGE_SPEED, p1, p2, p3, 0, 0, 0, 0).GetAwaiter().GetResult(),
                 "Speed updated", $"Target speed set to {legacyActions.modifyandSetSpeed.Value:0}.");
         }
 
@@ -1907,59 +1837,10 @@ namespace MissionPlanner.GCSViews
                 cs.failsafe ? Danger : Success);
         }
 
-        private void HandleArmClick(object sender, EventArgs e)
-        {
-            if (!EnsureConnected("Arm / Disarm", "Connect the vehicle before sending arm or disarm commands.")) return;
-            bool armTarget = !(lastTelemetry?.armed ?? false);
-            if (!ModernCommandDialog.ShowConfirmation(this, armTarget ? "Arm Vehicle" : "Disarm Vehicle",
-                    armTarget ? "Arm the vehicle and enable mission-critical controls?" : "Disarm the vehicle and return it to a safe state?",
-                    armTarget ? "Arm" : "Disarm", armTarget ? Info : Warning)) return;
-            TryRunCommand(() => MainV2.comPort.doARM(armTarget), armTarget ? "Vehicle arm command sent" : "Vehicle disarm command sent",
-                armTarget ? "The flight deck requested vehicle arming." : "The flight deck requested vehicle disarm.");
-        }
-
-        private void HandleTakeoffClick(object sender, EventArgs e)
-        {
-            if (!EnsureConnected("Guided Takeoff", "Connect the vehicle before dispatching a guided takeoff.")) return;
-            decimal? altitude = ModernCommandDialog.ShowTakeoffPrompt(this, 15);
-            if (altitude == null) return;
-            TryRunCommand(() =>
-            {
-                if (!(lastTelemetry?.armed ?? false))
-                    MainV2.comPort.doARM(true);
-                MainV2.comPort.setMode("GUIDED");
-                return MainV2.comPort.doCommand(MAVLink.MAV_CMD.TAKEOFF, 0, 0, 0, 0, 0, 0, (float)altitude.Value);
-            }, "Guided takeoff sent", $"Climb to {altitude.Value:F0} m requested in GUIDED.");
-        }
-
-        private void HandleRtlClick(object sender, EventArgs e)
-        {
-            if (!EnsureReadyForRecovery("Return To Launch")) return;
-            if (!ModernCommandDialog.ShowConfirmation(this, "Return To Launch",
-                    "Command the aircraft to recover to its configured home position now?", "Send RTL", Success)) return;
-            TryRunCommand(() => { MainV2.comPort.setMode("RTL"); return true; }, "RTL requested", "Recovery to launch has been dispatched.");
-        }
-
-        private void HandleLandClick(object sender, EventArgs e)
-        {
-            if (!EnsureReadyForRecovery("Land Now")) return;
-            if (!ModernCommandDialog.ShowConfirmation(this, "Land Now",
-                    "Command the aircraft to enter LAND immediately?", "Send LAND", Danger)) return;
-            TryRunCommand(() => { MainV2.comPort.setMode("LAND"); return true; }, "Landing requested", "Immediate landing command has been dispatched.");
-        }
-
         private bool EnsureConnected(string title, string message)
         {
             if (lastConnected) return true;
             ModernCommandDialog.ShowNotice(this, title, message, Danger);
-            return false;
-        }
-
-        private bool EnsureReadyForRecovery(string title)
-        {
-            if (!EnsureConnected(title, "Connect the vehicle before dispatching recovery modes.")) return false;
-            if (lastTelemetry?.armed == true) return true;
-            ModernCommandDialog.ShowNotice(this, title, "Recovery commands are available once the aircraft is armed.", Warning);
             return false;
         }
 

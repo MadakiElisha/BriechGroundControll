@@ -27,8 +27,15 @@ namespace MissionPlanner.GCSViews
     {
         internal static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
-        // Default Woodley location (always available)
+        // Built-in locations (always available, can't be removed). The Briech helipad is the default.
+        private static readonly SITLLocation HelipadLocation = new SITLLocation("Briech helipad", 8.89331, 7.26416, 0);
         private static readonly SITLLocation WoodleyLocation = new SITLLocation("Woodley", 34.174424, -118.480992, 324);
+        private static readonly SITLLocation[] BuiltInLocations = { HelipadLocation, WoodleyLocation };
+
+        private static bool IsBuiltInName(string name)
+        {
+            return Array.Exists(BuiltInLocations, l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        }
 
         // List of saved locations
         private List<SITLLocation> _savedLocations = new List<SITLLocation>();
@@ -174,14 +181,15 @@ namespace MissionPlanner.GCSViews
         }
 
         /// <summary>
-        /// Populates the location dropdown with Woodley (default) and saved locations
+        /// Populates the location dropdown with the built-in locations (helipad first) and saved locations
         /// </summary>
         private void PopulateLocationDropdown()
         {
             cmb_location.Items.Clear();
 
-            // Always add Woodley as first option (default)
-            cmb_location.Items.Add(WoodleyLocation);
+            // Built-in locations first (helipad is the default)
+            foreach (var builtIn in BuiltInLocations)
+                cmb_location.Items.Add(builtIn);
 
             // Add saved locations
             foreach (var loc in _savedLocations)
@@ -189,7 +197,7 @@ namespace MissionPlanner.GCSViews
                 cmb_location.Items.Add(loc);
             }
 
-            // Select Woodley by default
+            // Select the helipad by default
             cmb_location.SelectedIndex = 0;
         }
 
@@ -272,10 +280,10 @@ namespace MissionPlanner.GCSViews
                 return;
             }
 
-            // Don't allow overwriting Woodley
-            if (locationName.Equals("Woodley", StringComparison.OrdinalIgnoreCase))
+            // Don't allow overwriting a built-in location
+            if (IsBuiltInName(locationName))
             {
-                CustomMessageBox.Show("Cannot overwrite the default Woodley location.", "Invalid Name");
+                CustomMessageBox.Show($"Cannot overwrite the built-in '{locationName}' location.", "Invalid Name");
                 return;
             }
 
@@ -318,14 +326,14 @@ namespace MissionPlanner.GCSViews
         /// </summary>
         private void removeCustomLoc_Click(object sender, EventArgs e)
         {
-            // Only allow removal if there's more than just Woodley
-            if (cmb_location.Items.Count <= 1)
+            // Only allow removal if there are saved locations
+            if (cmb_location.Items.Count <= BuiltInLocations.Length)
                 return;
 
-            // Don't allow removing Woodley (index 0)
-            if (cmb_location.SelectedIndex == 0)
+            // Don't allow removing built-in locations
+            if (cmb_location.SelectedIndex < BuiltInLocations.Length)
             {
-                CustomMessageBox.Show("Cannot remove the default Woodley location.", "Cannot Remove");
+                CustomMessageBox.Show("Built-in locations can't be removed.", "Cannot Remove");
                 return;
             }
 
@@ -339,7 +347,7 @@ namespace MissionPlanner.GCSViews
                 _savedLocations.RemoveAll(l => l.Name == location.Name);
                 SaveLocations();
 
-                // Refresh dropdown and select Woodley
+                // Refresh dropdown and select the default
                 PopulateLocationDropdown();
                 cmb_location.SelectedIndex = 0;
 
@@ -353,8 +361,9 @@ namespace MissionPlanner.GCSViews
         /// </summary>
         private void UpdateRemoveButtonState()
         {
-            // Disable if only Woodley exists, or if Woodley is selected
-            removeCustomLoc.Enabled = cmb_location.Items.Count > 1 && cmb_location.SelectedIndex > 0;
+            // Disable when no saved locations exist, or a built-in location is selected
+            removeCustomLoc.Enabled = cmb_location.Items.Count > BuiltInLocations.Length &&
+                                      cmb_location.SelectedIndex >= BuiltInLocations.Length;
         }
 
         /// <summary>
@@ -396,8 +405,16 @@ namespace MissionPlanner.GCSViews
             _isInitializing = true;
 
             // Load last selected location from settings
-            string lastLocationName = Settings.Instance.GetString("sitl_last_location", "Woodley");
-            SITLLocation selectedLocation = WoodleyLocation;
+            string lastLocationName = Settings.Instance.GetString("sitl_last_location", HelipadLocation.Name);
+            // Woodley used to be the only built-in and was recorded as "last" without being chosen;
+            // move everyone to the helipad once, after which a real choice of Woodley sticks.
+            if (Settings.Instance["sitl_helipad_default"] == null)
+            {
+                Settings.Instance["sitl_helipad_default"] = "1";
+                if (lastLocationName == WoodleyLocation.Name)
+                    lastLocationName = HelipadLocation.Name;
+            }
+            SITLLocation selectedLocation = HelipadLocation;
             int selectedIndex = 0;
 
             for (int i = 0; i < cmb_location.Items.Count; i++)

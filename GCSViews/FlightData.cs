@@ -1635,39 +1635,8 @@ namespace MissionPlanner.GCSViews
             // arm the MAV
             try
             {
-                var isitarmed = MainV2.comPort.MAV.cs.armed;
-                var action = MainV2.comPort.MAV.cs.armed ? "Disarm" : "Arm";
-
-                if (isitarmed)
-                    if (CustomMessageBox.Show("Are you sure you want to " + action, action,
-                            CustomMessageBox.MessageBoxButtons.YesNo) !=
-                        CustomMessageBox.DialogResult.Yes)
-                        return;
-                StringBuilder sb = new StringBuilder();
-                var sub = MainV2.comPort.SubscribeToPacketType(MAVLink.MAVLINK_MSG_ID.STATUSTEXT, message =>
-                {
-                    sb.AppendLine(Encoding.ASCII.GetString(((MAVLink.mavlink_statustext_t) message.data).text)
-                        .TrimEnd('\0'));
-                    return true;
-                }, MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent);
-                bool ans = MainV2.comPort.doARM(!isitarmed);
-                MainV2.comPort.UnSubscribeToPacketType(sub);
-                if (ans == false)
-                {
-                    if (CustomMessageBox.Show(
-                            action + " failed.\n" + sb.ToString() + "\nForce " + action +
-                            " can bypass safety checks,\nwhich can lead to the vehicle crashing\nand causing serious injuries.\n\nDo you wish to Force " +
-                            action + "?", Strings.ERROR, CustomMessageBox.MessageBoxButtons.YesNo,
-                            CustomMessageBox.MessageBoxIcon.Exclamation, "Force " + action, "Cancel") ==
-                        CustomMessageBox.DialogResult.Yes)
-                    {
-                        ans = MainV2.comPort.doARM(!isitarmed, true);
-                        if (ans == false)
-                        {
-                            CustomMessageBox.Show(Strings.ErrorRejectedByMAV, Strings.ERROR);
-                        }
-                    }
-                }
+                // shared with the header and Modern Fly: confirms disarm, hold-to-confirm in flight
+                FlightCommands.ArmOrDisarmInteractive(this);
             }
             catch
             {
@@ -2023,53 +1992,42 @@ namespace MissionPlanner.GCSViews
             }
         }
 
-        private void BUT_quickauto_Click(object sender, EventArgs e)
+        private async void BUT_quickauto_Click(object sender, EventArgs e)
         {
-            try
-            {
-                ((Control) sender).Enabled = false;
-                MainV2.comPort.setMode("Auto");
-            }
-            catch
-            {
-                CustomMessageBox.Show(Strings.CommandFailed, Strings.ERROR);
-            }
-
-            ((Control) sender).Enabled = true;
+            await QuickModeAsync((Control) sender, "Auto");
         }
 
-        private void BUT_quickmanual_Click(object sender, EventArgs e)
+        // mode buttons wait for the heartbeat to show the new mode and say so if it never does
+        private async Task QuickModeAsync(Control button, string mode)
         {
             try
             {
-                ((Control) sender).Enabled = false;
-                if (MainV2.comPort.MAV.cs.firmware == Firmwares.ArduPlane ||
-                    MainV2.comPort.MAV.cs.firmware == Firmwares.Ateryx ||
-                    MainV2.comPort.MAV.cs.firmware == Firmwares.ArduRover ||
-                    MainV2.comPort.MAV.cs.firmware == Firmwares.ArduCopter2)
-                    MainV2.comPort.setMode("Loiter");
+                button.Enabled = false;
+                await FlightCommands.SetModeInteractiveAsync(this, mode);
             }
             catch
             {
                 CustomMessageBox.Show(Strings.CommandFailed, Strings.ERROR);
             }
-
-            ((Control) sender).Enabled = true;
+            finally
+            {
+                button.Enabled = true;
+            }
         }
 
-        private void BUT_quickrtl_Click(object sender, EventArgs e)
+        private async void BUT_quickmanual_Click(object sender, EventArgs e)
         {
-            try
-            {
-                ((Control) sender).Enabled = false;
-                MainV2.comPort.setMode("RTL");
-            }
-            catch
-            {
-                CustomMessageBox.Show(Strings.CommandFailed, Strings.ERROR);
-            }
+            if (MainV2.comPort.MAV.cs.firmware == Firmwares.ArduPlane ||
+                MainV2.comPort.MAV.cs.firmware == Firmwares.Ateryx ||
+                MainV2.comPort.MAV.cs.firmware == Firmwares.ArduRover ||
+                MainV2.comPort.MAV.cs.firmware == Firmwares.ArduCopter2)
+                await QuickModeAsync((Control) sender, "Loiter");
+        }
 
-            ((Control) sender).Enabled = true;
+        private async void BUT_quickrtl_Click(object sender, EventArgs e)
+        {
+            await QuickModeAsync((Control) sender,
+                FlightCommandProfile.ReturnMode(FlightCommands.CurrentFamily()));
         }
 
         private void BUT_RAWSensor_Click(object sender, EventArgs e)
@@ -2091,150 +2049,15 @@ namespace MissionPlanner.GCSViews
 
         private void BUT_resumemis_Click(object sender, EventArgs e)
         {
-            if (
-                Common.MessageShowAgain("Resume Mission",
-                    "Warning this will reprogram your mission, arm and issue a takeoff command (copter)") !=
-                DialogResult.OK)
-                return;
-
             try
             {
-                if (MainV2.comPort.BaseStream.IsOpen)
-                {
-                    string lastwp = MainV2.comPort.MAV.cs.lastautowp.ToString();
-                    if (lastwp == "-1")
-                        lastwp = "1";
-
-                    if (InputBox.Show("Resume at", "Resume mission at waypoint#", ref lastwp) == DialogResult.OK)
-                    {
-                        int timeout = 0;
-                        int lastwpno = int.Parse(lastwp);
-
-                        // scan and check wp's we are skipping
-                        // get our target wp
-                        var lastwpdata = MainV2.comPort.getWP((ushort) lastwpno);
-
-                        // get all
-                        List<Locationwp> cmds = new List<Locationwp>();
-
-                        var wpcount = MainV2.comPort.getWPCount();
-
-                        for (ushort a = 0; a < wpcount; a++)
-                        {
-                            var wpdata = MainV2.comPort.getWP(a);
-
-                            if (a < lastwpno && a != 0) // allow home
-                            {
-                                if (wpdata.id != (ushort) MAVLink.MAV_CMD.TAKEOFF)
-                                    if (wpdata.id < (ushort) MAVLink.MAV_CMD.LAST)
-                                        continue;
-
-                                if (wpdata.id > (ushort) MAVLink.MAV_CMD.DO_LAST)
-                                    continue;
-                            }
-
-                            cmds.Add(wpdata);
-                        }
-
-                        ushort wpno = 0;
-                        // upload from wp 0 to end
-                        MainV2.comPort.setWPTotal((ushort) (cmds.Count));
-
-                        // add our do commands
-                        foreach (var loc in cmds)
-                        {
-                            MAVLink.MAV_MISSION_RESULT ans = MainV2.comPort.setWP(loc, wpno,
-                                (MAVLink.MAV_FRAME) (loc.frame));
-                            if (ans != MAVLink.MAV_MISSION_RESULT.MAV_MISSION_ACCEPTED)
-                            {
-                                CustomMessageBox.Show("Upload wps failed " +
-                                                      Enum.Parse(typeof(MAVLink.MAV_CMD), loc.id.ToString()) + " " +
-                                                      Enum.Parse(typeof(MAVLink.MAV_MISSION_RESULT), ans.ToString()));
-                                return;
-                            }
-
-                            wpno++;
-                        }
-
-                        MainV2.comPort.setWPACK();
-
-                        FlightPlanner.instance.BUT_read_Click(this, null);
-
-                        // set index back to 1
-                        MainV2.comPort.setWPCurrent(MainV2.comPort.MAV.sysid, MainV2.comPort.MAV.compid, 1);
-
-                        if (MainV2.comPort.MAV.cs.firmware == Firmwares.ArduCopter2)
-                        {
-                            while (MainV2.comPort.MAV.cs.mode.ToLower() != "Guided".ToLower())
-                            {
-                                MainV2.comPort.setMode("GUIDED");
-                                Thread.Sleep(1000);
-                                Application.DoEvents();
-                                timeout++;
-
-                                if (timeout > 30)
-                                {
-                                    CustomMessageBox.Show(Strings.ErrorNoResponse, Strings.ERROR);
-                                    return;
-                                }
-                            }
-
-                            timeout = 0;
-                            while (!MainV2.comPort.MAV.cs.armed)
-                            {
-                                MainV2.comPort.doARM(true);
-                                Thread.Sleep(1000);
-                                Application.DoEvents();
-                                timeout++;
-
-                                if (timeout > 30)
-                                {
-                                    CustomMessageBox.Show(Strings.ErrorNoResponse, Strings.ERROR);
-                                    return;
-                                }
-                            }
-
-                            timeout = 0;
-                            while (MainV2.comPort.MAV.cs.alt < (lastwpdata.alt - 2))
-                            {
-                                if(!MainV2.comPort.doCommand(MainV2.comPort.sysidcurrent,
-                                    (byte) MainV2.comPort.compidcurrent, MAVLink.MAV_CMD.TAKEOFF, 0, 0, 0, 0, 0, 0,
-                                    lastwpdata.alt)) {
-                                        CustomMessageBox.Show(Strings.CommandFailed, Strings.ERROR);
-                                        return;
-                                    }
-                                Thread.Sleep(1000);
-                                Application.DoEvents();
-                                timeout++;
-
-                                if (timeout > 40)
-                                {
-                                    CustomMessageBox.Show(Strings.ErrorNoResponse, Strings.ERROR);
-                                    return;
-                                }
-                            }
-                        }
-
-                        timeout = 0;
-                        while (MainV2.comPort.MAV.cs.mode.ToLower() != "AUTO".ToLower())
-                        {
-                            MainV2.comPort.setMode("AUTO");
-                            Thread.Sleep(1000);
-                            Application.DoEvents();
-                            timeout++;
-
-                            if (timeout > 30)
-                            {
-                                CustomMessageBox.Show(Strings.ErrorNoResponse, Strings.ERROR);
-                                return;
-                            }
-                        }
-                    }
-                }
+                // cancellable, checks every step once instead of retrying arm/takeoff in a loop
+                if (FlightCommands.ResumeMissionInteractive(this))
+                    FlightPlanner.instance?.BUT_read_Click(this, null);
             }
             catch (Exception ex)
             {
-                CustomMessageBox.Show(Strings.CommandFailed + "\n" + ex.ToString(), Strings.ERROR);
+                CustomMessageBox.Show(Strings.CommandFailed + "\n" + ex.Message, Strings.ERROR);
             }
         }
 
@@ -2252,7 +2075,7 @@ namespace MissionPlanner.GCSViews
             }
         }
 
-        private void BUT_setmode_Click(object sender, EventArgs e)
+        private async void BUT_setmode_Click(object sender, EventArgs e)
         {
             if (MainV2.comPort.MAV.cs.failsafe)
             {
@@ -2268,7 +2091,7 @@ namespace MissionPlanner.GCSViews
                 }
             }
 
-            MainV2.comPort.setMode(flightDataActions1.CMB_modes.Text);
+            await FlightCommands.SetModeInteractiveAsync(this, flightDataActions1.CMB_modes.Text);
         }
 
         private void BUT_setwp_Click(object sender, EventArgs e)
@@ -3744,55 +3567,22 @@ namespace MissionPlanner.GCSViews
                 MainV2.cam.camimage += cam_camimage;
             }
 
-            // QUAD
-            if (MainV2.comPort.MAV.param.ContainsKey("WP_SPEED_MAX"))
+            // WP_SPD / WPNAV_SPEED (copter), AIRSPEED_CRUISE / TRIM_ARSPD_CM (plane with airspeed),
+            // WP_SPEED (rover/boat), TRIM_THROTTLE % (plane without airspeed) on any firmware 4.5.7+
+            try
             {
-                try
+                var speedKind = ParamAliases.GetSpeedSetpoint(MainV2.comPort.MAV.param, out var speed, out _);
+                if (speedKind != ParamAliases.SpeedKind.None)
                 {
-                    flightDataActions1.modifyandSetSpeed.Value = (decimal) ((float) MainV2.comPort.MAV.param["WP_SPEED_MAX"] / 100.0);
-                }
-                catch
-                {
-                    flightDataActions1.modifyandSetSpeed.Enabled = false;
+                    var box = flightDataActions1.modifyandSetSpeed;
+                    box.Value = Math.Min(box.Maximum, Math.Max(box.Minimum, (decimal) speed));
+                    if (speedKind == ParamAliases.SpeedKind.ThrottlePercent)
+                        box.ButtonText = "Apply"; // percent
                 }
             }
-            // plane 3.7 and below with airspeed, uses ARSPD_ENABLE:
-            else if ((MainV2.comPort.MAV.param.ContainsKey("TRIM_ARSPD_CM") &&
-                      MainV2.comPort.MAV.param.ContainsKey("ARSPD_ENABLE")
-                      && MainV2.comPort.MAV.param.ContainsKey("ARSPD_USE") &&
-                      (float) MainV2.comPort.MAV.param["ARSPD_ENABLE"] == 1
-                      && (float) MainV2.comPort.MAV.param["ARSPD_USE"] == 1) ||
-                     // plane 3.8 and above with airspeed as per plane 3.7 to plane 3.8 migration wiki page, no longer uses ARSPD_ENABLE, uses ARSPD_TYPE instead:
-                     (MainV2.comPort.MAV.param.ContainsKey("TRIM_ARSPD_CM") &&
-                      MainV2.comPort.MAV.param.ContainsKey("ARSPD_TYPE")
-                      && MainV2.comPort.MAV.param.ContainsKey("ARSPD_USE") &&
-                      (float) MainV2.comPort.MAV.param["ARSPD_TYPE"] > 0
-                      && (float) MainV2.comPort.MAV.param["ARSPD_USE"] == 1))
+            catch
             {
-                try
-                {
-                    flightDataActions1.modifyandSetSpeed.Value = (decimal) ((float) MainV2.comPort.MAV.param["TRIM_ARSPD_CM"] / 100.0);
-                }
-                catch
-                {
-                    flightDataActions1.modifyandSetSpeed.Enabled = false;
-                }
-            } // plane without airspeed
-            else if (MainV2.comPort.MAV.param.ContainsKey("TRIM_THROTTLE") &&
-                     MainV2.comPort.MAV.param.ContainsKey("ARSPD_USE")
-                     && (float) MainV2.comPort.MAV.param["ARSPD_USE"] == 0)
-            {
-                try
-                {
-                    flightDataActions1.modifyandSetSpeed.Value = (decimal) (float) MainV2.comPort.MAV.param["TRIM_THROTTLE"];
-                }
-                catch
-                {
-                    flightDataActions1.modifyandSetSpeed.Enabled = false;
-                }
-
-                // percent
-                flightDataActions1.modifyandSetSpeed.ButtonText = "Apply";
+                flightDataActions1.modifyandSetSpeed.Enabled = false;
             }
 
             try
@@ -5481,8 +5271,11 @@ namespace MissionPlanner.GCSViews
         {
             try
             {
+                ParamAliases.ChangeSpeedArguments(MainV2.comPort.MAV.param,
+                    (float) flightDataActions1.modifyandSetSpeed.Value, out var p1, out var p2, out var p3);
+
                 await MainV2.comPort.doCommandAsync(MainV2.comPort.MAV.sysid, MainV2.comPort.MAV.compid,
-                        MAVLink.MAV_CMD.DO_CHANGE_SPEED, 0, (float) flightDataActions1.modifyandSetSpeed.Value, 0, 0, 0, 0, 0)
+                        MAVLink.MAV_CMD.DO_CHANGE_SPEED, p1, p2, p3, 0, 0, 0, 0)
                     .ConfigureAwait(true);
             }
             catch
@@ -6897,25 +6690,27 @@ namespace MissionPlanner.GCSViews
         {
         }
 
-        private void takeOffToolStripMenuItem_Click(object sender, EventArgs e)
+        private async void takeOffToolStripMenuItem_Click(object sender, EventArgs e)
         {
             if (MainV2.comPort.BaseStream.IsOpen)
             {
                 string alt = Settings.Instance["takeoff_alt", "5"];
 
-                if (DialogResult.Cancel == InputBox.Show("Enter Alt", "Enter Takeoff Alt", ref alt))
+                if (DialogResult.Cancel == InputBox.Show("Enter Alt", "Enter Takeoff Alt (" + (string.IsNullOrEmpty(CurrentState.AltUnit) ? "m" : CurrentState.AltUnit) + ")", ref alt))
                     return;
 
-                var altf = float.Parse(alt, CultureInfo.InvariantCulture);
+                if (!float.TryParse(alt, NumberStyles.Float, CultureInfo.InvariantCulture, out var altf) || altf <= 0)
+                {
+                    CustomMessageBox.Show("Enter a takeoff altitude above zero.", Strings.ERROR);
+                    return;
+                }
 
-                Settings.Instance["takeoff_alt"] = altf.ToString();
-
-                MainV2.comPort.setMode("GUIDED");
+                Settings.Instance["takeoff_alt"] = altf.ToString(CultureInfo.InvariantCulture);
 
                 try
                 {
-                    MainV2.comPort.doCommand(MainV2.comPort.sysidcurrent, (byte) MainV2.comPort.compidcurrent,
-                        MAVLink.MAV_CMD.TAKEOFF, 0, 0, 0, 0, 0, 0, altf);
+                    // per vehicle: GUIDED + NAV_TAKEOFF for copter/quadplane, TAKEOFF mode for plane; arm is checked
+                    await FlightCommands.TakeoffInteractiveAsync(this, altf / CurrentState.multiplieralt);
                 }
                 catch
                 {

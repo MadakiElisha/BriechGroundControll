@@ -1452,7 +1452,9 @@ namespace MissionPlanner.GCSViews
             new StatusMetricDefinition("alert", "Alert"),
             new StatusMetricDefinition("time_in_air", "Time in Air"),
             new StatusMetricDefinition("distance_travelled", "Distance Travelled"),
-            new StatusMetricDefinition("distance_to_home", "Distance to Home")
+            new StatusMetricDefinition("distance_to_home", "Distance to Home"),
+            new StatusMetricDefinition("engine", "Engine (RPM, CHT, EGT)"),
+            new StatusMetricDefinition("fuel", "Fuel")
         };
 
         private readonly Font eyebrowFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
@@ -1661,6 +1663,14 @@ namespace MissionPlanner.GCSViews
                 ApplyCards(lastTelemetry, lastConnected);
             };
             cardMenu.Items.Add(resetItem);
+
+            var engineSettings = new ToolStripMenuItem("Engine && fuel settings…");
+            engineSettings.Click += (s, e) =>
+            {
+                EngineDisplay.EditSettings(FindForm());
+                ApplyCards(lastTelemetry, lastConnected);
+            };
+            cardMenu.Items.Add(engineSettings);
         }
 
         private void CardMenuItem_Click(object sender, EventArgs e)
@@ -1789,6 +1799,26 @@ namespace MissionPlanner.GCSViews
                             : "Awaiting home reference",
                         DistanceToHomeAccent);
 
+                case "engine":
+                {
+                    var engine = EngineDisplay.Engine(cs);
+                    return new StatusCard(
+                        "ENGINE",
+                        engine.Rpm.HasValue ? $"{engine.Rpm:0} RPM" : "--",
+                        EngineDisplay.FormatEngineDetail(engine),
+                        SeverityColor(engine.Severity));
+                }
+
+                case "fuel":
+                {
+                    var fuel = EngineDisplay.Fuel(cs);
+                    return new StatusCard(
+                        "FUEL",
+                        fuel.RemainingPct.HasValue ? $"{fuel.RemainingPct:0}%" : "--",
+                        EngineDisplay.FormatFuelDetail(fuel),
+                        SeverityColor(fuel.Severity));
+                }
+
                 case "alert":
                 default:
                     string alert = cs == null || string.IsNullOrWhiteSpace(cs.messageHigh) ? "NOMINAL" : cs.messageHigh.ToUpperInvariant();
@@ -1801,6 +1831,17 @@ namespace MissionPlanner.GCSViews
                         string.Equals(alert, "NOMINAL", StringComparison.OrdinalIgnoreCase)
                             ? AlertNominalAccent
                             : Color.FromArgb(228, 84, 71));
+            }
+        }
+
+        private Color SeverityColor(MissionPlanner.ArduPilot.EngineStatus.Severity severity)
+        {
+            switch (severity)
+            {
+                case MissionPlanner.ArduPilot.EngineStatus.Severity.Ok: return AlertNominalAccent;
+                case MissionPlanner.ArduPilot.EngineStatus.Severity.Caution: return Color.FromArgb(240, 180, 76);
+                case MissionPlanner.ArduPilot.EngineStatus.Severity.Warning: return Color.FromArgb(228, 84, 71);
+                default: return CardBorder;
             }
         }
 
@@ -6606,67 +6647,13 @@ namespace MissionPlanner.GCSViews
 
                 dialog.Controls.Add(cancelButton);
                 dialog.Controls.Add(confirmButton);
-                dialog.AcceptButton = confirmButton;
+                // flight commands are confirmed with a click, never with Enter: a key press meant for
+                // another window must not arm, disarm or change mode
+                dialog.AcceptButton = cancelButton;
                 dialog.CancelButton = cancelButton;
+                dialog.ActiveControl = cancelButton;
 
                 return dialog.ShowDialog(owner) == DialogResult.OK;
-            }
-        }
-
-        public static decimal? ShowTakeoffPrompt(IWin32Window owner, decimal defaultAltitude)
-        {
-            Color accent = Color.FromArgb(200, 168, 101);
-
-            using (var dialog = CreateBaseDialog("Guided Takeoff",
-                "Choose the target altitude for a guided takeoff. The vehicle will switch to GUIDED and arm if needed.",
-                accent, 460, 296))
-            {
-                var fieldLabel = new Label
-                {
-                    Text = "Target altitude",
-                    Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                    ForeColor = TextPrimary,
-                    BackColor = Color.Transparent,
-                    Bounds = new Rectangle(24, 118, 180, 18)
-                };
-
-                var unitLabel = new Label
-                {
-                    Text = "meters AGL",
-                    Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
-                    ForeColor = TextMuted,
-                    BackColor = Color.Transparent,
-                    Bounds = new Rectangle(24, 194, 180, 16)
-                };
-
-                var altitudeInput = new NumericUpDown
-                {
-                    Minimum = 3,
-                    Maximum = 300,
-                    DecimalPlaces = 0,
-                    Value = Math.Max(3, Math.Min(300, defaultAltitude)),
-                    Font = new Font("Segoe UI", 20f, FontStyle.Bold),
-                    ForeColor = TextPrimary,
-                    BackColor = Surface,
-                    BorderStyle = BorderStyle.FixedSingle,
-                    TextAlign = HorizontalAlignment.Center,
-                    Bounds = new Rectangle(24, 142, dialog.ClientSize.Width - 48, 44)
-                };
-
-                var cancelButton = CreateButton("Cancel", Color.FromArgb(58, 67, 88), DialogResult.Cancel);
-                var confirmButton = CreateButton("Launch", accent, DialogResult.OK);
-                cancelButton.Bounds = new Rectangle(dialog.ClientSize.Width - 222, dialog.ClientSize.Height - 58, 96, 34);
-                confirmButton.Bounds = new Rectangle(dialog.ClientSize.Width - 116, dialog.ClientSize.Height - 58, 96, 34);
-
-                dialog.Controls.Add(fieldLabel);
-                dialog.Controls.Add(altitudeInput);
-                dialog.Controls.Add(unitLabel);
-                dialog.Controls.Add(cancelButton);
-                dialog.Controls.Add(confirmButton);
-                dialog.AcceptButton = confirmButton;
-                dialog.CancelButton = cancelButton;
-
-                return dialog.ShowDialog(owner) == DialogResult.OK ? altitudeInput.Value : (decimal?)null;
             }
         }
 

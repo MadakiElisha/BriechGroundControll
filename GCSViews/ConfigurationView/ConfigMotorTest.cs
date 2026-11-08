@@ -809,7 +809,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
                                     {
                                         // Swap: move the target motor's existing servo to the source motor
                                         string oldTargetParam = $"SERVO{targetCurrentServo}_FUNCTION";
-                                        MainV2.comPort.setParam((byte)MainV2.comPort.sysidcurrent,
+                                        MainV2.comPort.setParam(MainV2.comPort.sysidcurrent,
                                             (byte)MainV2.comPort.compidcurrent, oldTargetParam, sourceFunctionValue);
 
                                         if (sourcePanel != null)
@@ -819,7 +819,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
                                     }
 
                                     // Set the servo to the target motor's function
-                                    MainV2.comPort.setParam((byte)MainV2.comPort.sysidcurrent,
+                                    MainV2.comPort.setParam(MainV2.comPort.sysidcurrent,
                                         (byte)MainV2.comPort.compidcurrent, paramName, targetFunctionValue);
 
                                     // Update target motor's dropdown to show the servo
