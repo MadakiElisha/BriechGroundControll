@@ -6606,8 +6606,11 @@ namespace MissionPlanner.GCSViews
 
                 dialog.Controls.Add(cancelButton);
                 dialog.Controls.Add(confirmButton);
-                dialog.AcceptButton = confirmButton;
+                // flight commands are confirmed with a click, never with Enter: a key press meant for
+                // another window must not arm, disarm or change mode
+                dialog.AcceptButton = cancelButton;
                 dialog.CancelButton = cancelButton;
+                dialog.ActiveControl = cancelButton;
 
                 return dialog.ShowDialog(owner) == DialogResult.OK;
             }
@@ -6663,8 +6666,9 @@ namespace MissionPlanner.GCSViews
                 dialog.Controls.Add(unitLabel);
                 dialog.Controls.Add(cancelButton);
                 dialog.Controls.Add(confirmButton);
-                dialog.AcceptButton = confirmButton;
+                // no AcceptButton: Enter in the altitude box must not launch the vehicle
                 dialog.CancelButton = cancelButton;
+                dialog.ActiveControl = altitudeInput;
 
                 return dialog.ShowDialog(owner) == DialogResult.OK ? altitudeInput.Value : (decimal?)null;
             }

@@ -402,7 +402,6 @@ namespace MissionPlanner.Controls
                     return;
 
                 bool isArmed = MainV2.comPort.MAV?.cs?.armed ?? false;
-                string action = isArmed ? "Disarm" : "Arm";
 
                 // Show confirmation dialog when arming (with "show me again" option)
                 if (!isArmed)
@@ -417,32 +416,8 @@ namespace MissionPlanner.Controls
                         return;
                 }
 
-                StringBuilder sb = new StringBuilder();
-                var sub = MainV2.comPort.SubscribeToPacketType(MAVLink.MAVLINK_MSG_ID.STATUSTEXT, message =>
-                {
-                    sb.AppendLine(Encoding.ASCII.GetString(((MAVLink.mavlink_statustext_t)message.data).text).TrimEnd('\0'));
-                    return true;
-                }, (byte)MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent);
-
-                bool result = MainV2.comPort.doARM(!isArmed);
-                MainV2.comPort.UnSubscribeToPacketType(sub);
-
-                if (!result)
-                {
-                    if (CustomMessageBox.Show(
-                            action + " failed.\n" + sb.ToString() + "\nForce " + action +
-                            " can bypass safety checks,\nwhich can lead to the vehicle crashing\nand causing serious injuries.\n\nDo you wish to Force " +
-                            action + "?", Strings.ERROR, CustomMessageBox.MessageBoxButtons.YesNo,
-                            CustomMessageBox.MessageBoxIcon.Exclamation, "Force " + action, "Cancel") ==
-                        CustomMessageBox.DialogResult.Yes)
-                    {
-                        result = MainV2.comPort.doARM(!isArmed, true);
-                        if (!result)
-                        {
-                            CustomMessageBox.Show(Strings.ErrorRejectedByMAV, Strings.ERROR);
-                        }
-                    }
-                }
+                // shared with both Fly views: confirms disarm, press-and-hold FORCE disarm only when airborne
+                FlightCommands.ArmOrDisarmInteractive(Control?.FindForm());
             }
             catch (Exception ex)
             {
@@ -749,7 +724,7 @@ namespace MissionPlanner.Controls
             AdjustWidthToAvailableSpace();
         }
 
-        private void SetMode(string mode)
+        private async void SetMode(string mode)
         {
             try
             {
@@ -763,7 +738,8 @@ namespace MissionPlanner.Controls
                             return;
                         }
                     }
-                    MainV2.comPort.setMode(mode);
+                    // waits for the heartbeat to show the mode; tells the pilot if it was refused
+                    await FlightCommands.SetModeInteractiveAsync(Control?.FindForm(), mode);
                 }
             }
             catch (Exception ex)
