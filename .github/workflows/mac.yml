@@ -1,5 +1,7 @@
 name: OSX Build
-on: [push, workflow_dispatch, pull_request]
+# Manual only: every automatic run on this fork (50 of 50) was cancelled before a macOS runner started,
+# and Briech doesn't ship a Mac/iOS build. Run it from the Actions tab when that changes.
+on: [workflow_dispatch]
 
 jobs:
   buildIOS:
