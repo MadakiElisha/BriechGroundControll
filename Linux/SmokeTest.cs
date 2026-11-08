@@ -66,10 +66,15 @@ class LinuxSmokeTest
             try
             {
                 var flightData = MainV2.instance.FlightData;
-                var tabs = (TabControl)flightData.Controls.Find("tabControlactions", true).Single();
-                tabs.SelectedTab = (TabPage)flightData.Controls.Find("tabActions", true).Single();
-                // Briech GCS hosts the actions in a FlightDataActions control (speed, altitude, loiter radius)
-                var actions = (MissionPlanner.Controls.FlightDataActions)flightData.Controls.Find("flightDataActions1", true).Single();
+                // Briech GCS draws its own tab strip and hosts the actions in a FlightDataActions control
+                // (speed, altitude, loiter radius); select the Actions tab when it is reachable.
+                var tabs = flightData.Controls.Find("tabControlactions", true).OfType<TabControl>().FirstOrDefault();
+                var actionsTab = flightData.Controls.Find("tabActions", true).OfType<TabPage>().FirstOrDefault();
+                if (tabs != null && actionsTab != null && tabs.TabPages.Contains(actionsTab))
+                    tabs.SelectedTab = actionsTab;
+                var actions = Descendants(flightData).OfType<MissionPlanner.Controls.FlightDataActions>().FirstOrDefault();
+                if (actions == null)
+                    throw new Exception("FlightData has no actions panel.");
                 var combo = actions.CMB_action;
                 if (!MainV2.instance.Visible || combo.Items.Count == 0)
                     throw new Exception("FlightData did not load its actions.");
