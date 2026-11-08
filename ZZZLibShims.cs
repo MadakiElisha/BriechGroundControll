@@ -1165,3 +1165,26 @@ namespace System.Management
         }
     }
 }
+
+// WebView2 is Windows-only. ConfigMotorTest uses it for the frame diagram; the Android/Mac build gets an
+// inert stand-in so the page still compiles and simply shows no diagram.
+namespace Microsoft.Web.WebView2.WinForms
+{
+    public class CoreWebView2Stub
+    {
+        public void NavigateToString(string html) { }
+    }
+
+    public class WebView2 : System.Windows.Forms.Control, System.ComponentModel.ISupportInitialize
+    {
+        public bool AllowExternalDrop { get; set; }
+        public object CreationProperties { get; set; }
+        public System.Drawing.Color DefaultBackgroundColor { get; set; }
+        public double ZoomFactor { get; set; } = 1;
+        public CoreWebView2Stub CoreWebView2 => null;
+        public System.Threading.Tasks.Task EnsureCoreWebView2Async(object environment) =>
+            System.Threading.Tasks.Task.FromResult(0);
+        public void BeginInit() { }
+        public void EndInit() { }
+    }
+}

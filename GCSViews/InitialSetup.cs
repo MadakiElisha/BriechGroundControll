@@ -315,10 +315,13 @@ namespace MissionPlanner.GCSViews
             {
                 AddBackstageViewPage(typeof(ConfigAntennaTracker), rm.GetString("backstageViewPageAntTrack.Text"), isTracker, opt);
             }
+#if !LIB
+            // AM32 ESC page uses WebView2 (Windows only)
             if (MainV2.DisplayConfiguration.displayMotorTest)
             {
                 AddBackstageViewPage(typeof(ConfigAM32), "AM32", true, opt);
             }
+#endif
             if (MainV2.DisplayConfiguration.displayBluetooth)
             {
                 AddBackstageViewPage(typeof(ConfigHWBT), rm.GetString("backstageViewPagehwbt.Text"), true, opt);
