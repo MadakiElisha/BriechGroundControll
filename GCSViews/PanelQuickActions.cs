@@ -27,7 +27,8 @@ namespace MissionPlanner.GCSViews
             Actions,
             Messages,
             PreFlight,
-            Logs
+            Logs,
+            Tools
         }
 
         private readonly Color Shell = Color.FromArgb(22, 28, 40);
@@ -64,6 +65,14 @@ namespace MissionPlanner.GCSViews
         private Panel messagesPage;
         private Panel preflightPage;
         private Panel logsPage;
+        private Panel toolsPage;
+        private Button btnToolsTab;
+        private Panel toolsPicker;
+        private Panel toolView;
+        private Panel toolHost;
+        private Label toolTitle;
+        private string openToolKey;
+        private Form toolWindow;
         private FlightDataActions legacyActions;
         private MessagesList messagesList;
         private Button btnOpenDataflashLogs;
@@ -190,24 +199,24 @@ namespace MissionPlanner.GCSViews
                 Dock = DockStyle.Fill,
                 BackColor = Surface,
                 Padding = new Padding(8, 6, 4, 6),
-                ColumnCount = 4,
+                ColumnCount = 5,
                 RowCount = 1,
                 AutoSize = false
             };
-            tabBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
-            tabBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
-            tabBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
-            tabBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+            for (int i = 0; i < 5; i++)
+                tabBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20f));
             tabBar.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
             btnActionsTab = CreateTabButton("Actions", OperationsTab.Actions);
             btnMessagesTab = CreateTabButton("Messages", OperationsTab.Messages);
             btnPreflightTab = CreateTabButton("PreFlight", OperationsTab.PreFlight);
             btnLogsTab = CreateTabButton("Logs", OperationsTab.Logs);
+            btnToolsTab = CreateTabButton("Tools", OperationsTab.Tools);
             tabBar.Controls.Add(btnActionsTab, 0, 0);
             tabBar.Controls.Add(btnMessagesTab, 1, 0);
             tabBar.Controls.Add(btnPreflightTab, 2, 0);
             tabBar.Controls.Add(btnLogsTab, 3, 0);
+            tabBar.Controls.Add(btnToolsTab, 4, 0);
             headerShell.Controls.Add(tabBar);
 
             edgeCollapseHost = BuildEdgeCollapseHost();
@@ -217,6 +226,8 @@ namespace MissionPlanner.GCSViews
             messagesPage = BuildMessagesPage();
             preflightPage = BuildPreflightPage();
             logsPage = BuildLogsPage();
+            toolsPage = BuildToolsPage();
+            pageHost.Controls.Add(toolsPage);
             pageHost.Controls.Add(logsPage);
             pageHost.Controls.Add(messagesPage);
             pageHost.Controls.Add(preflightPage);
@@ -727,6 +738,10 @@ namespace MissionPlanner.GCSViews
             messagesPage.Visible = tab == OperationsTab.Messages;
             preflightPage.Visible = tab == OperationsTab.PreFlight;
             logsPage.Visible = tab == OperationsTab.Logs;
+            toolsPage.Visible = tab == OperationsTab.Tools;
+            if (tab == OperationsTab.Tools)
+                SyncToolState();
+            ApplyTabStyle(btnToolsTab, tab == OperationsTab.Tools);
             ApplyTabStyle(btnActionsTab, tab == OperationsTab.Actions);
             ApplyTabStyle(btnMessagesTab, tab == OperationsTab.Messages);
             ApplyTabStyle(btnPreflightTab, tab == OperationsTab.PreFlight);
@@ -951,8 +966,234 @@ namespace MissionPlanner.GCSViews
 
         private int GetPreferredWidth(OperationsTab tab)
         {
+            // wide classic tools need more room than the side panel's usual width
+            if (tab == OperationsTab.Tools && toolWindow == null && IsWideTool(openToolKey))
+                return WideToolPanelWidth;
             return ExpandedPreferredPanelWidth;
         }
+
+        private const int WideToolPanelWidth = 760;
+
+        private static bool IsWideTool(string key)
+        {
+            return key == "tuning" || key == "params" || key == "inspector" || key == "status" || key == "scripts" ||
+                   key == "video";
+        }
+
+        #region Tools tab (classic Fly tools shown in Modern Fly)
+
+        private Panel BuildToolsPage()
+        {
+            var page = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+
+            // picker
+            toolsPicker = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, AutoScroll = true };
+            var note = new Label
+            {
+                Dock = DockStyle.Top,
+                Height = 24,
+                Text = "Everything from the classic Fly view. Opens here or in its own window.",
+                Font = subtitleFont,
+                ForeColor = TextMuted,
+                BackColor = Color.Transparent
+            };
+            var grid = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 2,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0, 6, 0, 8)
+            };
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+
+            int index = 0;
+            foreach (var tool in FlightData.ModernTools)
+            {
+                var button = new Button
+                {
+                    Text = tool.Title + "\n" + tool.Detail,
+                    Tag = tool.Key,
+                    Dock = DockStyle.Fill,
+                    Height = 54,
+                    Margin = new Padding(0, 0, 8, 8),
+                    FlatStyle = FlatStyle.Flat,
+                    Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+                    BackColor = SurfaceRaised,
+                    ForeColor = TextPrimary,
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Padding = new Padding(10, 0, 6, 0),
+                    Cursor = Cursors.Hand,
+                    UseMnemonic = false
+                };
+                button.FlatAppearance.BorderSize = 1;
+                button.FlatAppearance.BorderColor = Border;
+                button.FlatAppearance.MouseOverBackColor = Surface;
+                button.Click += (s, e) => OpenTool((string)((Button)s).Tag);
+                if (index % 2 == 0)
+                    grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 62f));
+                grid.Controls.Add(button, index % 2, index / 2);
+                index++;
+            }
+
+            toolsPicker.Controls.Add(grid);
+            toolsPicker.Controls.Add(note);
+
+            // open tool
+            toolView = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Visible = false };
+            var bar = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 36,
+                ColumnCount = 3,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0, 0, 0, 6)
+            };
+            bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84f));
+            bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120f));
+            var back = CreateLogCommandButton("< All tools", 84);
+            back.Dock = DockStyle.Fill;
+            back.Margin = new Padding(0);
+            back.Click += (s, e) => CloseTool();
+            toolTitle = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = titleFont,
+                ForeColor = Gold,
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(10, 0, 0, 0)
+            };
+            var popOut = CreateLogCommandButton("Open in window", 120);
+            popOut.Dock = DockStyle.Fill;
+            popOut.Margin = new Padding(0);
+            popOut.Click += (s, e) => PopOutTool();
+            bar.Controls.Add(back, 0, 0);
+            bar.Controls.Add(toolTitle, 1, 0);
+            bar.Controls.Add(popOut, 2, 0);
+
+            toolHost = new Panel { Dock = DockStyle.Fill, BackColor = ThemeManager.BGColor };
+            toolView.Controls.Add(toolHost);
+            toolView.Controls.Add(bar);
+
+            page.Controls.Add(toolView);
+            page.Controls.Add(toolsPicker);
+            return page;
+        }
+
+        private void OpenTool(string key)
+        {
+            var classic = MainV2.instance?.FlightData;
+            if (classic == null)
+                return;
+
+            ClosePopOut();
+            if (!classic.BorrowTool(key, toolHost))
+                return;
+
+            openToolKey = key;
+            foreach (var tool in FlightData.ModernTools)
+                if (tool.Key == key)
+                    toolTitle.Text = tool.Title.ToUpperInvariant();
+
+            toolsPicker.Visible = false;
+            toolView.Visible = true;
+            toolView.BringToFront();
+            LayoutPreferenceChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void CloseTool()
+        {
+            ClosePopOut();
+            MainV2.instance?.FlightData?.ReturnTool();
+            openToolKey = null;
+            toolView.Visible = false;
+            toolsPicker.Visible = true;
+            LayoutPreferenceChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>The classic view takes its tools back when shown; reflect that here.</summary>
+        private void SyncToolState()
+        {
+            if (openToolKey == null)
+                return;
+            var borrowed = MainV2.instance?.FlightData?.BorrowedToolKey;
+            if (borrowed != openToolKey)
+            {
+                ClosePopOut();
+                openToolKey = null;
+                toolView.Visible = false;
+                toolsPicker.Visible = true;
+            }
+        }
+
+        private void PopOutTool()
+        {
+            if (openToolKey == null || toolWindow != null)
+                return;
+
+            var classic = MainV2.instance?.FlightData;
+            if (classic == null)
+                return;
+
+            var key = openToolKey;
+            var form = new Form
+            {
+                Text = toolTitle.Text,
+                StartPosition = FormStartPosition.CenterScreen,
+                Size = new Size(900, 640),
+                ShowInTaskbar = true,
+                BackColor = ThemeManager.BGColor,
+                Icon = FindForm()?.Icon
+            };
+            var host = new Panel { Dock = DockStyle.Fill, BackColor = ThemeManager.BGColor };
+            form.Controls.Add(host);
+
+            if (!classic.BorrowTool(key, host))
+            {
+                form.Dispose();
+                classic.BorrowTool(key, toolHost);
+                return;
+            }
+
+            toolWindow = form;
+            // FormClosing, not FormClosed: the classic controls must be handed back before the window disposes them
+            form.FormClosing += (s, e) =>
+            {
+                if (toolWindow != form)
+                    return;
+                toolWindow = null;
+                if (MainV2.instance?.FlightData?.BorrowedToolKey == key)
+                    MainV2.instance.FlightData.ReturnTool();
+                openToolKey = null;
+                toolView.Visible = false;
+                toolsPicker.Visible = true;
+                LayoutPreferenceChanged?.Invoke(this, EventArgs.Empty);
+            };
+
+            toolView.Visible = false;
+            toolsPicker.Visible = true;
+            LayoutPreferenceChanged?.Invoke(this, EventArgs.Empty);
+            ThemeManager.ApplyThemeTo(form);
+            form.Show(FindForm());
+        }
+
+        private void ClosePopOut()
+        {
+            var form = toolWindow;
+            if (form == null)
+                return;
+            toolWindow = null;
+            // hand the controls back first so closing the window can't dispose them
+            MainV2.instance?.FlightData?.ReturnTool();
+            if (!form.IsDisposed)
+                form.Close();
+        }
+
+        #endregion
 
         private void UpdateMessages(CurrentState cs)
         {
