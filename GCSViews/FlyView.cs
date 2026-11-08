@@ -713,7 +713,7 @@ namespace MissionPlanner.GCSViews
         {
             try
             {
-                var list = Common.getModesList(MainV2.comPort.MAV.cs.firmware);
+                var list = MissionPlanner.ArduPilot.Common.getModesList(MainV2.comPort.MAV.cs.firmware);
                 var target = Normalize(wanted);
                 var aliases = new Dictionary<string, string[]>
                 {
