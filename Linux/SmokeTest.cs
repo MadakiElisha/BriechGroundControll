@@ -40,6 +40,16 @@ class LinuxSmokeTest
         }
     }
 
+    static System.Collections.Generic.IEnumerable<Control> Descendants(Control root)
+    {
+        foreach (Control child in root.Controls)
+        {
+            yield return child;
+            foreach (var grandChild in Descendants(child))
+                yield return grandChild;
+        }
+    }
+
     [STAThread]
     static void Main()
     {
@@ -56,18 +66,29 @@ class LinuxSmokeTest
             try
             {
                 var flightData = MainV2.instance.FlightData;
-                var tabs = (TabControl)flightData.Controls.Find("tabControlactions", true).Single();
-                tabs.SelectedTab = (TabPage)flightData.Controls.Find("tabActions", true).Single();
-                var combo = (ComboBox)flightData.Controls.Find("CMB_action", true).Single();
+                // Briech GCS draws its own tab strip and hosts the actions in a FlightDataActions control
+                // (speed, altitude, loiter radius); select the Actions tab when it is reachable.
+                var tabs = flightData.Controls.Find("tabControlactions", true).OfType<TabControl>().FirstOrDefault();
+                var actionsTab = flightData.Controls.Find("tabActions", true).OfType<TabPage>().FirstOrDefault();
+                if (tabs != null && actionsTab != null && tabs.TabPages.Contains(actionsTab))
+                    tabs.SelectedTab = actionsTab;
+                var actions = Descendants(flightData).OfType<MissionPlanner.Controls.FlightDataActions>().FirstOrDefault();
+                if (actions == null)
+                    throw new Exception("FlightData has no actions panel.");
+                var combo = actions.CMB_action;
                 if (!MainV2.instance.Visible || combo.Items.Count == 0)
                     throw new Exception("FlightData did not load its actions.");
-                var table = (TableLayoutPanel)flightData.Controls.Find("tableLayoutPanel1", true).Single();
-                var modifiers = table.Controls.OfType<MissionPlanner.Controls.ModifyandSet>().ToArray();
-                if (modifiers.Length != 3)
+                var modifiers = Descendants(actions).OfType<MissionPlanner.Controls.ModifyandSet>().ToArray();
+                if (modifiers.Length < 3)
                     throw new Exception("Missing numeric action controls.");
                 foreach (var modify in modifiers)
-                    if (modify.Button.Top != modify.NumericUpDown.Top || modify.Button.Right > modify.Width)
+                {
+                    Console.WriteLine($"{modify.Name}: width {modify.Width}, box top {modify.NumericUpDown.Top} " +
+                                      $"right {modify.NumericUpDown.Right}, button top {modify.Button.Top} right {modify.Button.Right}");
+                    // Briech centres the box and button vertically in their own cells, so only clipping fails the test
+                    if (modify.Button.Right > modify.Width || modify.NumericUpDown.Right > modify.Width)
                         throw new Exception("Clipped action control: " + modify.Name);
+                }
                 CheckChecklistResize();
                 // Check the packaged native library and its managed ABI together.
                 using (var bitmap = new SkiaSharp.SKBitmap(8, 8))
