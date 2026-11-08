@@ -7,9 +7,9 @@ Mono compiler, NuGet, Git, or a source checkout.
 
 ## Download and run
 
-Download `MissionPlanner-linux-x86_64.tar.gz` and its `.sha256` file from the
+Download `BriechGCS-linux-x86_64.tar.gz` and its `.sha256` file from the
 [Linux development release](https://github.com/ArduPilot/MissionPlanner/releases/tag/linux-latest).
-Pull requests and manual builds also provide a `MissionPlanner-linux-x86_64`
+Pull requests and manual builds also provide a `BriechGCS-linux-x86_64`
 artifact on the GitHub Actions **Linux Build** run page. The release becomes
 available after the workflow is merged and successfully runs on master.
 
@@ -21,9 +21,9 @@ sudo apt install mono-runtime ca-certificates-mono libgdiplus fonts-dejavu-core 
   libmono-system-windows-forms4.0-cil libmono-system-web-extensions4.0-cil \
   libmono-system-management4.0-cil libmono-system-servicemodel4.0a-cil \
   libmono-system-data-entity4.0-cil libmono-system-net-http4.0-cil
-sha256sum -c MissionPlanner-linux-x86_64.tar.gz.sha256
-tar -xzf MissionPlanner-linux-x86_64.tar.gz
-./MissionPlanner-linux-x86_64/run.sh
+sha256sum -c BriechGCS-linux-x86_64.tar.gz.sha256
+tar -xzf BriechGCS-linux-x86_64.tar.gz
+./BriechGCS-linux-x86_64/run.sh
 ```
 
 Other distributions need equivalent Mono 6.8+ WinForms/runtime assemblies,
@@ -57,9 +57,9 @@ Standard NuGet variables such as `NUGET_PACKAGES` are respected.
 
 Output:
 
-* `bin/linux/MissionPlanner-linux-x86_64/` — runnable application.
-* `bin/linux/MissionPlanner-linux-x86_64.tar.gz` — redistributable archive.
-* `bin/linux/MissionPlanner-linux-x86_64.tar.gz.sha256` — checksum.
+* `bin/linux/BriechGCS-linux-x86_64/` — runnable application.
+* `bin/linux/BriechGCS-linux-x86_64.tar.gz` — redistributable archive.
+* `bin/linux/BriechGCS-linux-x86_64.tar.gz.sha256` — checksum.
 
 `BUILD-INFO.txt` records the source revision, working-tree state, and toolchain.
 CI builds on Ubuntu 22.04 and tests the extracted archive in an Ubuntu 22.04
