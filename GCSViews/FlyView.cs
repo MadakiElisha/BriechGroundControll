@@ -21,6 +21,7 @@ namespace MissionPlanner.GCSViews
     /// hold-to-disarm emergency control. Top: flight status bar and alert banner. Bottom: health chips.
     /// All commands go through the shared FlightCommands helpers, so the safety rules are the same everywhere.
     /// </summary>
+    [PreventTheming] // styled entirely by DesignTokens; the legacy theme would recolour its controls
     public class FlyView : MyUserControl, IActivate, IDeactivate
     {
         private static readonly ILog log = LogManager.GetLogger(typeof(FlyView));
@@ -62,6 +63,44 @@ namespace MissionPlanner.GCSViews
         private Label lblLogging;
 
         private bool commandBusy;
+        private TableLayoutPanel main, consoleColumn;
+        private int modeRows = 3;
+
+        protected override void OnLayout(LayoutEventArgs e)
+        {
+            ApplyResponsiveLayout();
+            base.OnLayout(e);
+        }
+
+        /// <summary>
+        /// Fit 14-inch laptops (about 1280 x 650 usable) up to large shared displays: side columns scale with the
+        /// width within limits, and on short screens the console drops the message list (still one tap away)
+        /// before anything is clipped.
+        /// </summary>
+        private void ApplyResponsiveLayout()
+        {
+            if (main == null || consoleColumn == null)
+                return;
+            var w = Width;
+            var left = Math.Max(280, Math.Min(460, (int)(w * 0.26)));
+            var right = Math.Max(300, Math.Min(380, (int)(w * 0.25)));
+            if (main.ColumnStyles[0].Width != left)
+                main.ColumnStyles[0].Width = left;
+            if (main.ColumnStyles[2].Width != right)
+                main.ColumnStyles[2].Width = right;
+
+            var h = consoleColumn.Height;
+            var modeHeight = 40 + modeRows * (T.ModeButtonHeight + T.Space2) + 30;
+            var missionHeight = 176f;
+            var disarmHeight = 60f;
+            var showMessages = h >= modeHeight + missionHeight + disarmHeight + 140;
+            consoleColumn.RowStyles[0].Height = modeHeight;
+            consoleColumn.RowStyles[1].Height = missionHeight;
+            consoleColumn.RowStyles[2].SizeType = showMessages ? SizeType.Percent : SizeType.Absolute;
+            consoleColumn.RowStyles[2].Height = showMessages ? 100f : 0f;
+            messagesCard.Visible = showMessages;
+            consoleColumn.RowStyles[3].Height = disarmHeight;
+        }
 
         public FlyView()
         {
@@ -108,7 +147,7 @@ namespace MissionPlanner.GCSViews
             };
 
             // ---- main grid ----
-            var main = new TableLayoutPanel
+            main = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 3,
@@ -116,9 +155,10 @@ namespace MissionPlanner.GCSViews
                 Padding = new Padding(T.Space3, T.Space3, T.Space3, 0),
                 BackColor = Color.Transparent
             };
-            main.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27f));
-            main.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 49f));
-            main.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 24f));
+            // side columns get a share of the width within limits; the map takes the rest (see ApplyResponsiveLayout)
+            main.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 340f));
+            main.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            main.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 330f));
             main.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
             main.Controls.Add(BuildLeftColumn(), 0, 0);
@@ -186,7 +226,7 @@ namespace MissionPlanner.GCSViews
 
         private Control BuildConsole()
         {
-            var col = new TableLayoutPanel
+            var col = consoleColumn = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
@@ -297,6 +337,7 @@ namespace MissionPlanner.GCSViews
                 l.ForeColor = p.TextSecondary;
             speedInput.BackColor = p.AppBackground;
             speedInput.ForeColor = p.TextPrimary;
+            map?.ApplyChromePalette(p.AppBackground, p.Surface, p.BorderControl, p.TextPrimary);
             allMessages.LinkColor = p.Brand;
             allMessages.ActiveLinkColor = p.Brand;
             foreach (var m in messageLines)
@@ -332,6 +373,19 @@ namespace MissionPlanner.GCSViews
         #region telemetry
 
         private string currentAlertKey;
+        private CurrentState previewState;
+        private Family previewFamily;
+
+        /// <summary>
+        /// Design preview: render the screen from a made-up telemetry snapshot instead of the link (used for the
+        /// screenshots attached to PRs). Commands stay disabled because nothing is connected.
+        /// </summary>
+        public void ShowPreview(CurrentState sample, Family family)
+        {
+            previewState = sample;
+            previewFamily = family;
+            UpdateUi();
+        }
 
         private void UpdateUi()
         {
@@ -341,6 +395,12 @@ namespace MissionPlanner.GCSViews
                 var cs = port?.MAV?.cs;
                 var connected = port?.BaseStream != null && port.BaseStream.IsOpen;
                 var family = FlightCommands.CurrentFamily();
+                if (previewState != null)
+                {
+                    cs = previewState;
+                    connected = true;
+                    family = previewFamily;
+                }
 
                 UpdateStatusBar(cs, connected, family);
                 UpdateModes(cs, connected, family);
@@ -378,6 +438,15 @@ namespace MissionPlanner.GCSViews
         private void UpdateStatusBar(CurrentState cs, bool connected, Family family)
         {
             var p = T.Current;
+            if (previewState != null)
+            {
+                lblVehicle.Text = (FamilyName(family) + " · SYSID 1 · PREVIEW").ToUpperInvariant();
+                lblMode.Text = (cs.mode ?? "").ToUpperInvariant() + " · " + (cs.armed ? "ARMED" : "DISARMED");
+                lblMode.ForeColor = cs.armed ? p.Caution : p.TextPrimary;
+                lblLink.Text = "Design preview with sample values";
+                return;
+            }
+
             if (!connected || cs == null)
             {
                 lblVehicle.Text = "NO VEHICLE";
@@ -441,7 +510,7 @@ namespace MissionPlanner.GCSViews
             var rtl = cruise > 0.5 ? " · RTL ≈ " + FormatMinutes(cs.DistToHome / CurrentState.multiplierdist / cruise) : "";
             cardHome.Set("To home", FormatDistance(cs.DistToHome, dist), $"Bearing {bearingHome:0}°{rtl}", T.State.Neutral);
 
-            var total = Math.Max(0, MainV2.comPort.MAV.wps.Count - 1);
+            var total = previewState != null ? 14 : Math.Max(0, MainV2.comPort.MAV.wps.Count - 1);
             if (total > 0)
             {
                 var eta = cs.groundspeed > 0.5 ? " · ETA " + FormatMinutes(cs.wp_dist / CurrentState.multiplierdist / (cs.groundspeed / CurrentState.multiplierspeed)) : "";
@@ -652,6 +721,7 @@ namespace MissionPlanner.GCSViews
 
             var modes = FlightCommandProfile.FlyModes(family);
             var rows = (modes.Count + 1) / 2;
+            modeRows = Math.Max(1, rows);
             modesGrid.RowCount = Math.Max(1, rows);
             for (int r = 0; r < rows; r++)
                 modesGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, T.ModeButtonHeight + T.Space2));
@@ -680,7 +750,9 @@ namespace MissionPlanner.GCSViews
                 modesGrid.SetColumnSpan(none, 2);
             }
 
+            modesGrid.Height = Math.Max(1, rows) * (T.ModeButtonHeight + T.Space2);
             modesGrid.ResumeLayout(true);
+            ApplyResponsiveLayout();
         }
 
         private async System.Threading.Tasks.Task ModeClicked(FlightCommandProfile.ModeChoice choice)

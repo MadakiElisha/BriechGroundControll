@@ -84,16 +84,55 @@ class LinuxSmokeTest
         Console.WriteLine("screenshot " + name);
     }
 
+    static void Set(object target, string name, object value)
+    {
+        try
+        {
+            var t = target.GetType();
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            var prop = t.GetProperty(name, flags);
+            if (prop != null && prop.CanWrite)
+            {
+                prop.SetValue(target, Convert.ChangeType(value, prop.PropertyType));
+                return;
+            }
+            var field = t.GetField(name, flags);
+            field?.SetValue(target, Convert.ChangeType(value, field.FieldType));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("sample " + name + ": " + ex.Message);
+        }
+    }
+
     static void NewFlyView(string dir)
     {
         if (MainV2.instance.FlyView == null)
             throw new Exception("The redesigned Fly screen failed to initialise.");
         MainV2.View.ShowScreen("FlyView");
         DesignTokens.Current = DesignTokens.Night;
+        Shot(dir, "0-fly-night-offline");
+
+        // the board's example flight: a quadplane in AUTO, battery getting low
+        var cs = new CurrentState();
+        foreach (var kv in new (string, object)[]
+                 {
+                     ("roll", 8f), ("pitch", 4f), ("yaw", 284f), ("airspeed", 22.4f), ("groundspeed", 24.1f),
+                     ("alt", 118f), ("verticalspeed", 1.2f), ("battery_remaining", 31), ("battery_voltage", 22.1),
+                     ("current", 18.5), ("DistToHome", 2400f), ("AZToMAV", 292f), ("wpno", 6f), ("wp_dist", 410f),
+                     ("timeInAir", 872f), ("wind_vel", 6f), ("wind_dir", 250f), ("gpsstatus", 6f), ("satcount", 21f),
+                     ("ekfstatus", 0.2f), ("armed", true), ("mode", "AUTO"), ("linkqualitygcs", (ushort)98)
+                 })
+            Set(cs, kv.Item1, kv.Item2);
+        cs.messages.Add((DateTime.Now.AddMinutes(-1), "Reached waypoint #5", (byte)6));
+        cs.messages.Add((DateTime.Now.AddMinutes(-9), "GPS 2: HDOP 1.9", (byte)4));
+        cs.messages.Add((DateTime.Now.AddMinutes(-14), "Transition to fixed-wing complete", (byte)6));
+        MainV2.instance.FlyView.ShowPreview(cs, MissionPlanner.ArduPilot.FlightCommandProfile.Family.QuadPlane);
         Shot(dir, "0-fly-night");
         DesignTokens.Current = DesignTokens.Sunlight;
         Shot(dir, "0-fly-sunlight");
         DesignTokens.Current = DesignTokens.Night;
+        MainV2.instance.FlyView.ShowPreview(null, MissionPlanner.ArduPilot.FlightCommandProfile.Family.Unknown);
     }
 
     static void ModernFlyTools(string dir)

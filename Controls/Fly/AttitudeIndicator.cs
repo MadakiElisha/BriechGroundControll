@@ -27,7 +27,7 @@ namespace MissionPlanner.Controls.Fly
 
         public AttitudeIndicator()
         {
-            MinimumSize = new Size(260, 200);
+            MinimumSize = new Size(220, 0);
         }
 
         public void UpdateValues()
@@ -39,10 +39,12 @@ namespace MissionPlanner.Controls.Fly
         {
             var g = e.Graphics;
             Smooth(g);
-            var p = T.Current;
+            // like a real PFD the instrument stays dark in both modes; only its frame follows the page
+            var p = T.Night;
+            var page = T.Current;
             var w = Width;
             var h = Height;
-            using (var bg = new SolidBrush(p.Surface))
+            using (var bg = new SolidBrush(Parent?.BackColor ?? page.AppBackground))
                 g.FillRectangle(bg, ClientRectangle);
 
             var cx = w / 2f;
@@ -149,7 +151,7 @@ namespace MissionPlanner.Controls.Fly
             }
 
             using (var border = T.RoundedRect(new RectangleF(0.5f, 0.5f, w - 1.5f, h - 1.5f), T.CardRadius))
-            using (var pen = new Pen(p.Divider))
+            using (var pen = new Pen(page.Divider))
                 g.DrawPath(pen, border);
         }
 

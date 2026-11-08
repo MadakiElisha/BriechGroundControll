@@ -4439,6 +4439,29 @@ namespace MissionPlanner.GCSViews
             previewResizeHandle.BringToFront();
         }
 
+        /// <summary>Restyle the map's own buttons and chrome (used by the redesigned Fly screen's tokens).</summary>
+        public void ApplyChromePalette(Color chrome, Color fill, Color border, Color text)
+        {
+            if (mapButtonBar == null)
+                return;
+            mapButtonBar.BackColor = chrome;
+            if (mapChromePanel != null)
+                mapChromePanel.BackColor = chrome;
+            BackColor = chrome;
+            mapBorderPanel.BackColor = border;
+            foreach (Control c in mapButtonBar.Controls)
+            {
+                if (c is Button b)
+                {
+                    b.BackColor = fill;
+                    b.ForeColor = text;
+                    b.FlatAppearance.BorderColor = border;
+                    b.FlatAppearance.MouseOverBackColor = ControlPaint.Light(fill, 0.08f);
+                    b.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(fill, 0.05f);
+                }
+            }
+        }
+
         private Button CreateMapButton(string text)
         {
             var button = new Button
