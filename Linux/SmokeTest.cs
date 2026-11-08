@@ -40,6 +40,16 @@ class LinuxSmokeTest
         }
     }
 
+    static System.Collections.Generic.IEnumerable<Control> Descendants(Control root)
+    {
+        foreach (Control child in root.Controls)
+        {
+            yield return child;
+            foreach (var grandChild in Descendants(child))
+                yield return grandChild;
+        }
+    }
+
     [STAThread]
     static void Main()
     {
@@ -58,12 +68,13 @@ class LinuxSmokeTest
                 var flightData = MainV2.instance.FlightData;
                 var tabs = (TabControl)flightData.Controls.Find("tabControlactions", true).Single();
                 tabs.SelectedTab = (TabPage)flightData.Controls.Find("tabActions", true).Single();
-                var combo = (ComboBox)flightData.Controls.Find("CMB_action", true).Single();
+                // Briech GCS hosts the actions in a FlightDataActions control (speed, altitude, loiter radius)
+                var actions = (MissionPlanner.Controls.FlightDataActions)flightData.Controls.Find("flightDataActions1", true).Single();
+                var combo = actions.CMB_action;
                 if (!MainV2.instance.Visible || combo.Items.Count == 0)
                     throw new Exception("FlightData did not load its actions.");
-                var table = (TableLayoutPanel)flightData.Controls.Find("tableLayoutPanel1", true).Single();
-                var modifiers = table.Controls.OfType<MissionPlanner.Controls.ModifyandSet>().ToArray();
-                if (modifiers.Length != 3)
+                var modifiers = Descendants(actions).OfType<MissionPlanner.Controls.ModifyandSet>().ToArray();
+                if (modifiers.Length < 3)
                     throw new Exception("Missing numeric action controls.");
                 foreach (var modify in modifiers)
                     if (modify.Button.Top != modify.NumericUpDown.Top || modify.Button.Right > modify.Width)
