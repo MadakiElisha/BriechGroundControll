@@ -720,6 +720,9 @@ namespace MissionPlanner.Controls
         }
 
         [System.ComponentModel.Browsable(true), System.ComponentModel.Category("Values")]
+        /// <summary>airspeed change, set by the shared Video page; not drawn on the Android HUD yet</summary>
+        public float accel_air { get; set; }
+
         public float turnrate
         {
             get { return _turnrate; }
