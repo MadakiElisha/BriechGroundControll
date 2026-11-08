@@ -519,6 +519,10 @@ public class Map3D: OpenGLtest
 {
     public static Map3D instance;
 
+    // Modern Fly's 3D panel calls these; there is no 3D map in the Android/Mac build
+    public void Activate() { }
+    public void Deactivate() { }
+
 }
 
 

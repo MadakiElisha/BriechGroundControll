@@ -500,7 +500,7 @@ namespace MissionPlanner.Controls
             {
                 Settings.Instance["hudcolor"] = cmbOsdColor.Text;
                 GCSViews.FlightData.myhud.hudcolor =
-                    Color.FromKnownColor((KnownColor)Enum.Parse(typeof(KnownColor), cmbOsdColor.Text));
+                    Color.FromName(cmbOsdColor.Text);
             }
         }
 

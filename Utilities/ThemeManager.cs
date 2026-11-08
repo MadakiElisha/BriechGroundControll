@@ -405,7 +405,9 @@ namespace MissionPlanner.Utilities
             {
                 g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+#if !LIB
                 g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+#endif
                 g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
                 g.DrawImage(original, 0, 0, targetSize, targetSize);
             }
@@ -1226,7 +1228,9 @@ mc:Ignorable=""d""
                     pg.ViewForeColor = TextColor;
                     pg.HelpBackColor = BGColor;
                     pg.HelpForeColor = TextColor;
+#if !LIB
                     pg.CategorySplitterColor = BGColor;
+#endif
                     pg.CategoryForeColor = TextColor;
                 }
 
