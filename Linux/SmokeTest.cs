@@ -84,6 +84,18 @@ class LinuxSmokeTest
         Console.WriteLine("screenshot " + name);
     }
 
+    static void NewFlyView(string dir)
+    {
+        if (MainV2.instance.FlyView == null)
+            throw new Exception("The redesigned Fly screen failed to initialise.");
+        MainV2.View.ShowScreen("FlyView");
+        DesignTokens.Current = DesignTokens.Night;
+        Shot(dir, "0-fly-night");
+        DesignTokens.Current = DesignTokens.Sunlight;
+        Shot(dir, "0-fly-sunlight");
+        DesignTokens.Current = DesignTokens.Night;
+    }
+
     static void ModernFlyTools(string dir)
     {
         var main = MainV2.instance;
@@ -184,6 +196,7 @@ class LinuxSmokeTest
                 if (!string.IsNullOrEmpty(shots))
                 {
                     Directory.CreateDirectory(shots);
+                    NewFlyView(shots);
                     ModernFlyTools(shots);
                 }
                 Console.WriteLine("LINUX_SMOKE_TEST_PASS");
