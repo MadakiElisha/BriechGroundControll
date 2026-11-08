@@ -6616,64 +6616,6 @@ namespace MissionPlanner.GCSViews
             }
         }
 
-        public static decimal? ShowTakeoffPrompt(IWin32Window owner, decimal defaultAltitude)
-        {
-            Color accent = Color.FromArgb(200, 168, 101);
-
-            using (var dialog = CreateBaseDialog("Guided Takeoff",
-                "Choose the target altitude for a guided takeoff. The vehicle will switch to GUIDED and arm if needed.",
-                accent, 460, 296))
-            {
-                var fieldLabel = new Label
-                {
-                    Text = "Target altitude",
-                    Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                    ForeColor = TextPrimary,
-                    BackColor = Color.Transparent,
-                    Bounds = new Rectangle(24, 118, 180, 18)
-                };
-
-                var unitLabel = new Label
-                {
-                    Text = "meters AGL",
-                    Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
-                    ForeColor = TextMuted,
-                    BackColor = Color.Transparent,
-                    Bounds = new Rectangle(24, 194, 180, 16)
-                };
-
-                var altitudeInput = new NumericUpDown
-                {
-                    Minimum = 3,
-                    Maximum = 300,
-                    DecimalPlaces = 0,
-                    Value = Math.Max(3, Math.Min(300, defaultAltitude)),
-                    Font = new Font("Segoe UI", 20f, FontStyle.Bold),
-                    ForeColor = TextPrimary,
-                    BackColor = Surface,
-                    BorderStyle = BorderStyle.FixedSingle,
-                    TextAlign = HorizontalAlignment.Center,
-                    Bounds = new Rectangle(24, 142, dialog.ClientSize.Width - 48, 44)
-                };
-
-                var cancelButton = CreateButton("Cancel", Color.FromArgb(58, 67, 88), DialogResult.Cancel);
-                var confirmButton = CreateButton("Launch", accent, DialogResult.OK);
-                cancelButton.Bounds = new Rectangle(dialog.ClientSize.Width - 222, dialog.ClientSize.Height - 58, 96, 34);
-                confirmButton.Bounds = new Rectangle(dialog.ClientSize.Width - 116, dialog.ClientSize.Height - 58, 96, 34);
-
-                dialog.Controls.Add(fieldLabel);
-                dialog.Controls.Add(altitudeInput);
-                dialog.Controls.Add(unitLabel);
-                dialog.Controls.Add(cancelButton);
-                dialog.Controls.Add(confirmButton);
-                // no AcceptButton: Enter in the altitude box must not launch the vehicle
-                dialog.CancelButton = cancelButton;
-                dialog.ActiveControl = altitudeInput;
-
-                return dialog.ShowDialog(owner) == DialogResult.OK ? altitudeInput.Value : (decimal?)null;
-            }
-        }
-
         public static void ShowNotice(IWin32Window owner, string title, string message, Color accent)
         {
             using (var dialog = CreateBaseDialog(title, message, accent, 420, 220))

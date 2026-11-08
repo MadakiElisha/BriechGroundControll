@@ -1837,59 +1837,10 @@ namespace MissionPlanner.GCSViews
                 cs.failsafe ? Danger : Success);
         }
 
-        private void HandleArmClick(object sender, EventArgs e)
-        {
-            if (!EnsureConnected("Arm / Disarm", "Connect the vehicle before sending arm or disarm commands.")) return;
-            bool armTarget = !(lastTelemetry?.armed ?? false);
-            if (!ModernCommandDialog.ShowConfirmation(this, armTarget ? "Arm Vehicle" : "Disarm Vehicle",
-                    armTarget ? "Arm the vehicle and enable mission-critical controls?" : "Disarm the vehicle and return it to a safe state?",
-                    armTarget ? "Arm" : "Disarm", armTarget ? Info : Warning)) return;
-            TryRunCommand(() => MainV2.comPort.doARM(armTarget), armTarget ? "Vehicle arm command sent" : "Vehicle disarm command sent",
-                armTarget ? "The flight deck requested vehicle arming." : "The flight deck requested vehicle disarm.");
-        }
-
-        private void HandleTakeoffClick(object sender, EventArgs e)
-        {
-            if (!EnsureConnected("Guided Takeoff", "Connect the vehicle before dispatching a guided takeoff.")) return;
-            decimal? altitude = ModernCommandDialog.ShowTakeoffPrompt(this, 15);
-            if (altitude == null) return;
-            TryRunCommand(() =>
-            {
-                if (!(lastTelemetry?.armed ?? false))
-                    MainV2.comPort.doARM(true);
-                MainV2.comPort.setMode("GUIDED");
-                return MainV2.comPort.doCommand(MAVLink.MAV_CMD.TAKEOFF, 0, 0, 0, 0, 0, 0, (float)altitude.Value);
-            }, "Guided takeoff sent", $"Climb to {altitude.Value:F0} m requested in GUIDED.");
-        }
-
-        private void HandleRtlClick(object sender, EventArgs e)
-        {
-            if (!EnsureReadyForRecovery("Return To Launch")) return;
-            if (!ModernCommandDialog.ShowConfirmation(this, "Return To Launch",
-                    "Command the aircraft to recover to its configured home position now?", "Send RTL", Success)) return;
-            TryRunCommand(() => { MainV2.comPort.setMode("RTL"); return true; }, "RTL requested", "Recovery to launch has been dispatched.");
-        }
-
-        private void HandleLandClick(object sender, EventArgs e)
-        {
-            if (!EnsureReadyForRecovery("Land Now")) return;
-            if (!ModernCommandDialog.ShowConfirmation(this, "Land Now",
-                    "Command the aircraft to enter LAND immediately?", "Send LAND", Danger)) return;
-            TryRunCommand(() => { MainV2.comPort.setMode("LAND"); return true; }, "Landing requested", "Immediate landing command has been dispatched.");
-        }
-
         private bool EnsureConnected(string title, string message)
         {
             if (lastConnected) return true;
             ModernCommandDialog.ShowNotice(this, title, message, Danger);
-            return false;
-        }
-
-        private bool EnsureReadyForRecovery(string title)
-        {
-            if (!EnsureConnected(title, "Connect the vehicle before dispatching recovery modes.")) return false;
-            if (lastTelemetry?.armed == true) return true;
-            ModernCommandDialog.ShowNotice(this, title, "Recovery commands are available once the aircraft is armed.", Warning);
             return false;
         }
 
