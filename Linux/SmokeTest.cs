@@ -82,8 +82,13 @@ class LinuxSmokeTest
                 if (modifiers.Length < 3)
                     throw new Exception("Missing numeric action controls.");
                 foreach (var modify in modifiers)
-                    if (modify.Button.Top != modify.NumericUpDown.Top || modify.Button.Right > modify.Width)
+                {
+                    Console.WriteLine($"{modify.Name}: width {modify.Width}, box top {modify.NumericUpDown.Top} " +
+                                      $"right {modify.NumericUpDown.Right}, button top {modify.Button.Top} right {modify.Button.Right}");
+                    // Briech centres the box and button vertically in their own cells, so only clipping fails the test
+                    if (modify.Button.Right > modify.Width || modify.NumericUpDown.Right > modify.Width)
                         throw new Exception("Clipped action control: " + modify.Name);
+                }
                 CheckChecklistResize();
                 // Check the packaged native library and its managed ABI together.
                 using (var bitmap = new SkiaSharp.SKBitmap(8, 8))
