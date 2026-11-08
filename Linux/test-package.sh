@@ -2,8 +2,11 @@
 set -euo pipefail
 linux_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source_dir=$(dirname -- "$linux_dir")
+mkdir -p "$source_dir/bin/linux/screenshots"
 docker_args=(--rm --mount "type=bind,src=$source_dir/bin/linux,dst=/packages,readonly"
-    --mount "type=bind,src=$linux_dir,dst=/linux,readonly")
+    --mount "type=bind,src=$linux_dir,dst=/linux,readonly"
+    --mount "type=bind,src=$source_dir/bin/linux/screenshots,dst=/screenshots"
+    --env "BRIECH_SCREENSHOT_DIR=/screenshots")
 # Local tests may use an existing Xephyr display. CI uses Xvfb inside the container.
 if [[ -n ${MISSIONPLANNER_TEST_DISPLAY:-} ]]; then
     docker_args+=(--env "DISPLAY=$MISSIONPLANNER_TEST_DISPLAY"
