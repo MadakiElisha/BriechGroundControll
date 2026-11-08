@@ -1452,7 +1452,9 @@ namespace MissionPlanner.GCSViews
             new StatusMetricDefinition("alert", "Alert"),
             new StatusMetricDefinition("time_in_air", "Time in Air"),
             new StatusMetricDefinition("distance_travelled", "Distance Travelled"),
-            new StatusMetricDefinition("distance_to_home", "Distance to Home")
+            new StatusMetricDefinition("distance_to_home", "Distance to Home"),
+            new StatusMetricDefinition("engine", "Engine (RPM, CHT, EGT)"),
+            new StatusMetricDefinition("fuel", "Fuel")
         };
 
         private readonly Font eyebrowFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
@@ -1661,6 +1663,14 @@ namespace MissionPlanner.GCSViews
                 ApplyCards(lastTelemetry, lastConnected);
             };
             cardMenu.Items.Add(resetItem);
+
+            var engineSettings = new ToolStripMenuItem("Engine && fuel settings…");
+            engineSettings.Click += (s, e) =>
+            {
+                EngineDisplay.EditSettings(FindForm());
+                ApplyCards(lastTelemetry, lastConnected);
+            };
+            cardMenu.Items.Add(engineSettings);
         }
 
         private void CardMenuItem_Click(object sender, EventArgs e)
@@ -1789,6 +1799,26 @@ namespace MissionPlanner.GCSViews
                             : "Awaiting home reference",
                         DistanceToHomeAccent);
 
+                case "engine":
+                {
+                    var engine = EngineDisplay.Engine(cs);
+                    return new StatusCard(
+                        "ENGINE",
+                        engine.Rpm.HasValue ? $"{engine.Rpm:0} RPM" : "--",
+                        EngineDisplay.FormatEngineDetail(engine),
+                        SeverityColor(engine.Severity));
+                }
+
+                case "fuel":
+                {
+                    var fuel = EngineDisplay.Fuel(cs);
+                    return new StatusCard(
+                        "FUEL",
+                        fuel.RemainingPct.HasValue ? $"{fuel.RemainingPct:0}%" : "--",
+                        EngineDisplay.FormatFuelDetail(fuel),
+                        SeverityColor(fuel.Severity));
+                }
+
                 case "alert":
                 default:
                     string alert = cs == null || string.IsNullOrWhiteSpace(cs.messageHigh) ? "NOMINAL" : cs.messageHigh.ToUpperInvariant();
@@ -1801,6 +1831,17 @@ namespace MissionPlanner.GCSViews
                         string.Equals(alert, "NOMINAL", StringComparison.OrdinalIgnoreCase)
                             ? AlertNominalAccent
                             : Color.FromArgb(228, 84, 71));
+            }
+        }
+
+        private Color SeverityColor(MissionPlanner.ArduPilot.EngineStatus.Severity severity)
+        {
+            switch (severity)
+            {
+                case MissionPlanner.ArduPilot.EngineStatus.Severity.Ok: return AlertNominalAccent;
+                case MissionPlanner.ArduPilot.EngineStatus.Severity.Caution: return Color.FromArgb(240, 180, 76);
+                case MissionPlanner.ArduPilot.EngineStatus.Severity.Warning: return Color.FromArgb(228, 84, 71);
+                default: return CardBorder;
             }
         }
 
