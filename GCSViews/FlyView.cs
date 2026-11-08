@@ -92,7 +92,7 @@ namespace MissionPlanner.GCSViews
             var h = consoleColumn.Height;
             var modeHeight = 40 + modeRows * (T.ModeButtonHeight + T.Space2) + 30;
             var missionHeight = 176f;
-            var disarmHeight = 60f;
+            var disarmHeight = 0f; // pinned outside the scrolling column
             var showMessages = h >= modeHeight + missionHeight + disarmHeight + 140;
             consoleColumn.RowStyles[0].Height = modeHeight;
             consoleColumn.RowStyles[1].Height = missionHeight;
@@ -237,7 +237,8 @@ namespace MissionPlanner.GCSViews
             col.RowStyles.Add(new RowStyle(SizeType.Absolute, 252f));
             col.RowStyles.Add(new RowStyle(SizeType.Absolute, 184f));
             col.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-            col.RowStyles.Add(new RowStyle(SizeType.Absolute, 60f));
+            col.RowStyles.Add(new RowStyle(SizeType.Absolute, 0f));
+            col.AutoScroll = true;
 
             // flight modes
             modesCard = new TokenCard { Title = "Flight modes", Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, T.Space3) };
@@ -313,8 +314,16 @@ namespace MissionPlanner.GCSViews
             col.Controls.Add(modesCard, 0, 0);
             col.Controls.Add(missionCard, 0, 1);
             col.Controls.Add(messagesCard, 0, 2);
-            col.Controls.Add(btnDisarm, 0, 3);
-            return col;
+
+            // the emergency control is pinned below the console so it can never scroll or clip out of view
+            btnDisarm.Dock = DockStyle.Bottom;
+            btnDisarm.Height = 56;
+            var host = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0), BackColor = Color.Transparent };
+            var gap = new Panel { Dock = DockStyle.Bottom, Height = T.Space2, BackColor = Color.Transparent };
+            host.Controls.Add(col);
+            host.Controls.Add(gap);
+            host.Controls.Add(btnDisarm);
+            return host;
         }
 
         private static TokenButton MakeConsoleButton(string text)

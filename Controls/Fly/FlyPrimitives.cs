@@ -48,7 +48,7 @@ namespace MissionPlanner.Controls.Fly
 
         protected static void DrawText(Graphics g, string text, Font font, Color color, Rectangle r,
             TextFormatFlags flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
-                                    TextFormatFlags.NoPadding)
+                                    TextFormatFlags.NoPadding | TextFormatFlags.SingleLine)
         {
             TextRenderer.DrawText(g, text ?? "", font, r, color, flags);
         }
@@ -155,7 +155,9 @@ namespace MissionPlanner.Controls.Fly
             int pad = 12;
             DrawText(g, label.ToUpperInvariant(), T.Label, p.TextMuted, new Rectangle(pad, pad - 2, Width - 2 * pad, 18));
             var valueColor = state == T.State.Neutral || state == T.State.Ok ? p.TextPrimary : T.StateColor(state);
-            DrawText(g, value, T.Readout, valueColor, new Rectangle(pad, 26, Width - 2 * pad, 40));
+            // long values (WP 12 / 140) step down a size rather than wrap or clip
+            var valueFont = TextRenderer.MeasureText(value, T.Readout).Width <= Width - 2 * pad ? T.Readout : T.MonoStrong;
+            DrawText(g, value, valueFont, valueColor, new Rectangle(pad, 26, Width - 2 * pad, 40));
             DrawText(g, detail, T.Detail, p.TextSecondary, new Rectangle(pad, Height - 28, Width - 2 * pad, 20));
         }
     }
