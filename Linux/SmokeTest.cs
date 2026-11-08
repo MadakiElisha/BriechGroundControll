@@ -72,7 +72,7 @@ class LinuxSmokeTest
             try
             {
                 using (var g = System.Drawing.Graphics.FromImage(bmp))
-                    g.CopyFromScreen(bounds.Location, System.Drawing.Point.Empty, bounds.Size);
+                    g.CopyFromScreen(bounds.X, bounds.Y, 0, 0, bounds.Size);
             }
             catch (Exception ex)
             {
