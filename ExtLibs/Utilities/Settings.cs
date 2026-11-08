@@ -19,6 +19,70 @@ namespace MissionPlanner.Utilities
 
         public static string AppConfigName { get; set; } = "Mission Planner";
 
+        /// <summary>
+        /// Folder name for the shared data directory (ProgramData): map tiles, terrain, parameter and log metadata.
+        /// Defaults to <see cref="AppConfigName"/>. Briech keeps Mission Planner's so offline map and terrain caches
+        /// prepared for field work are not lost when the settings folder is renamed.
+        /// </summary>
+        public static string SharedDataName { get; set; }
+
+        /// <summary>
+        /// Switch the settings folder name (Documents\&lt;name&gt; and ProgramData\&lt;name&gt;). Call before anything
+        /// touches <see cref="Instance"/>. On the first run under the new name the small settings files
+        /// (config*.xml, profile.txt, *.json, *.csv, themes) are copied from the old user folder; nothing is moved or
+        /// deleted, so the old app keeps working. Map caches and downloads are not copied (they rebuild themselves).
+        /// </summary>
+        /// <returns>the old folder's logs directory when the caller should keep using it, otherwise null</returns>
+        public static string MigrateAppConfigName(string newName, string oldName)
+        {
+            if (_instance != null)
+            {
+                // settings already loaded from the old folder; switching now would split them
+                Console.WriteLine("MigrateAppConfigName called after Settings.Instance was used; keeping " + AppConfigName);
+                return null;
+            }
+
+            AppConfigName = oldName;
+            var oldUser = GetUserDataDirectory();
+            AppConfigName = newName;
+            var newUser = GetUserDataDirectory();
+
+            try
+            {
+                // caches are generic; sharing them with Mission Planner is harmless and keeps offline maps
+                SharedDataName = oldName;
+
+                if (string.Equals(oldUser, newUser, StringComparison.OrdinalIgnoreCase))
+                    return null;
+                if (File.Exists(Path.Combine(newUser, FileName)))
+                    return null; // already migrated, or already used under the new name
+                if (!File.Exists(Path.Combine(oldUser, FileName)))
+                    return null; // nothing to bring across
+
+                Directory.CreateDirectory(newUser);
+                var copy = new[] { ".xml", ".txt", ".json", ".csv", ".mpsystheme", ".param" };
+                foreach (var file in Directory.GetFiles(oldUser, "*", SearchOption.TopDirectoryOnly))
+                {
+                    var ext = Path.GetExtension(file).ToLowerInvariant();
+                    if (Array.IndexOf(copy, ext) < 0 || new FileInfo(file).Length > 10 * 1024 * 1024)
+                        continue;
+                    var dest = Path.Combine(newUser, Path.GetFileName(file));
+                    if (!File.Exists(dest))
+                        File.Copy(file, dest);
+                }
+
+                var oldLogs = Path.Combine(oldUser, "logs");
+                if (Directory.Exists(oldLogs))
+                    return oldLogs;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Settings migration from " + oldUser + " failed: " + ex.Message);
+            }
+
+            return null;
+        }
+
         public static Settings Instance
         {
             get
@@ -592,8 +656,9 @@ namespace MissionPlanner.Utilities
                 return GetUserDataDirectory();
             }
 
-            var path = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData) + Path.DirectorySeparatorChar + AppConfigName +
-                          Path.DirectorySeparatorChar;
+            var path = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData) + Path.DirectorySeparatorChar +
+                       (string.IsNullOrEmpty(SharedDataName) ? AppConfigName : SharedDataName) +
+                       Path.DirectorySeparatorChar;
 
             return path;
         }
