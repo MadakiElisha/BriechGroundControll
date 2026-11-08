@@ -84,6 +84,15 @@ namespace MissionPlanner.GCSViews
         public VitalDisplayOverride[] EdgeVitalOverrides { get; set; }
         public event EventHandler<HudVitalEditRequestedEventArgs> VitalEditRequested;
 
+        private static float FontLineHeight(Font font, Graphics graphics)
+        {
+#if LIB
+            return font.Height;
+#else
+            return font.GetHeight(graphics);
+#endif
+        }
+
         private readonly Color ribbonSurface = Color.FromArgb(15, 21, 32);
         private readonly Color tapeSurface = Color.FromArgb(17, 24, 35);
         private readonly Color tapeBorder = Color.FromArgb(72, 84, 106);
@@ -769,7 +778,7 @@ namespace MissionPlanner.GCSViews
                 string safeValue = string.IsNullOrWhiteSpace(value) ? "--" : value.Trim();
                 float inset = 3f;
                 float gap = 8f;
-                float baselineY = bounds.Top + Math.Max(0f, (bounds.Height - overlayValueFont.GetHeight(graphics)) / 2f) - 1f;
+                float baselineY = bounds.Top + Math.Max(0f, (bounds.Height - FontLineHeight(overlayValueFont, graphics)) / 2f) - 1f;
                 SizeF labelSize = graphics.MeasureString(safeLabel, overlayLabelFont, int.MaxValue, StringFormat.GenericTypographic);
                 SizeF valueSize = graphics.MeasureString(safeValue, overlayValueFont, int.MaxValue, StringFormat.GenericTypographic);
 

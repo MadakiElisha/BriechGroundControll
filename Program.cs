@@ -295,7 +295,17 @@ namespace MissionPlanner
             }
             else
             {
-                IconFile = MissionPlanner.Properties.Resources.mpdesktop.ToBitmap();
+                try
+                {
+                    IconFile = MissionPlanner.Properties.Resources.mpdesktop.ToBitmap();
+                }
+                catch (Exception ex)
+                {
+                    // Mono (Linux) can't read .ico files whose images are PNG-compressed, as the Briech icon is.
+                    // Use the Briech logo bitmap instead; Windows never takes this path.
+                    log.Warn("App icon could not be loaded, using the Briech logo: " + ex.Message);
+                    IconFile = MissionPlanner.Properties.Resources.Briech_logo;
+                }
             }
 
             try
