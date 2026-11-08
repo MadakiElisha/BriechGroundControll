@@ -920,23 +920,33 @@ namespace MissionPlanner.GCSViews
 
             try
             {
-                if (param.ContainsKey("WP_SPEED_MAX"))
-                    legacyActions.modifyandSetSpeed.Value = (decimal)((float)param["WP_SPEED_MAX"] / 100.0);
-                else if (param.ContainsKey("TRIM_ARSPD_CM"))
-                    legacyActions.modifyandSetSpeed.Value = (decimal)((float)param["TRIM_ARSPD_CM"] / 100.0);
-                else if (param.ContainsKey("TRIM_THROTTLE"))
-                    legacyActions.modifyandSetSpeed.Value = (decimal)(float)param["TRIM_THROTTLE"];
+                // WP_SPD / WPNAV_SPEED (copter), AIRSPEED_CRUISE / TRIM_ARSPD_CM (plane), WP_SPEED (rover),
+                // TRIM_THROTTLE (plane without airspeed) - always in the units the speed box sends.
+                var kind = MissionPlanner.ArduPilot.ParamAliases.GetSpeedSetpoint(param, out var speed, out _);
+                if (kind != MissionPlanner.ArduPilot.ParamAliases.SpeedKind.None)
+                    legacyActions.modifyandSetSpeed.Value = ClampTo(legacyActions.modifyandSetSpeed, speed);
             }
             catch { }
 
             try
             {
-                if (param.ContainsKey("WP_LOITER_RAD"))
-                    legacyActions.modifyandSetLoiterRad.Value = (decimal)((float)param["WP_LOITER_RAD"] * CurrentState.multiplierdist);
-                else if (param.ContainsKey("LOITER_RAD"))
-                    legacyActions.modifyandSetLoiterRad.Value = (decimal)((float)param["LOITER_RAD"] * CurrentState.multiplierdist);
+                double rad;
+                if (MissionPlanner.ArduPilot.ParamAliases.TryGet(param, "WP_LOITER_RAD", out rad) ||
+                    MissionPlanner.ArduPilot.ParamAliases.TryGet(param, "LOITER_RAD", out rad))
+                    legacyActions.modifyandSetLoiterRad.Value =
+                        ClampTo(legacyActions.modifyandSetLoiterRad, rad * CurrentState.multiplierdist);
             }
             catch { }
+        }
+
+        // NumericUpDown throws when a value is outside Minimum/Maximum, which used to leave the box stale
+        private static decimal ClampTo(MissionPlanner.Controls.ModifyandSet box, double value)
+        {
+            var v = (decimal)value;
+            var n = box.NumericUpDown;
+            if (v < n.Minimum) return n.Minimum;
+            if (v > n.Maximum) return n.Maximum;
+            return v;
         }
 
         private int GetPreferredWidth(OperationsTab tab)
@@ -1584,7 +1594,7 @@ namespace MissionPlanner.GCSViews
                 if (selectedAction == FlightData.actions.Engine_Start || selectedAction == FlightData.actions.Engine_Stop)
                 {
                     bool start = selectedAction == FlightData.actions.Engine_Start;
-                    TryRunCommand(() => MainV2.comPort.doEngineControl((byte)MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, start),
+                    TryRunCommand(() => MainV2.comPort.doEngineControl(MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, start),
                         start ? "Engine start requested" : "Engine stop requested",
                         start ? "Engine start command dispatched." : "Engine stop command dispatched.");
                     return;
@@ -1646,9 +1656,9 @@ namespace MissionPlanner.GCSViews
             {
                 int selected = Convert.ToInt32(legacyActions.CMB_mountmode.SelectedValue);
                 if (MainV2.comPort.MAV.param.ContainsKey("MNT_MODE"))
-                    MainV2.comPort.setParam((byte)MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, "MNT_MODE", selected);
+                    MainV2.comPort.setParam(MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, "MNT_MODE", selected);
                 else
-                    MainV2.comPort.doCommand((byte)MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, MAVLink.MAV_CMD.DO_MOUNT_CONTROL, 0, 0, 0, 0, 0, 0, selected);
+                    MainV2.comPort.doCommand(MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, MAVLink.MAV_CMD.DO_MOUNT_CONTROL, 0, 0, 0, 0, 0, 0, selected);
 
                 PushEvent(FlightEventSeverity.Success, "Mount mode updated", "Payload mount mode has been updated.");
             }
@@ -1741,7 +1751,7 @@ namespace MissionPlanner.GCSViews
                     timeout = 0;
                     while (MainV2.comPort.MAV.cs.alt < (lastWpData.alt - 2))
                     {
-                        if (!MainV2.comPort.doCommand((byte)MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, MAVLink.MAV_CMD.TAKEOFF, 0, 0, 0, 0, 0, 0, lastWpData.alt))
+                        if (!MainV2.comPort.doCommand(MainV2.comPort.sysidcurrent, (byte)MainV2.comPort.compidcurrent, MAVLink.MAV_CMD.TAKEOFF, 0, 0, 0, 0, 0, 0, lastWpData.alt))
                             throw new InvalidOperationException("Takeoff command was not acknowledged.");
 
                         Thread.Sleep(1000);
@@ -1775,7 +1785,9 @@ namespace MissionPlanner.GCSViews
             if (!EnsureConnected("Set speed", "Connect the vehicle before applying speed changes."))
                 return;
 
-            TryRunCommand(() => MainV2.comPort.doCommandAsync(MainV2.comPort.MAV.sysid, MainV2.comPort.MAV.compid, MAVLink.MAV_CMD.DO_CHANGE_SPEED, 0, (float)legacyActions.modifyandSetSpeed.Value, 0, 0, 0, 0, 0).GetAwaiter().GetResult(),
+            ParamAliases.ChangeSpeedArguments(MainV2.comPort.MAV.param, (float)legacyActions.modifyandSetSpeed.Value,
+                out var p1, out var p2, out var p3);
+            TryRunCommand(() => MainV2.comPort.doCommandAsync(MainV2.comPort.MAV.sysid, MainV2.comPort.MAV.compid, MAVLink.MAV_CMD.DO_CHANGE_SPEED, p1, p2, p3, 0, 0, 0, 0).GetAwaiter().GetResult(),
                 "Speed updated", $"Target speed set to {legacyActions.modifyandSetSpeed.Value:0}.");
         }
 

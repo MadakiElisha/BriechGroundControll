@@ -3744,55 +3744,22 @@ namespace MissionPlanner.GCSViews
                 MainV2.cam.camimage += cam_camimage;
             }
 
-            // QUAD
-            if (MainV2.comPort.MAV.param.ContainsKey("WP_SPEED_MAX"))
+            // WP_SPD / WPNAV_SPEED (copter), AIRSPEED_CRUISE / TRIM_ARSPD_CM (plane with airspeed),
+            // WP_SPEED (rover/boat), TRIM_THROTTLE % (plane without airspeed) on any firmware 4.5.7+
+            try
             {
-                try
+                var speedKind = ParamAliases.GetSpeedSetpoint(MainV2.comPort.MAV.param, out var speed, out _);
+                if (speedKind != ParamAliases.SpeedKind.None)
                 {
-                    flightDataActions1.modifyandSetSpeed.Value = (decimal) ((float) MainV2.comPort.MAV.param["WP_SPEED_MAX"] / 100.0);
-                }
-                catch
-                {
-                    flightDataActions1.modifyandSetSpeed.Enabled = false;
+                    var box = flightDataActions1.modifyandSetSpeed;
+                    box.Value = Math.Min(box.Maximum, Math.Max(box.Minimum, (decimal) speed));
+                    if (speedKind == ParamAliases.SpeedKind.ThrottlePercent)
+                        box.ButtonText = "Apply"; // percent
                 }
             }
-            // plane 3.7 and below with airspeed, uses ARSPD_ENABLE:
-            else if ((MainV2.comPort.MAV.param.ContainsKey("TRIM_ARSPD_CM") &&
-                      MainV2.comPort.MAV.param.ContainsKey("ARSPD_ENABLE")
-                      && MainV2.comPort.MAV.param.ContainsKey("ARSPD_USE") &&
-                      (float) MainV2.comPort.MAV.param["ARSPD_ENABLE"] == 1
-                      && (float) MainV2.comPort.MAV.param["ARSPD_USE"] == 1) ||
-                     // plane 3.8 and above with airspeed as per plane 3.7 to plane 3.8 migration wiki page, no longer uses ARSPD_ENABLE, uses ARSPD_TYPE instead:
-                     (MainV2.comPort.MAV.param.ContainsKey("TRIM_ARSPD_CM") &&
-                      MainV2.comPort.MAV.param.ContainsKey("ARSPD_TYPE")
-                      && MainV2.comPort.MAV.param.ContainsKey("ARSPD_USE") &&
-                      (float) MainV2.comPort.MAV.param["ARSPD_TYPE"] > 0
-                      && (float) MainV2.comPort.MAV.param["ARSPD_USE"] == 1))
+            catch
             {
-                try
-                {
-                    flightDataActions1.modifyandSetSpeed.Value = (decimal) ((float) MainV2.comPort.MAV.param["TRIM_ARSPD_CM"] / 100.0);
-                }
-                catch
-                {
-                    flightDataActions1.modifyandSetSpeed.Enabled = false;
-                }
-            } // plane without airspeed
-            else if (MainV2.comPort.MAV.param.ContainsKey("TRIM_THROTTLE") &&
-                     MainV2.comPort.MAV.param.ContainsKey("ARSPD_USE")
-                     && (float) MainV2.comPort.MAV.param["ARSPD_USE"] == 0)
-            {
-                try
-                {
-                    flightDataActions1.modifyandSetSpeed.Value = (decimal) (float) MainV2.comPort.MAV.param["TRIM_THROTTLE"];
-                }
-                catch
-                {
-                    flightDataActions1.modifyandSetSpeed.Enabled = false;
-                }
-
-                // percent
-                flightDataActions1.modifyandSetSpeed.ButtonText = "Apply";
+                flightDataActions1.modifyandSetSpeed.Enabled = false;
             }
 
             try
@@ -5481,8 +5448,11 @@ namespace MissionPlanner.GCSViews
         {
             try
             {
+                ParamAliases.ChangeSpeedArguments(MainV2.comPort.MAV.param,
+                    (float) flightDataActions1.modifyandSetSpeed.Value, out var p1, out var p2, out var p3);
+
                 await MainV2.comPort.doCommandAsync(MainV2.comPort.MAV.sysid, MainV2.comPort.MAV.compid,
-                        MAVLink.MAV_CMD.DO_CHANGE_SPEED, 0, (float) flightDataActions1.modifyandSetSpeed.Value, 0, 0, 0, 0, 0)
+                        MAVLink.MAV_CMD.DO_CHANGE_SPEED, p1, p2, p3, 0, 0, 0, 0)
                     .ConfigureAwait(true);
             }
             catch
