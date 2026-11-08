@@ -113,9 +113,15 @@ class LinuxSmokeTest
         Pause(800);
         if (main.FlightData.BorrowedToolKey != null)
             throw new Exception("Classic Fly did not take its tool back.");
-        var servoPage = main.FlightData.Controls.Find("tabServo", true).FirstOrDefault();
-        if (servoPage == null || servoPage.Controls.Count == 0)
-            throw new Exception("Servo page is empty after returning from Modern Fly.");
+        var servoPage = (Control)typeof(MissionPlanner.GCSViews.FlightData)
+            .GetField("tabServo", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            .GetValue(main.FlightData);
+        var servoPanel = (Control)typeof(MissionPlanner.GCSViews.FlightData)
+            .GetField("flowLayoutPanelServos", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            .GetValue(main.FlightData);
+        Console.WriteLine($"servo page children {servoPage.Controls.Count}, servo panel parent {servoPanel.Parent?.Name}");
+        if (servoPanel.Parent != servoPage)
+            throw new Exception("Servo controls did not go back to classic Fly.");
         Shot(dir, "4-classic-after-return");
     }
 
