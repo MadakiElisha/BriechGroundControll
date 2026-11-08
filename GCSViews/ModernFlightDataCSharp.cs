@@ -1671,6 +1671,14 @@ namespace MissionPlanner.GCSViews
                 ApplyCards(lastTelemetry, lastConnected);
             };
             cardMenu.Items.Add(engineSettings);
+
+            var newDesign = new ToolStripMenuItem("Switch to the new Fly design");
+            newDesign.Click += (s, e) =>
+            {
+                Settings.Instance[FlyView.PreferenceKey] = "new";
+                MainV2.instance?.ShowModernFlightScreen(false, true);
+            };
+            cardMenu.Items.Add(newDesign);
         }
 
         private void CardMenuItem_Click(object sender, EventArgs e)

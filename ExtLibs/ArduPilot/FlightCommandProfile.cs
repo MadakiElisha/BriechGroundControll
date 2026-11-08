@@ -123,6 +123,85 @@ namespace MissionPlanner.ArduPilot
             return f == Family.Sub ? "SURFACE" : "RTL";
         }
 
+        /// <summary>A flight-mode button on the Fly screen. Danger modes (land now) ask before sending.</summary>
+        public sealed class ModeChoice
+        {
+            public ModeChoice(string mode, bool danger = false)
+            {
+                Mode = mode;
+                Danger = danger;
+            }
+
+            public string Mode { get; }
+            public bool Danger { get; }
+        }
+
+        /// <summary>
+        /// The six mode buttons the Fly screen offers for a vehicle type (board 1). Names are ArduPilot mode names;
+        /// every other mode stays available from the mode list.
+        /// </summary>
+        public static IList<ModeChoice> FlyModes(Family f)
+        {
+            switch (f)
+            {
+                case Family.QuadPlane:
+                    return new[]
+                    {
+                        new ModeChoice("AUTO"), new ModeChoice("LOITER"), new ModeChoice("QLOITER"),
+                        new ModeChoice("RTL"), new ModeChoice("QRTL"), new ModeChoice("QLAND", true)
+                    };
+                case Family.FixedWing:
+                    return new[]
+                    {
+                        new ModeChoice("AUTO"), new ModeChoice("LOITER"), new ModeChoice("CRUISE"),
+                        new ModeChoice("FBWA"), new ModeChoice("CIRCLE"), new ModeChoice("RTL")
+                    };
+                case Family.Multirotor:
+                case Family.Helicopter:
+                    return new[]
+                    {
+                        new ModeChoice("AUTO"), new ModeChoice("LOITER"), new ModeChoice("BRAKE"),
+                        new ModeChoice("RTL"), new ModeChoice("SMART_RTL"), new ModeChoice("LAND", true)
+                    };
+                case Family.Rover:
+                case Family.Boat:
+                    return new[]
+                    {
+                        new ModeChoice("AUTO"), new ModeChoice("LOITER"), new ModeChoice("GUIDED"),
+                        new ModeChoice("RTL"), new ModeChoice("SMART_RTL"), new ModeChoice("HOLD", true)
+                    };
+                case Family.Sub:
+                    return new[]
+                    {
+                        new ModeChoice("MANUAL"), new ModeChoice("STABILIZE"), new ModeChoice("ALT_HOLD"),
+                        new ModeChoice("POSHOLD"), new ModeChoice("AUTO"), new ModeChoice("SURFACE", true)
+                    };
+                default:
+                    return new ModeChoice[0];
+            }
+        }
+
+        /// <summary>"Pause" on the Fly screen: hold where you are.</summary>
+        public static string PauseMode(Family f)
+        {
+            switch (f)
+            {
+                case Family.Multirotor:
+                case Family.Helicopter:
+                    return "BRAKE";
+                case Family.Rover:
+                case Family.Boat:
+                    return "HOLD";
+                case Family.Sub:
+                    return "POSHOLD";
+                case Family.FixedWing:
+                case Family.QuadPlane:
+                    return "LOITER";
+                default:
+                    return null;
+            }
+        }
+
         public static TakeoffMethod Takeoff(Family f)
         {
             switch (f)

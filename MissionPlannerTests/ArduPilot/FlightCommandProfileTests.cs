@@ -1,5 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Collections.Generic;
+using System.Linq;
 using Family = MissionPlanner.ArduPilot.FlightCommandProfile.Family;
 using TakeoffMethod = MissionPlanner.ArduPilot.FlightCommandProfile.TakeoffMethod;
 
@@ -33,6 +34,29 @@ namespace MissionPlanner.ArduPilot.Tests
             Assert.AreEqual("SURFACE", FlightCommandProfile.LandMode(Family.Sub));
             Assert.AreEqual("RTL", FlightCommandProfile.ReturnMode(Family.QuadPlane));
             Assert.AreEqual("SURFACE", FlightCommandProfile.ReturnMode(Family.Sub));
+        }
+
+        [TestMethod()]
+        public void FlyModesPerVehicle()
+        {
+            foreach (Family f in System.Enum.GetValues(typeof(Family)))
+            {
+                var modes = FlightCommandProfile.FlyModes(f);
+                if (f == Family.Unknown)
+                {
+                    Assert.AreEqual(0, modes.Count);
+                    continue;
+                }
+
+                Assert.AreEqual(6, modes.Count, f.ToString());
+                Assert.IsTrue(modes.Count(m => m.Danger) <= 1, f + " has at most one danger mode");
+            }
+
+            Assert.IsFalse(FlightCommandProfile.FlyModes(Family.FixedWing).Any(m => m.Mode == "LAND"), "ArduPlane has no LAND mode");
+            Assert.IsTrue(FlightCommandProfile.FlyModes(Family.QuadPlane).Any(m => m.Mode == "QLAND" && m.Danger));
+            Assert.AreEqual("BRAKE", FlightCommandProfile.PauseMode(Family.Multirotor));
+            Assert.AreEqual("LOITER", FlightCommandProfile.PauseMode(Family.QuadPlane));
+            Assert.AreEqual("HOLD", FlightCommandProfile.PauseMode(Family.Boat));
         }
 
         [TestMethod()]
