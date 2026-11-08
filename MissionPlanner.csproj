@@ -40,6 +40,9 @@
 	<GenerateAssemblyInfo>true</GenerateAssemblyInfo>
 	<UseWindowsForms>true</UseWindowsForms>
 	<ImportWindowsDesktopTargets>true</ImportWindowsDesktopTargets>
+	<!-- The .NET SDK (Linux build, dotnet test) can only embed WinForms resources pre-serialized.
+	     The Windows MSBuild/MSI build keeps the classic resource format. -->
+	<GenerateResourceUsePreserializedResources Condition="'$(MissionPlannerLinuxBuild)' == 'true'">true</GenerateResourceUsePreserializedResources>
 		<Deterministic>False</Deterministic>
 		<PlatformTarget>AnyCPU</PlatformTarget>
 	<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
