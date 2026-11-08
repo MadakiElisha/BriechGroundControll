@@ -873,6 +873,9 @@ namespace MissionPlanner.GCSViews
 
         public void Activate()
         {
+            // the classic view is on screen again: take back any tool Modern Fly was showing
+            ReturnTool();
+
             log.Info("Activate Called");
 
             OnResize(EventArgs.Empty);
@@ -965,7 +968,8 @@ namespace MissionPlanner.GCSViews
                             if (ctrl is QuickView qv)
                             {
                                 var pos = tableLayoutPanelQuick.GetPositionFromControl(qv);
-                                if (pos.Row < defaultRows && pos.Column < defaultCols)
+                                // GetPositionFromControl gives -1 for a view not placed in a cell yet
+                                if (pos.Row >= 0 && pos.Column >= 0 && pos.Row < defaultRows && pos.Column < defaultCols)
                                 {
                                     var cellDefault = defaults[pos.Row, pos.Column];
                                     if (cellDefault != null)
@@ -6536,28 +6540,37 @@ namespace MissionPlanner.GCSViews
 
         private void tabControl1_SelectedIndexChanged(object sender, EventArgs e)
         {
+            ActivateToolPage(_themedTabStrip.SelectedTab);
+        }
+
+        /// <summary>
+        /// Start whatever a tool page needs while it is on screen (status timer, params tree, tuning page for the
+        /// vehicle type, inspector). Used by the classic tab strip and by Modern Fly when it borrows a tool.
+        /// </summary>
+        private void ActivateToolPage(TabPage selected)
+        {
             Messagetabtimer.Stop();
 
-            if (_themedTabStrip.SelectedTab == tabStatus)
+            if (selected == tabStatus)
             {
                 _statusControl.Start();
                 _statusControl.ApplyTheme();
             }
-            else
+            else if (_borrowedPage != tabStatus)
             {
                 _statusControl.Stop();
             }
 
-            if (_themedTabStrip.SelectedTab == tabPagemessages)
+            if (selected == tabPagemessages)
             {
                 Messagetabtimer.Start();
             }
-            else if (_themedTabStrip.SelectedTab == tabParams)
+            else if (selected == tabParams)
             {
                 configRawParams1.InitialTreeCollapsed = true;
                 configRawParams1.Activate();
             }
-            else if (_themedTabStrip.SelectedTab == tabTuning)
+            else if (selected == tabTuning)
             {
                 tabTuning.SuspendLayout();
                 try
@@ -6596,7 +6609,7 @@ namespace MissionPlanner.GCSViews
                     tabTuning.ResumeLayout(true);
                 }
             }
-            else if (_themedTabStrip.SelectedTab == tabInspector)
+            else if (selected == tabInspector)
             {
                 mavlinkInspectorControl1.Activate();
             }
@@ -6609,7 +6622,7 @@ namespace MissionPlanner.GCSViews
                 //  tabStatus.Controls.Remove(temp);
                 // }
 
-                if (_themedTabStrip.SelectedTab == tabQuick)
+                if (selected == tabQuick)
                 {
                 }
             }
@@ -6680,9 +6693,10 @@ namespace MissionPlanner.GCSViews
 
         private void tabQuick_Resize(object sender, EventArgs e)
         {
-            // Constrain dashboard to tab size - prevent it from ever going wider
-            tableLayoutPanelQuick.MaximumSize = new Size(tabQuick.ClientSize.Width, tabQuick.ClientSize.Height);
-            tableLayoutPanelQuick.Size = tabQuick.ClientSize;
+            // Constrain dashboard to its container (the tab, or Modern Fly's host) - prevent it from ever going wider
+            Control container = _borrowedPage == tabQuick && _borrowHost != null ? _borrowHost : tabQuick;
+            tableLayoutPanelQuick.MaximumSize = new Size(container.ClientSize.Width, container.ClientSize.Height);
+            tableLayoutPanelQuick.Size = container.ClientSize;
             tableLayoutPanelQuick.AutoScroll = false;
         }
 
@@ -6902,6 +6916,12 @@ namespace MissionPlanner.GCSViews
                     MainV2.comPort.MAV.cs.UpdateCurrentSettings(
                         bindingSourceHud.UpdateDataSource(MainV2.comPort.MAV.cs));
                 }
+                // a tool shown in Modern Fly keeps updating while the classic view is hidden
+                if (_borrowedPage == tabQuick)
+                    MainV2.comPort.MAV.cs.UpdateCurrentSettings(bindingSourceQuickTab.UpdateDataSource(MainV2.comPort.MAV.cs));
+                else if (_borrowedPage == tabGauges || _borrowedPage == tabPagePreFlight)
+                    MainV2.comPort.MAV.cs.UpdateCurrentSettings(bindingSourceGaugesTab.UpdateDataSource(MainV2.comPort.MAV.cs));
+
                 //if the tab is undocked we have to update it
                 if (_undockedQuickForm != null && !_undockedQuickForm.IsDisposed)
                     MainV2.comPort.MAV.cs.UpdateCurrentSettings(bindingSourceQuickTab.UpdateDataSource(MainV2.comPort.MAV.cs));
@@ -7302,6 +7322,170 @@ namespace MissionPlanner.GCSViews
         private bool tuningwasrightclick;
 
         private Form _undockedQuickForm = null;
+
+        #region Tools shown in Modern Fly
+
+        // Modern Fly reaches parity with this view by showing its tool pages in place: the page's controls are
+        // moved into Modern Fly's host and moved back when the tool is closed or this view is shown again.
+        // Only one place owns them at a time, so every handler keeps working on the same controls.
+        private TabPage _borrowedPage;
+        private Control _borrowHost;
+
+        /// <summary>Classic Fly tool pages Modern Fly can show: key and caption.</summary>
+        public static readonly (string Key, string Title, string Detail)[] ModernTools =
+        {
+            ("quick", "Dashboard", "Pick-your-own telemetry values"),
+            ("status", "Status", "Every telemetry value, live"),
+            ("gauges", "Gauges", "Speed, altitude, heading dials"),
+            ("servo", "Servo / Relay", "Servo outputs and relays"),
+            ("aux", "Aux functions", "Trigger RC aux functions"),
+            ("preflight", "Checklist", "Your preflight checklist"),
+            ("simple", "Simple actions", "Large single-tap actions"),
+            ("tuning", "Tuning", "In-flight tuning for this vehicle"),
+            ("params", "Parameters", "Full parameter list"),
+            ("inspector", "Inspector", "MAVLink message inspector"),
+            ("scripts", "Scripts", "Run Python scripts"),
+            ("video", "Video", "Video stream and recording"),
+            ("transponder", "Transponder", "ADS-B transponder control"),
+        };
+
+        private TabPage ToolPage(string key)
+        {
+            switch (key)
+            {
+                case "quick": return tabQuick;
+                case "status": return tabStatus;
+                case "gauges": return tabGauges;
+                case "servo": return tabServo;
+                case "aux": return tabAuxFunction;
+                case "preflight": return tabPagePreFlight;
+                case "simple": return tabActionsSimple;
+                case "tuning": return tabTuning;
+                case "params": return tabParams;
+                case "inspector": return tabInspector;
+                case "scripts": return tabScripts;
+                case "video": return tabVideo;
+                case "transponder": return tabTransponder;
+                default: return null;
+            }
+        }
+
+        /// <summary>
+        /// Move a tool page's controls into <paramref name="host"/> and start it. Returns false if the key is unknown.
+        /// Any tool already borrowed is returned first.
+        /// </summary>
+        public bool BorrowTool(string key, Control host)
+        {
+            var page = ToolPage(key);
+            if (page == null || host == null)
+                return false;
+
+            ReturnTool();
+
+            var source = ToolContainer(page);
+            var children = new Control[source.Controls.Count];
+            source.Controls.CopyTo(children, 0);
+            source.SuspendLayout();
+            host.SuspendLayout();
+            foreach (var child in children)
+                source.Controls.Remove(child);
+            host.Controls.AddRange(children);
+            host.ResumeLayout(true);
+            source.ResumeLayout(false);
+
+            _borrowedPage = page;
+            _borrowHost = host;
+
+            // pages that size their content from their container follow the host instead
+            if (page == tabGauges)
+            {
+                host.Resize += tabPage1_Resize;
+                tabPage1_Resize(host, EventArgs.Empty);
+            }
+            else if (page == tabQuick)
+            {
+                host.Resize += tabQuick_Resize;
+                tabQuick_Resize(host, EventArgs.Empty);
+            }
+
+            try
+            {
+                ActivateToolPage(page);
+            }
+            catch (Exception ex)
+            {
+                log.Error(ex);
+            }
+
+            return true;
+        }
+
+        /// <summary>Put a borrowed tool's controls back on their classic tab page.</summary>
+        public void ReturnTool()
+        {
+            if (_borrowedPage == null)
+                return;
+
+            var page = _borrowedPage;
+            var host = _borrowHost;
+            _borrowedPage = null;
+            _borrowHost = null;
+
+            if (page == tabStatus && _themedTabStrip?.SelectedTab != tabStatus)
+                _statusControl.Stop();
+
+            if (host != null)
+            {
+                host.Resize -= tabPage1_Resize;
+                host.Resize -= tabQuick_Resize;
+            }
+
+            if (host == null || host.IsDisposed || page.IsDisposed)
+                return;
+
+            var target = ToolContainer(page);
+            var children = new Control[host.Controls.Count];
+            host.Controls.CopyTo(children, 0);
+            host.SuspendLayout();
+            target.SuspendLayout();
+            foreach (var child in children)
+                host.Controls.Remove(child);
+            target.Controls.AddRange(children);
+            target.ResumeLayout(true);
+            host.ResumeLayout(false);
+
+            if (page == tabGauges)
+                tabPage1_Resize(tabGauges, EventArgs.Empty);
+            else if (page == tabQuick)
+                tabQuick_Resize(tabQuick, EventArgs.Empty);
+        }
+
+        // ThemedTabStrip moves each page's controls into a wrapper panel kept in the page's Tag
+        private static Control ToolContainer(TabPage page)
+        {
+            return page.Tag is Panel wrapper && !wrapper.IsDisposed ? (Control)wrapper : page;
+        }
+
+        public string BorrowedToolKey
+        {
+            get
+            {
+                foreach (var tool in ModernTools)
+                    if (ToolPage(tool.Key) == _borrowedPage && _borrowedPage != null)
+                        return tool.Key;
+                return null;
+            }
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            // the classic view is coming back: it needs its tool page again
+            if (Visible)
+                ReturnTool();
+            base.OnVisibleChanged(e);
+        }
+
+        #endregion
 
         // upstream skips the Quick tab while it is undocked; Briech undocks it into _undockedQuickForm
         private bool tabQuickDetached => _undockedQuickForm != null && !_undockedQuickForm.IsDisposed;

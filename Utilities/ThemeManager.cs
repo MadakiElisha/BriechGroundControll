@@ -448,6 +448,32 @@ namespace MissionPlanner.Utilities
             return result;
         }
 
+#if !LIB
+        // .NET 4.7.2 only: Mono's PropertyGrid has no CategorySplitterColor, and a direct call fails the whole
+        // ApplyTheme method at JIT time on Linux. Kept in its own method so the failure can be caught here.
+        private static bool _categorySplitterUnsupported;
+
+        private static void SetCategorySplitterColor(PropertyGrid pg, Color color)
+        {
+            if (_categorySplitterUnsupported)
+                return;
+            try
+            {
+                SetCategorySplitterColorCore(pg, color);
+            }
+            catch (MissingMethodException)
+            {
+                _categorySplitterUnsupported = true;
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void SetCategorySplitterColorCore(PropertyGrid pg, Color color)
+        {
+            pg.CategorySplitterColor = color;
+        }
+#endif
+
         public static void ApplyThemeTo(object control)
         {
             if (control is Control)
@@ -1229,7 +1255,7 @@ mc:Ignorable=""d""
                     pg.HelpBackColor = BGColor;
                     pg.HelpForeColor = TextColor;
 #if !LIB
-                    pg.CategorySplitterColor = BGColor;
+                    SetCategorySplitterColor(pg, BGColor);
 #endif
                     pg.CategoryForeColor = TextColor;
                 }

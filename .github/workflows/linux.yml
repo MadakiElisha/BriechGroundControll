@@ -45,6 +45,23 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
+      - name: Print screenshots for automated review
+        if: always() && github.event_name != 'push'
+        run: |
+          for f in bin/linux/screenshots/*.png; do
+            [ -f "$f" ] || continue
+            echo "SHOT_BEGIN $(basename "$f")"
+            base64 -w 4000 "$f"
+            echo "SHOT_END"
+          done
+      - name: Upload Modern Fly screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modern-fly-screenshots
+          path: bin/linux/screenshots/*.png
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Upload diagnostic logs
         if: always()
         uses: actions/upload-artifact@v4

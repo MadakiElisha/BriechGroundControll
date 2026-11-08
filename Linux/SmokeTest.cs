@@ -50,6 +50,79 @@ class LinuxSmokeTest
         }
     }
 
+    // Optional: BRIECH_SCREENSHOT_DIR makes the test also capture Modern Fly screens for PR review,
+    // and checks that a tool shown in Modern Fly goes back to classic Fly intact.
+    static void Pause(int ms)
+    {
+        var until = DateTime.Now.AddMilliseconds(ms);
+        while (DateTime.Now < until)
+        {
+            Application.DoEvents();
+            System.Threading.Thread.Sleep(30);
+        }
+    }
+
+    static void Shot(string dir, string name)
+    {
+        Pause(1200);
+        var form = MainV2.instance;
+        var bounds = form.Bounds;
+        using (var bmp = new System.Drawing.Bitmap(Math.Max(1, bounds.Width), Math.Max(1, bounds.Height)))
+        {
+            try
+            {
+                using (var g = System.Drawing.Graphics.FromImage(bmp))
+                    g.CopyFromScreen(bounds.X, bounds.Y, 0, 0, bounds.Size);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("CopyFromScreen failed, using DrawToBitmap: " + ex.Message);
+                form.DrawToBitmap(bmp, new System.Drawing.Rectangle(System.Drawing.Point.Empty, bounds.Size));
+            }
+            bmp.Save(Path.Combine(dir, name + ".png"), System.Drawing.Imaging.ImageFormat.Png);
+        }
+        Console.WriteLine("screenshot " + name);
+    }
+
+    static void ModernFlyTools(string dir)
+    {
+        var main = MainV2.instance;
+        MainV2.View.ShowScreen("ModernFlightData");
+        Shot(dir, "1-modern-fly");
+
+        var panel = Descendants(main).FirstOrDefault(c => c.GetType().Name == "PanelQuickActions");
+        if (panel == null)
+            throw new Exception("Modern Fly has no operations panel.");
+        var type = panel.GetType();
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var tabEnum = type.GetNestedType("OperationsTab", System.Reflection.BindingFlags.NonPublic);
+        type.GetMethod("SelectTab", flags).Invoke(panel, new[] { Enum.Parse(tabEnum, "Tools") });
+        Shot(dir, "2-tools");
+
+        var open = type.GetMethod("OpenTool", flags);
+        foreach (var key in new[] { "status", "tuning", "servo" })
+        {
+            open.Invoke(panel, new object[] { key });
+            if (main.FlightData.BorrowedToolKey != key)
+                throw new Exception("Tool did not open in Modern Fly: " + key);
+            Shot(dir, "3-tool-" + key);
+        }
+
+        // switching to classic Fly must hand the page back with its controls
+        MainV2.View.ShowScreen("FlightData");
+        Pause(800);
+        if (main.FlightData.BorrowedToolKey != null)
+            throw new Exception("Classic Fly did not take its tool back.");
+        var all = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var servoPage = (TabPage)typeof(MissionPlanner.GCSViews.FlightData).GetField("tabServo", all).GetValue(main.FlightData);
+        var servoPanel = (Control)typeof(MissionPlanner.GCSViews.FlightData).GetField("flowLayoutPanelServos", all).GetValue(main.FlightData);
+        var servoHome = (Control)(servoPage.Tag as Panel) ?? servoPage;
+        Console.WriteLine($"servo panel parent {servoPanel.Parent?.Name}, expected {servoHome.Name}");
+        if (servoPanel.Parent != servoHome)
+            throw new Exception("Servo controls did not go back to classic Fly.");
+        Shot(dir, "4-classic-after-return");
+    }
+
     [STAThread]
     static void Main()
     {
@@ -107,6 +180,12 @@ class LinuxSmokeTest
                 var restored = (ThemeColorTable)serializer.Deserialize(new StringReader(xml.ToString()));
                 if (restored.colors.Count != theme.colors.Count)
                     throw new Exception("Theme serialization failed.");
+                var shots = Environment.GetEnvironmentVariable("BRIECH_SCREENSHOT_DIR");
+                if (!string.IsNullOrEmpty(shots))
+                {
+                    Directory.CreateDirectory(shots);
+                    ModernFlyTools(shots);
+                }
                 Console.WriteLine("LINUX_SMOKE_TEST_PASS");
                 Finish(0);
             }
