@@ -113,14 +113,12 @@ class LinuxSmokeTest
         Pause(800);
         if (main.FlightData.BorrowedToolKey != null)
             throw new Exception("Classic Fly did not take its tool back.");
-        var servoPage = (Control)typeof(MissionPlanner.GCSViews.FlightData)
-            .GetField("tabServo", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-            .GetValue(main.FlightData);
-        var servoPanel = (Control)typeof(MissionPlanner.GCSViews.FlightData)
-            .GetField("flowLayoutPanelServos", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-            .GetValue(main.FlightData);
-        Console.WriteLine($"servo page children {servoPage.Controls.Count}, servo panel parent {servoPanel.Parent?.Name}");
-        if (servoPanel.Parent != servoPage)
+        var all = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var servoPage = (TabPage)typeof(MissionPlanner.GCSViews.FlightData).GetField("tabServo", all).GetValue(main.FlightData);
+        var servoPanel = (Control)typeof(MissionPlanner.GCSViews.FlightData).GetField("flowLayoutPanelServos", all).GetValue(main.FlightData);
+        var servoHome = (Control)(servoPage.Tag as Panel) ?? servoPage;
+        Console.WriteLine($"servo panel parent {servoPanel.Parent?.Name}, expected {servoHome.Name}");
+        if (servoPanel.Parent != servoHome)
             throw new Exception("Servo controls did not go back to classic Fly.");
         Shot(dir, "4-classic-after-return");
     }

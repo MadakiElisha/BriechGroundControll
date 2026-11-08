@@ -7382,15 +7382,16 @@ namespace MissionPlanner.GCSViews
 
             ReturnTool();
 
-            var children = new Control[page.Controls.Count];
-            page.Controls.CopyTo(children, 0);
-            page.SuspendLayout();
+            var source = ToolContainer(page);
+            var children = new Control[source.Controls.Count];
+            source.Controls.CopyTo(children, 0);
+            source.SuspendLayout();
             host.SuspendLayout();
             foreach (var child in children)
-                page.Controls.Remove(child);
+                source.Controls.Remove(child);
             host.Controls.AddRange(children);
             host.ResumeLayout(true);
-            page.ResumeLayout(false);
+            source.ResumeLayout(false);
 
             _borrowedPage = page;
             _borrowHost = host;
@@ -7442,20 +7443,27 @@ namespace MissionPlanner.GCSViews
             if (host == null || host.IsDisposed || page.IsDisposed)
                 return;
 
+            var target = ToolContainer(page);
             var children = new Control[host.Controls.Count];
             host.Controls.CopyTo(children, 0);
             host.SuspendLayout();
-            page.SuspendLayout();
+            target.SuspendLayout();
             foreach (var child in children)
                 host.Controls.Remove(child);
-            page.Controls.AddRange(children);
-            page.ResumeLayout(true);
+            target.Controls.AddRange(children);
+            target.ResumeLayout(true);
             host.ResumeLayout(false);
 
             if (page == tabGauges)
                 tabPage1_Resize(tabGauges, EventArgs.Empty);
             else if (page == tabQuick)
                 tabQuick_Resize(tabQuick, EventArgs.Empty);
+        }
+
+        // ThemedTabStrip moves each page's controls into a wrapper panel kept in the page's Tag
+        private static Control ToolContainer(TabPage page)
+        {
+            return page.Tag is Panel wrapper && !wrapper.IsDisposed ? (Control)wrapper : page;
         }
 
         public string BorrowedToolKey
