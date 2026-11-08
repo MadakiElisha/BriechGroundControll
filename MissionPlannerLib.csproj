@@ -349,6 +349,10 @@
  <ItemGroup>
    <Compile Remove="Controls\OpenGLtest.cs" />
    <Compile Remove="Controls\Map3D.cs" />
+   <Compile Remove="Controls\Map3D.Tiles.cs" />
+   <Compile Remove="Controls\Map3DTileCache.cs" />
+   <Compile Remove="GCSViews\ConfigurationView\ConfigAM32.cs" />
+   <Compile Remove="GCSViews\ConfigurationView\ConfigAM32.Designer.cs" />
    <Compile Remove="Utilities\ImageMatch.cs" />
  </ItemGroup>
 

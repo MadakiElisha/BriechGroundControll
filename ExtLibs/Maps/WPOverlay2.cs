@@ -240,7 +240,7 @@ namespace MissionPlanner.Maps
                 return;
             }
             var markerStyle = missionStyle.GetMarkerStyle(cmd);
-            var marker = new GMapMarkerWP(point, label ?? tag, markerStyle.MarkerType)
+            var marker = new GMapMarkerWP(point, label ?? tag, (GMarkerGoogleType)markerStyle.MarkerType)
             {
                 ToolTipMode = MarkerTooltipMode.OnMouseOver,
                 ToolTipText = tooltip,
