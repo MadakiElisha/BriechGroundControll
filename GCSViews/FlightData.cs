@@ -968,7 +968,8 @@ namespace MissionPlanner.GCSViews
                             if (ctrl is QuickView qv)
                             {
                                 var pos = tableLayoutPanelQuick.GetPositionFromControl(qv);
-                                if (pos.Row < defaultRows && pos.Column < defaultCols)
+                                // GetPositionFromControl gives -1 for a view not placed in a cell yet
+                                if (pos.Row >= 0 && pos.Column >= 0 && pos.Row < defaultRows && pos.Column < defaultCols)
                                 {
                                     var cellDefault = defaults[pos.Row, pos.Column];
                                     if (cellDefault != null)
