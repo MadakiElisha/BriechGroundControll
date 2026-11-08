@@ -1092,7 +1092,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
         {
             try
             {
-                if (!MainV2.comPort.doCommand((byte)MainV2.comPort.sysidcurrent,
+                if (!MainV2.comPort.doCommand(MainV2.comPort.sysidcurrent,
                         (byte)MainV2.comPort.compidcurrent,
                         MAVLink.MAV_CMD.DO_MOTOR_TEST,
                         (float)motor,
@@ -1133,7 +1133,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
 
             try
             {
-                await MainV2.comPort.setParamAsync((byte)MainV2.comPort.sysidcurrent,
+                await MainV2.comPort.setParamAsync(MainV2.comPort.sysidcurrent,
                     (byte)MainV2.comPort.compidcurrent, "MOT_SPIN_ARM",
                     (float)NUM_mot_spin_arm.Value).ConfigureAwait(true);
             }
@@ -1152,7 +1152,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
 
             try
             {
-                await MainV2.comPort.setParamAsync((byte)MainV2.comPort.sysidcurrent,
+                await MainV2.comPort.setParamAsync(MainV2.comPort.sysidcurrent,
                     (byte)MainV2.comPort.compidcurrent, "MOT_SPIN_MIN",
                     (float)NUM_mot_spin_min.Value).ConfigureAwait(true);
             }

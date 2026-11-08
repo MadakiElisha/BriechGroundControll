@@ -199,6 +199,8 @@ namespace MissionPlanner
 
             var t = Type.GetType("Mono.Runtime");
             MONO = (t != null);
+            if (MONO && Settings.isUnix)
+                MonoTableLayoutSettingsConverter.Register();
 
             Directory.SetCurrentDirectory(Settings.GetRunningDirectory());
 
@@ -284,7 +286,17 @@ namespace MissionPlanner
             }
             else
             {
-                IconFile = MissionPlanner.Properties.Resources.mpdesktop.ToBitmap();
+                try
+                {
+                    IconFile = MissionPlanner.Properties.Resources.mpdesktop.ToBitmap();
+                }
+                catch (Exception ex)
+                {
+                    // Mono (Linux) can't read .ico files whose images are PNG-compressed, as the Briech icon is.
+                    // Use the Briech logo bitmap instead; Windows never takes this path.
+                    log.Warn("App icon could not be loaded, using the Briech logo: " + ex.Message);
+                    IconFile = MissionPlanner.Properties.Resources.Briech_logo;
+                }
             }
 
             try
@@ -299,7 +311,7 @@ namespace MissionPlanner
                     {
                         ptr = MissionPlanner.Utilities.NativeLibrary.dlopen(file + ".so",
                             MissionPlanner.Utilities.NativeLibrary.RTLD_NOW);
-                        log.Info("Skia Error " + MissionPlanner.Utilities.NativeLibrary.dlerror());
+                        log.Info("Skia Error " + Marshal.PtrToStringAnsi(MissionPlanner.Utilities.NativeLibrary.dlerror()));
                     }
 
                     if (ptr == IntPtr.Zero)
@@ -402,12 +414,22 @@ namespace MissionPlanner
             GMap.NET.MapProviders.GMapProviders.List.Add(Maps.Japan_Relief.Instance);
             GMap.NET.MapProviders.GMapProviders.List.Add(Maps.Japan_Slopezone.Instance);
             GMap.NET.MapProviders.GMapProviders.List.Add(Maps.Japan_Sea.Instance);
+            GMap.NET.MapProviders.GMapProviders.List.Add(Maps.GIBSArctic.Instance);
+            GMap.NET.MapProviders.GMapProviders.List.Add(Maps.GIBSAntarctic.Instance);
+            GMap.NET.MapProviders.GMapProviders.List.Add(Maps.ArcGISArcticBathymetry.Instance);
+            GMap.NET.MapProviders.GMapProviders.List.Add(Maps.EsriArcticImagery.Instance);
+            GMap.NET.MapProviders.GMapProviders.List.Add(Maps.EsriArcticOceanBase.Instance);
 
+
+#if LIB
             if(Xamarin.Essentials.DeviceInfo.Idiom == Xamarin.Essentials.DeviceIdiom.Desktop || Xamarin.Essentials.DeviceInfo.Idiom == Xamarin.Essentials.DeviceIdiom.Unknown)
                 ZedGraph.PaneBase.Default.IsFontsScaled = false;
 
             if(Xamarin.Essentials.DeviceInfo.Platform != Xamarin.Essentials.DevicePlatform.Unknown)
                 log.Info(typeof(Xamarin.Essentials.DeviceInfo).ToJSON());
+#else
+            ZedGraph.PaneBase.Default.IsFontsScaled = false;
+#endif
 
             Console.WriteLine("Setup GoogleMapProvider API");
             if (Settings.Instance["GoogleApiKey"] != null) GoogleMapProvider.APIKey = Settings.Instance["GoogleApiKey"];

@@ -1,5 +1,4 @@
-﻿using GMap.NET.WindowsForms.Markers;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using System;
 using System.Collections.Generic;
@@ -12,6 +11,53 @@ using static MissionPlanner.Utilities.Mission.CommandUtils;
 
 namespace MissionPlanner.Utilities.Mission
 {
+    /// <summary>
+    /// Same members and order as GMap.NET's GMarkerGoogleType (cast between them). Kept here so this
+    /// netstandard library doesn't need the GMap.NET.Drawing reference, which clashes with the
+    /// cross-platform drawing shim and broke the Linux build.
+    /// </summary>
+    public enum MissionMarkerType
+    {
+        none = 0,
+        arrow,
+        blue,
+        blue_small,
+        blue_dot,
+        blue_pushpin,
+        brown_small,
+        gray_small,
+        green,
+        green_small,
+        green_dot,
+        green_pushpin,
+        green_big_go,
+        yellow,
+        yellow_small,
+        yellow_dot,
+        yellow_big_pause,
+        yellow_pushpin,
+        lightblue,
+        lightblue_dot,
+        lightblue_pushpin,
+        orange,
+        orange_small,
+        orange_dot,
+        pink,
+        pink_dot,
+        pink_pushpin,
+        purple,
+        purple_small,
+        purple_dot,
+        purple_pushpin,
+        red,
+        red_small,
+        red_dot,
+        red_pushpin,
+        red_big_stop,
+        black_small,
+        white_small,
+    }
+
     /// <summary>
     /// Resolved visual properties for a single segment. Populated by applying
     /// style rules in order; later rules override earlier ones.
@@ -95,7 +141,7 @@ namespace MissionPlanner.Utilities.Mission
     /// </summary>
     public sealed class MarkerStyle
     {
-        public GMarkerGoogleType MarkerType { get; set; } = GMarkerGoogleType.green;
+        public MissionMarkerType MarkerType { get; set; } = MissionMarkerType.green;
         public Color CircleColor { get; set; } = Color.White;
     }
 
@@ -128,7 +174,7 @@ namespace MissionPlanner.Utilities.Mission
         public ushort[] RawCommandIds { get; set; }
 
         [Category("Style")]
-        public GMarkerGoogleType? MarkerType { get; set; }
+        public MissionMarkerType? MarkerType { get; set; }
         [Category("Style")]
         public Color? CircleColor { get; set; }
 
@@ -299,7 +345,7 @@ namespace MissionPlanner.Utilities.Mission
                     {
                         Description = "Base defaults",
                         Filter      = MarkerFilter.All,
-                        MarkerType  = GMarkerGoogleType.green,
+                        MarkerType  = MissionMarkerType.green,
                         CircleColor = Color.FromArgb(64, 255, 255, 255)
                     },
                     new MarkerStyleRuleConfig
@@ -318,14 +364,14 @@ namespace MissionPlanner.Utilities.Mission
                     {
                         Description = "Bookmarks",
                         Filter      = MarkerFilter.Bookmarks,
-                        MarkerType  = GMarkerGoogleType.orange,
+                        MarkerType  = MissionMarkerType.orange,
                         CircleColor = Color.Transparent
                     },
                     new MarkerStyleRuleConfig
                     {
                         Description = "ROI",
                         Filter      = MarkerFilter.RegionsOfInterest,
-                        MarkerType  = GMarkerGoogleType.purple,
+                        MarkerType  = MissionMarkerType.purple,
                         CircleColor = Color.Transparent
                     },
                 }

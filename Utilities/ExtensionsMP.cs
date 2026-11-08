@@ -1,11 +1,8 @@
 ﻿using log4net;
 using MissionPlanner.Controls;
-using MissionPlanner.test;
 using Newtonsoft.Json;
 using System;
 using System.Windows.Forms;
-using Xamarin.Forms;
-using Application = System.Windows.Forms.Application;
 
 namespace MissionPlanner.Utilities
 {
@@ -79,34 +76,6 @@ namespace MissionPlanner.Utilities
             log.Error(ex);
         }
 
-        public static Form ShowXamarinControl(this ContentPage ctl, int Width, int Height)
-        {
-            var f = new Xamarin.Forms.Platform.WinForms.PlatformRenderer();
-            Xamarin.Forms.Platform.WinForms.Forms.Init(f);
-
-            f.Width = Width;
-            f.Height = Height;
-            var done = false;
-            Xamarin.Forms.Device.BeginInvokeOnMainThread(() =>
-            {
-                var app = new Xamarin.Forms.Application() { MainPage = ctl };
-                f.LoadApplication(app);
-                ThemeManager.ApplyThemeTo(f);
-                if (ctl is IClose)
-                {
-                    ((IClose)ctl).CloseAction = () => f.Close();
-                }
-
-                f.ShowDialog();
-                done = true;
-            });
-
-            while (!done) Application.DoEvents();
-
-            return f;
-        }
-
-
         public static Form ShowUserControl(this Control ctl, bool showit = true)
         {
             Form frm = new Form();
@@ -125,7 +94,7 @@ namespace MissionPlanner.Utilities
             frm.Load += Frm_Load;
             frm.Closing += Frm_Closing;
             // Special-case windowed 3D map: set title/icon to match main app
-            if (ctl is MissionPlanner.Controls.Map3D)
+            if (ctl.GetType().Name == "Map3D")
             {
                 frm.Text = "3D Map";
                 frm.TopMost = true;

@@ -679,7 +679,6 @@ namespace MissionPlanner
             ShowAirports = true;
 
             // setup adsb
-            Utilities.adsb.ApplicationVersion = System.Windows.Forms.Application.ProductVersion;
             Utilities.adsb.UpdatePlanePosition += adsb_UpdatePlanePosition;
 
             MAVLinkInterface.UpdateADSBPlanePosition += adsb_UpdatePlanePosition;
@@ -728,7 +727,9 @@ namespace MissionPlanner
                 toast.Show(this);
             };
 
-            MAVLinkInterface.gcssysid = (byte) Settings.Instance.GetByte("gcsid", MAVLinkInterface.gcssysid);
+            uint configuredGcsId;
+            if (uint.TryParse(Settings.Instance["gcsid"], out configuredGcsId))
+                MAVLinkInterface.gcssysid = configuredGcsId;
 
             Form splash = Program.Splash;
 
@@ -808,6 +809,20 @@ namespace MissionPlanner
 
             _connectionControl.ShowLinkStats += (sender, e) => ShowConnectionStatsForm();
             srtm.datadirectory = $"{Settings.GetDataDirectory()}srtm";
+
+            try
+            {
+                Directory.GetFiles(srtm.datadirectory).ToList().ForEach(x =>
+                {
+                    var fi = new FileInfo(x);
+                    if (fi.Length == 0)
+                        File.Delete(x);
+                    // fix srtm3 bug cache - delete old files https://discuss.ardupilot.org/t/serious-terrain-data-error-and-how-to-fix-your-vehicle/142593
+                    if (fi.LastWriteTimeUtc < new DateTime(2026, 03, 01, 0, 0, 0, DateTimeKind.Utc))
+                        File.Delete(x);
+                });
+            }
+            catch { }
 
             var t = Type.GetType("Mono.Runtime");
             MONO = (t != null);
@@ -1749,7 +1764,7 @@ namespace MissionPlanner
                         new adsb.PointLatLngAltHdg(adsb.Lat, adsb.Lng,
                                 adsb.Alt, adsb.Heading, adsb.Speed, id,
                                 DateTime.Now)
-                            {CallSign = adsb.CallSign, Squawk = adsb.Squawk, Raw = adsb.Raw, Source = sender, Category = adsb.Category, Type = adsb.Type, IsOnGround = adsb.IsOnGround};
+                            {CallSign = adsb.CallSign, Squawk = adsb.Squawk, Raw = adsb.Raw, Source = sender, Category = adsb.Category, Type = adsb.Type, IsOnGround = adsb.IsOnGround, VerticalSpeed = adsb.VerticalSpeed};
                 }
             }
         }
@@ -2315,8 +2330,12 @@ namespace MissionPlanner
                     }
 
                     // get any rallypoints
+                    // The vehicle picks both the value and the reported type of any parameter,
+                    // so this string can be "3.5", "NaN" or "1E+30". int.Parse() throws on those,
+                    // and this runs in the if condition, before the try below and before showui.
                     if (MainV2.comPort.MAV.param.ContainsKey("RALLY_TOTAL") &&
-                        int.Parse(MainV2.comPort.MAV.param["RALLY_TOTAL"].ToString()) > 0 && showui)
+                        int.TryParse(MainV2.comPort.MAV.param["RALLY_TOTAL"].ToString(), out var rallyTotal) &&
+                        rallyTotal > 0 && showui)
                     {
                         try
                         {
@@ -2354,7 +2373,8 @@ namespace MissionPlanner
 
                     // get any fences
                     if (MainV2.comPort.MAV.param.ContainsKey("FENCE_TOTAL") &&
-                        int.Parse(MainV2.comPort.MAV.param["FENCE_TOTAL"].ToString()) > 1 &&
+                        int.TryParse(MainV2.comPort.MAV.param["FENCE_TOTAL"].ToString(), out var fenceTotal) &&
+                        fenceTotal > 1 &&
                         MainV2.comPort.MAV.param.ContainsKey("FENCE_ACTION") && showui)
                     {
                         try
@@ -2883,7 +2903,7 @@ namespace MissionPlanner
                                     rc = new MAVLink.mavlink_rc_channels_override_t();
 
                                 rc.target_component = comPort.MAV.compid;
-                                rc.target_system = comPort.MAV.sysid;
+                                rc.target_system = (byte)(comPort.MAV.sysid);
 
                                 if (joystick.getJoystickAxis(1) == Joystick.joystickaxis.None)
                                     rc.chan1_raw = ushort.MaxValue;
@@ -3002,7 +3022,7 @@ namespace MissionPlanner
                                         }
                                         else
                                         {
-                                            comPort.sendPacket(rc, rc.target_system, rc.target_component);
+                                            comPort.sendPacket(rc, comPort.MAV.sysid, comPort.MAV.compid);
                                         }
 
                                         count++;
@@ -3064,7 +3084,7 @@ namespace MissionPlanner
         /// </summary>
         private void UpdateConnectIcon()
         {
-            if ((DateTime.UtcNow - connectButtonUpdate).Milliseconds > 500)
+            if ((DateTime.UtcNow - connectButtonUpdate).TotalMilliseconds > 500)
             {
                 //                        Console.WriteLine(DateTime.Now.Millisecond);
                 if (comPort.BaseStream.IsOpen)
@@ -3223,7 +3243,7 @@ namespace MissionPlanner
             {
                 try
                 {
-                    await Task.Delay(1).ConfigureAwait(false); // was 5
+                    await PollDelay.Wait().ConfigureAwait(false); // was 5
 
                     try
                     {
@@ -4318,14 +4338,18 @@ namespace MissionPlanner
                 if (Environment.OSVersion.Platform == PlatformID.Win32NT)
                     MissionPlanner.Comms.CommsBLE.SerialPort_GetCustomPorts();
 
+#if !LIB
                 MissionPlanner.Comms.CommsWinUSB.SerialPort_GetCustomPorts();
+#endif
             }
             catch { }
 
             // add the custom port creator
             CustomPortList.Add(new Regex("BLE_.*"), (s1, s2) => { return new CommsBLE() { PortName = s1, BaudRate = int.Parse(s2) }; });
 
+#if !LIB
             CustomPortList.Add(new Regex("WINUSB_VID_.*"), (s1, s2) => { return new CommsWinUSB() { PortName = s1, BaudRate = int.Parse(s2) }; });
+#endif
 
             this.ResumeLayout();
 
@@ -4383,7 +4407,7 @@ namespace MissionPlanner
                     FlightData.BUT_playlog_Click(null, null);
                 }
                 else if (cmds.ContainsKey("file") && File.Exists(cmds["file"]) &&
-                         (cmds["file"].ToLower().EndsWith(".log") || cmds["file"].ToLower().EndsWith(".bin")))
+                         (cmds["file"].EndsWith(".log", StringComparison.OrdinalIgnoreCase) || cmds["file"].EndsWith(".bin", StringComparison.OrdinalIgnoreCase)))
                 {
                     LogBrowse logbrowse = new LogBrowse();
                     ThemeManager.ApplyThemeTo(logbrowse);
@@ -4957,7 +4981,7 @@ namespace MissionPlanner
                 // write
                 try
                 {
-                    MainV2.comPort.doCommand((byte) MainV2.comPort.sysidcurrent, (byte) MainV2.comPort.compidcurrent,
+                    MainV2.comPort.doCommand(MainV2.comPort.sysidcurrent, (byte) MainV2.comPort.compidcurrent,
                         MAVLink.MAV_CMD.PREFLIGHT_STORAGE, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
                 }
                 catch
