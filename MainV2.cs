@@ -593,6 +593,10 @@ namespace MissionPlanner
         /// BRIECH UAS: Modern Flight Data Interface (live MAVLink implementation)
         public GCSViews.ModernFlightDataCSharp ModernFlightData;
 
+        /// <summary>The redesigned Fly screen (design canvas board 1). Shown instead of ModernFlightData unless
+        /// the pilot chose "Previous layout".</summary>
+        public GCSViews.FlyView FlyView;
+
         public GCSViews.FlightPlanner FlightPlanner;
         GCSViews.SITL Simulation;
 
@@ -795,6 +799,15 @@ namespace MissionPlanner
             {
                 log.Error("Failed to initialize ModernFlightDataCSharp: " + ex.Message);
                 log.Error("Exception details: " + ex.StackTrace);
+            }
+
+            try
+            {
+                FlyView = new GCSViews.FlyView();
+            }
+            catch (Exception ex)
+            {
+                log.Error("Failed to initialize FlyView, using the previous layout", ex);
             }
 
             comPort.BaseStream = new SerialPort();
@@ -1862,6 +1875,14 @@ namespace MissionPlanner
 
         public bool ShowModernFlightScreen(bool resetLayout = false, bool showFailureDialog = true)
         {
+            // the redesigned Fly screen, unless the pilot asked for the previous layout
+            if (FlyView != null && Settings.Instance[GCSViews.FlyView.PreferenceKey] != "previous")
+            {
+                MyView.ShowScreen("FlyView");
+                SaveConfig();
+                return true;
+            }
+
             if (ModernFlightData != null)
             {
                 if (resetLayout)
@@ -3875,6 +3896,10 @@ namespace MissionPlanner
             if (ModernFlightData != null)
             {
                 MyView.AddScreen(new MainSwitcher.Screen("ModernFlightData", ModernFlightData, true));
+            }
+            if (FlyView != null)
+            {
+                MyView.AddScreen(new MainSwitcher.Screen("FlyView", FlyView, true));
             }
             MyView.AddScreen(new MainSwitcher.Screen("FlightPlanner", FlightPlanner, true));
             MyView.AddScreen(new MainSwitcher.Screen("HWConfig", typeof(GCSViews.InitialSetup), false));

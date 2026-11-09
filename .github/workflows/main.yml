@@ -88,6 +88,15 @@ jobs:
           & "$env:WIX\bin\light.exe" installer.wixobj "$env:WIX\bin\difxapp_x86.wixlib" -sval -o ${{ env.MSI_NAME }} -ext WiXNetFxExtension -ext WixDifxAppExtension -ext WixUIExtension.dll -ext WixUtilExtension -ext WixIisExtension
           Move-Item ${{ env.MSI_NAME }} ..\${{ env.MSI_NAME }}
 
+      # Branch and PR builds aren't released; keep their installer as a download so a PR can be tested before merging
+      - name: Upload test installer
+        if: ${{ env.IS_MASTER != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-installer-${{ github.ref_name == '' && 'branch' || github.run_number }}
+          path: ${{ env.MSI_NAME }}
+          retention-days: 14
+
       - name: Get version from version.txt
         id: version
         if: ${{ env.IS_MASTER == 'true' }}

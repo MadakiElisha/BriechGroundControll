@@ -57,6 +57,7 @@ mcs -out:"$app_dir/LinuxSmokeTest.exe" \
     -r:System.Windows.Forms -r:System.Drawing -r:"$app_dir/SkiaSharp.dll" \
     -r:"$app_dir/BriechGroundControl.exe" -r:"$app_dir/Interfaces.dll" \
     -r:"$app_dir/MissionPlanner.Controls.dll" -r:"$app_dir/MissionPlanner.Utilities.dll" \
+    -r:"$app_dir/MissionPlanner.ArduPilot.dll" -r:"$app_dir/MAVLink.dll" \
     -r:"$mono_facades/netstandard.dll" "$linux_dir/SmokeTest.cs"
 cp -- "$app_dir/BriechGroundControl.exe.config" "$app_dir/LinuxSmokeTest.exe.config"
 
