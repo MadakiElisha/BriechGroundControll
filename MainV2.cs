@@ -617,7 +617,7 @@ namespace MissionPlanner
             MenuSimulation.Visible = DisplayConfiguration.displaySimulation;
        //GM
             MenuHelp.Visible = true;
-            MenuHelp.Text = "ABOUT";
+            MenuHelp.Text = "About";
             MissionPlanner.Controls.BackstageView.BackstageView.Advanced = DisplayConfiguration.isAdvancedMode;
 
             // force autohide on
@@ -1403,7 +1403,7 @@ namespace MissionPlanner
             FitToolbarToWidth();
         }
 
-        private bool headerOrdered;
+        private bool headerOrdered, headerWatchingScreens;
 
         /// <summary>
         /// Header per the design canvas: plain-word tabs with the new Fly screen first. Classic Fly stays
@@ -1423,6 +1423,12 @@ namespace MissionPlanner
             MenuConfigTune.Text = "Config";
             MenuSimulation.Text = "Simulation";
             MenuHelp.Text = "About";
+
+            if (!headerWatchingScreens && MyView != null)
+            {
+                headerWatchingScreens = true;
+                MyView.ScreenChanged += (s, e) => MainMenu?.Invalidate();
+            }
 
             if (headerOrdered)
                 return;
@@ -1597,6 +1603,8 @@ namespace MissionPlanner
             button.Padding = new Padding(4, 0, 4, 0);
             button.Font = DesignTokens.Body;
             button.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            button.TextAlign = ContentAlignment.MiddleCenter;
+            button.ImageAlign = ContentAlignment.MiddleCenter;
             button.TextImageRelation = TextImageRelation.ImageBeforeText;
             button.ForeColor = textColor;
             button.BackColor = Color.Transparent;
@@ -5838,7 +5846,7 @@ namespace MissionPlanner
             if (active)
             {
                 using (var gold = new SolidBrush(P.Brand))
-                    g.FillRectangle(gold, 8, e.Item.Height - 3, Math.Max(4, e.Item.Width - 16), 2);
+                    g.FillRectangle(gold, 10, e.Item.Height - 4, Math.Max(4, e.Item.Width - 20), 3);
             }
         }
     }

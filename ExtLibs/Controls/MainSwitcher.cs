@@ -195,7 +195,12 @@ namespace MissionPlanner.Controls
             current = nextscreen;
 
             current.Control.Focus();
+
+            ScreenChanged?.Invoke(this, EventArgs.Empty);
         }
+
+        /// <summary>Raised after a screen has been shown, however it was requested.</summary>
+        public event EventHandler ScreenChanged;
 
         public class Screen
         {
