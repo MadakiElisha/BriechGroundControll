@@ -1309,15 +1309,21 @@ namespace MissionPlanner
             if (MainMenu == null)
                 return;
 
-            const int toolbarHeight = 72;
-            const int navButtonHeight = 50;
+            // design canvas header: 56 px bar, 40 px text tabs
+            const int toolbarHeight = 56;
+            const int navButtonHeight = 40;
             const int utilityButtonHeight = 40;
+
+            ApplyHeaderLabelsAndOrder();
+            MainMenu.Renderer = new TokenHeaderRenderer(IsActiveNavItem);
+            darkNavy = DesignTokens.Night.Surface;
+            lightGray = DesignTokens.Night.TextPrimary;
 
             MainMenu.SuspendLayout();
             MainMenu.AutoSize = false;
             MainMenu.Dock = DockStyle.Fill;
             MainMenu.Height = toolbarHeight;
-            MainMenu.Padding = new Padding(12, 6, 12, 6);
+            MainMenu.Padding = new Padding(12, 0, 12, 0);
             MainMenu.ImageScalingSize = new Size(24, 24);
             MainMenu.BackColor = darkNavy;
             MainMenu.BackgroundImage = null;
@@ -1334,26 +1340,27 @@ namespace MissionPlanner
                 panel1.MaximumSize = new Size(0, toolbarHeight);
             }
 
-            ConfigureNavigationButton(MenuFlightData, 82, navButtonHeight, lightGray);
-            ConfigureNavigationButton(MenuModernFlightData, 110, navButtonHeight, lightGray);
-            ConfigureNavigationButton(MenuFlightPlanner, 82, navButtonHeight, lightGray);
-            ConfigureNavigationButton(MenuInitConfig, 82, navButtonHeight, lightGray);
-            ConfigureNavigationButton(MenuConfigTune, 82, navButtonHeight, lightGray);
-            ConfigureNavigationButton(MenuSimulation, 76, navButtonHeight, lightGray);
-            ConfigureNavigationButton(MenuHelp, 76, navButtonHeight, lightGray);
+            foreach (var nav in new[] { MenuModernFlightData, MenuFlightPlanner, MenuInitConfig, MenuConfigTune, MenuSimulation, MenuFlightData, MenuHelp })
+            {
+                if (nav == null)
+                    continue;
+                // text tabs sized to their label
+                var width = TextRenderer.MeasureText(nav.Text, DesignTokens.BodyStrong).Width + 28;
+                ConfigureNavigationButton(nav, width, navButtonHeight, lightGray);
+            }
 
             if (toolStripVehicleState != null)
             {
                 toolStripVehicleState.BackColor = Color.Transparent;
                 toolStripVehicleState.ForeColor = lightGray;
-                toolStripVehicleState.Margin = new Padding(12, 12, 6, 8);
+                toolStripVehicleState.Margin = new Padding(12, 8, 6, 8);
             }
 
             if (MenuConnect != null)
             {
                 MenuConnect.AutoSize = false;
                 MenuConnect.Size = new Size(112, utilityButtonHeight);
-                MenuConnect.Margin = new Padding(8, 12, 0, 8);
+                MenuConnect.Margin = new Padding(8, 8, 0, 8);
                 MenuConnect.Padding = new Padding(8, 2, 8, 2);
                 MenuConnect.ForeColor = lightGray;
                 MenuConnect.BackColor = Color.Transparent;
@@ -1369,14 +1376,14 @@ namespace MissionPlanner
                 toolStripConnectionControl.ForeColor = lightGray;
                 toolStripConnectionControl.AutoSize = false;
                 toolStripConnectionControl.Size = new Size(241, 47);
-                toolStripConnectionControl.Margin = new Padding(8, 10, 10, 7);
+                toolStripConnectionControl.Margin = new Padding(8, 4, 10, 4);
             }
 
             if (MenuArduPilot != null)
             {
                 MenuArduPilot.AutoSize = false;
                 MenuArduPilot.Size = new Size(210, 40);
-                MenuArduPilot.Margin = new Padding(16, 12, 2, 8);
+                MenuArduPilot.Margin = new Padding(16, 8, 2, 8);
                 MenuArduPilot.BackColor = Color.Transparent;
                 MenuArduPilot.ForeColor = lightGray;
             }
@@ -1394,6 +1401,70 @@ namespace MissionPlanner
                 MenuArduPilotWanted = MenuArduPilot.Available;
             toolbarCompactLevel = -1; // sizes were just reset to full, re-evaluate
             FitToolbarToWidth();
+        }
+
+        private bool headerOrdered;
+
+        /// <summary>
+        /// Header per the design canvas: plain-word tabs with the new Fly screen first. Classic Fly stays
+        /// reachable (second to last) until Modern Fly fully replaces it.
+        /// </summary>
+        private void ApplyHeaderLabelsAndOrder()
+        {
+            if (MenuModernFlightData != null)
+            {
+                MenuModernFlightData.Text = "Fly";
+                MenuModernFlightData.ToolTipText = "Fly";
+            }
+
+            MenuFlightData.Text = "Classic Fly";
+            MenuFlightPlanner.Text = "Plan";
+            MenuInitConfig.Text = "Setup";
+            MenuConfigTune.Text = "Config";
+            MenuSimulation.Text = "Simulation";
+            MenuHelp.Text = "About";
+
+            if (headerOrdered)
+                return;
+            headerOrdered = true;
+            try
+            {
+                if (MenuModernFlightData != null && MainMenu.Items.Contains(MenuModernFlightData))
+                {
+                    MainMenu.Items.Remove(MenuModernFlightData);
+                    MainMenu.Items.Insert(0, MenuModernFlightData);
+                }
+
+                if (MainMenu.Items.Contains(MenuFlightData) && MainMenu.Items.Contains(MenuHelp))
+                {
+                    MainMenu.Items.Remove(MenuFlightData);
+                    MainMenu.Items.Insert(MainMenu.Items.IndexOf(MenuHelp), MenuFlightData);
+                }
+            }
+            catch (Exception ex)
+            {
+                log.Error(ex);
+            }
+        }
+
+        /// <summary>The tab for the screen that is showing, so the highlight is right however the screen was opened.</summary>
+        private bool IsActiveNavItem(ToolStripItem item)
+        {
+            var screen = MyView?.current?.Name;
+            if (screen == null)
+                return false;
+            switch (screen)
+            {
+                case "FlyView":
+                case "ModernFlightData": return item == MenuModernFlightData;
+                case "FlightData": return item == MenuFlightData;
+                case "FlightPlanner": return item == MenuFlightPlanner;
+                case "HWConfig": return item == MenuInitConfig;
+                case "SWConfig": return item == MenuConfigTune;
+                case "Simulation": return item == MenuSimulation;
+                case "Help": return item == MenuHelp;
+                default: return false;
+            }
         }
 
         // Base widths of the top navigation buttons, so the toolbar can be compacted and restored.
@@ -1458,7 +1529,7 @@ namespace MissionPlanner
                 case 0:
                     return baseWidth;
                 case 1:
-                    return Math.Max(66, baseWidth - 14);
+                    return Math.Max(48, baseWidth - 10);
                 case 2:
                     return 52;
                 default:
@@ -1499,10 +1570,11 @@ namespace MissionPlanner
             {
                 var button = kvp.Key;
                 button.Width = NavWidthFor(button, level);
+                // text tabs; on very narrow windows they fall back to icons
                 button.DisplayStyle = level >= 2
                     ? ToolStripItemDisplayStyle.Image
-                    : ToolStripItemDisplayStyle.ImageAndText;
-                button.Padding = level >= 2 ? new Padding(2) : new Padding(8, 2, 8, 2);
+                    : ToolStripItemDisplayStyle.Text;
+                button.Padding = level >= 2 ? new Padding(2) : new Padding(4, 0, 4, 0);
                 button.ToolTipText = button.Text;
             }
 
@@ -1521,10 +1593,11 @@ namespace MissionPlanner
             button.AutoSize = false;
             button.Size = new Size(width, height);
             navButtonBaseWidths[button] = width;
-            button.Margin = new Padding(3, 9, 3, 7);
-            button.Padding = new Padding(8, 2, 8, 2);
-            button.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            button.TextImageRelation = TextImageRelation.ImageAboveText;
+            button.Margin = new Padding(2, 8, 2, 8);
+            button.Padding = new Padding(4, 0, 4, 0);
+            button.Font = DesignTokens.Body;
+            button.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            button.TextImageRelation = TextImageRelation.ImageBeforeText;
             button.ForeColor = textColor;
             button.BackColor = Color.Transparent;
             button.AutoToolTip = true;
@@ -5468,6 +5541,9 @@ namespace MissionPlanner
                     }
                 }
             }
+
+            // the highlight follows the screen that is showing; repaint once the click has switched it
+            BeginInvoke((Action)(() => MainMenu.Invalidate()));
         }
 
         private void fullScreenToolStripMenuItem_Click(object sender, EventArgs e)
@@ -5681,6 +5757,92 @@ namespace MissionPlanner
     /// <summary>
     /// Custom ToolStrip renderer for professional drone GCS styling
     /// </summary>
+    /// <summary>
+    /// Header renderer on the design tokens (design canvas header): flat surface with a hairline under it, text
+    /// tabs, the current screen's tab raised with a gold underline, outlined buttons on the right.
+    /// The header keeps the night palette in both modes so the connection controls stay readable.
+    /// </summary>
+    public class TokenHeaderRenderer : ToolStripProfessionalRenderer
+    {
+        private readonly Func<ToolStripItem, bool> isActive;
+
+        public TokenHeaderRenderer(Func<ToolStripItem, bool> isActive) : base(new ProfessionalColorTable())
+        {
+            this.isActive = isActive ?? (i => false);
+            RoundedEdges = false;
+        }
+
+        private static DesignTokens.Palette P => DesignTokens.Night;
+
+        protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
+        {
+            var bounds = e.ToolStrip?.ClientRectangle ?? e.AffectedBounds;
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+                return;
+            using (var b = new SolidBrush(P.Surface))
+                e.Graphics.FillRectangle(b, bounds);
+            using (var pen = new Pen(P.Divider))
+                e.Graphics.DrawLine(pen, bounds.Left, bounds.Bottom - 1, bounds.Right, bounds.Bottom - 1);
+        }
+
+        protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+        {
+        }
+
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            var nav = e.Item.Alignment != ToolStripItemAlignment.Right && e.Item is ToolStripButton;
+            if (nav)
+            {
+                var active = isActive(e.Item);
+                e.TextColor = active || e.Item.Selected ? P.TextPrimary : P.TextMuted;
+                e.TextFont = active ? DesignTokens.BodyStrong : DesignTokens.Body;
+            }
+            else
+            {
+                e.TextColor = P.TextPrimary;
+            }
+
+            base.OnRenderItemText(e);
+        }
+
+        protected override void OnRenderButtonBackground(ToolStripItemRenderEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            var r = new RectangleF(0.5f, 0.5f, Math.Max(1, e.Item.Width - 1.5f), Math.Max(1, e.Item.Height - 1.5f));
+            var hovered = e.Item.Selected || e.Item.Pressed;
+
+            if (e.Item.Alignment == ToolStripItemAlignment.Right)
+            {
+                // Connect and friends: outlined control
+                using (var path = DesignTokens.RoundedRect(r, DesignTokens.ControlRadius))
+                using (var fill = new SolidBrush(hovered ? P.SurfaceRaised : P.Surface))
+                using (var pen = new Pen(P.BorderControl))
+                {
+                    g.FillPath(fill, path);
+                    g.DrawPath(pen, path);
+                }
+
+                return;
+            }
+
+            var active = isActive(e.Item);
+            if (!active && !hovered)
+                return;
+
+            using (var path = DesignTokens.RoundedRect(r, DesignTokens.ControlRadius))
+            using (var fill = new SolidBrush(active ? Color.FromArgb(30, 39, 53) : P.SurfaceRaised))
+                g.FillPath(fill, path);
+
+            if (active)
+            {
+                using (var gold = new SolidBrush(P.Brand))
+                    g.FillRectangle(gold, 8, e.Item.Height - 3, Math.Max(4, e.Item.Width - 16), 2);
+            }
+        }
+    }
+
     public class ProfessionalToolStripRenderer : ToolStripProfessionalRenderer
     {
         private readonly Color _darkBackground;
