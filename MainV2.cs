@@ -1397,6 +1397,12 @@ namespace MissionPlanner
 
             MainMenu.SizeChanged -= MainMenu_SizeChanged_FitToolbar;
             MainMenu.SizeChanged += MainMenu_SizeChanged_FitToolbar;
+            if (toolStripVehicleState != null)
+            {
+                // a longer mode name or pinned modes change the strip's width without resizing the toolbar
+                toolStripVehicleState.WidthAdjusted -= VehicleState_WidthAdjusted;
+                toolStripVehicleState.WidthAdjusted += VehicleState_WidthAdjusted;
+            }
             if (toolbarCompactLevel == -1 && MenuArduPilot != null)
                 MenuArduPilotWanted = MenuArduPilot.Available;
             toolbarCompactLevel = -1; // sizes were just reset to full, re-evaluate
@@ -1483,6 +1489,12 @@ namespace MissionPlanner
             FitToolbarToWidth();
         }
 
+        private void VehicleState_WidthAdjusted(object sender, EventArgs e)
+        {
+            if (IsHandleCreated && !IsDisposed)
+                BeginInvoke((Action)FitToolbarToWidth);
+        }
+
         /// <summary>
         /// Keeps every toolbar item on screen. The toolbar does not overflow, so on narrower or
         /// high-DPI displays the right-hand items (Connect, link selector) used to be dropped.
@@ -1558,6 +1570,9 @@ namespace MissionPlanner
                     width = level == 0 && MenuArduPilotWanted ? 210 : 0;
                 else if (item == toolStripConnectionControl)
                     width = level == 0 ? 241 : 200;
+                else if (item == toolStripVehicleState && toolStripVehicleState != null)
+                    // it shrinks itself to fit, so only its arm + mode minimum competes with the logo
+                    width = Math.Min(item.Width, toolStripVehicleState.MinimumRequiredWidth);
                 else
                     width = item.Width;
 
@@ -1589,6 +1604,9 @@ namespace MissionPlanner
 
             if (toolStripConnectionControl != null)
                 toolStripConnectionControl.Width = level == 0 ? 241 : 200;
+
+            // the logo may have just come back or gone: let the mode strip take only what is left
+            toolStripVehicleState?.RefitToToolbar();
         }
 
         private void ConfigureNavigationButton(ToolStripButton button, int width, int height, Color textColor)
