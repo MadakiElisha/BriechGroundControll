@@ -142,7 +142,9 @@ namespace MissionPlanner.Controls
             int otherItemsWidth = 0;
             foreach (ToolStripItem item in _parentMenuStrip.Items)
             {
-                if (item != this && item.Visible)
+                // Available, not Visible: an item the strip could not place this pass (the logo is last in line)
+                // reports Visible = false, and ignoring it let this control take the logo's space for good.
+                if (item != this && item.Available)
                 {
                     otherItemsWidth += item.Width + item.Margin.Horizontal;
                 }
@@ -247,7 +249,30 @@ namespace MissionPlanner.Controls
             {
                 _container.Width = totalWidth;
                 this.Size = new Size(totalWidth, _container.Height);
+                WidthAdjusted?.Invoke(this, EventArgs.Empty);
             }
+        }
+
+        /// <summary>Raised when this control changes its own width (mode text, pinned modes, GPS panel).</summary>
+        public event EventHandler WidthAdjusted;
+
+        /// <summary>Width of just the arm button and mode list: what the toolbar must always leave room for.</summary>
+        public int MinimumRequiredWidth
+        {
+            get
+            {
+                if (_armButton == null || _modeDropdown == null)
+                    return 180;
+                int armWidth = TextRenderer.MeasureText(_armButton.Text, _armButton.Font).Width + 24;
+                int dropdownWidth = Math.Max(MinimumModeWidth, TextRenderer.MeasureText(_modeDropdown.Text, _modeDropdown.Font).Width + 24);
+                return 16 + armWidth + dropdownWidth;
+            }
+        }
+
+        /// <summary>Re-fit to the toolbar after other items were shown, hidden or resized.</summary>
+        public void RefitToToolbar()
+        {
+            AdjustWidthToAvailableSpace();
         }
 
         private bool IsDesignMode()

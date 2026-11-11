@@ -203,6 +203,38 @@ namespace MissionPlanner.GCSViews
             workspace.Controls.Add(splitMain);
 
             this.Controls.Add(workspace);
+
+            // Always-visible way back to the redesigned Fly screen (the card-menu item alone was too hidden)
+            var newDesignBar = new Panel { Dock = DockStyle.Top, Height = 34, BackColor = DesignTokens.Night.Surface, Padding = new Padding(12, 3, 12, 3) };
+            var newDesignButton = new Button
+            {
+                Text = "Switch to the new Fly design",
+                Dock = DockStyle.Right,
+                Width = 230,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = DesignTokens.Night.BrandSurface,
+                ForeColor = DesignTokens.Night.BrandText,
+                Font = DesignTokens.Label,
+                Cursor = Cursors.Hand
+            };
+            newDesignButton.FlatAppearance.BorderColor = DesignTokens.Night.Brand;
+            newDesignButton.Click += (s, e) =>
+            {
+                Settings.Instance[FlyView.PreferenceKey] = "new";
+                MainV2.instance?.ShowModernFlightScreen(false, true);
+            };
+            var newDesignLabel = new Label
+            {
+                Text = "You are on the previous Fly layout.",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = DesignTokens.Night.TextMuted,
+                BackColor = Color.Transparent,
+                Font = DesignTokens.Detail
+            };
+            newDesignBar.Controls.Add(newDesignLabel);
+            newDesignBar.Controls.Add(newDesignButton);
+            this.Controls.Add(newDesignBar);
             // Telemetry update timer
             telemetryTimer = new System.Windows.Forms.Timer();
             telemetryTimer.Interval = 100; // 10Hz
