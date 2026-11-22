@@ -648,6 +648,7 @@ namespace MissionPlanner.GCSViews
                     view3d.UpdateTelemetry(cs, connected);
                 if (previewState == null)
                     FlyOnboardPanel.FollowLink(MainV2.comPort);
+                tools.Tick(cs, connected);
                 if (showingOnboard)
                 {
                     if (previewState != null)

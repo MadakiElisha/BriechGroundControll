@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 using log4net;
 using MissionPlanner.Controls;
@@ -27,6 +28,7 @@ namespace MissionPlanner.GCSViews
         private readonly TokenButton back, popOut;
         private readonly List<ToolTile> tiles = new List<ToolTile>();
         private Form toolWindow;
+        private FlyToolPage nativePage, windowPage;
 
         /// <summary>Key of the tool open in this panel or its window, or null when the grid is showing.</summary>
         public string OpenToolKey { get; private set; }
@@ -133,8 +135,18 @@ namespace MissionPlanner.GCSViews
             toolTitle.ForeColor = p.TextPrimary;
             foreach (var tile in tiles)
                 tile.Invalidate();
-            if (OpenToolKey != null && toolWindow == null)
+            if (OpenToolKey != null && toolWindow == null && nativePage == null)
                 Retint(toolHost);
+            nativePage?.ApplyTokens();
+            if (windowPage != null && !windowPage.IsDisposed)
+            {
+                windowPage.ApplyTokens();
+                if (windowPage.Parent != null)
+                    windowPage.Parent.BackColor = p.Surface;
+                var form = windowPage.FindForm();
+                if (form != null)
+                    form.BackColor = p.Surface;
+            }
         }
 
         /// <summary>Open a tool in this panel. Returns false when Classic Fly can't lend it.</summary>
@@ -145,12 +157,26 @@ namespace MissionPlanner.GCSViews
                 return false;
 
             ClosePopOut();
-            if (!classic.BorrowTool(key, toolHost))
-                return false;
+            GiveBack(toolHost);
+            DisposeNative();
+
+            // Dashboard, Status, Gauges and Servo / Relay are drawn in the new design; the rest are borrowed
+            var page = FlyToolPage.Create(key);
+            if (page != null)
+            {
+                nativePage = page;
+                page.Dock = DockStyle.Fill;
+                toolHost.Controls.Add(page);
+            }
+            else
+            {
+                if (!classic.BorrowTool(key, toolHost))
+                    return false;
+                Retint(toolHost);
+            }
 
             OpenToolKey = key;
             toolTitle.Text = TitleOf(key);
-            Retint(toolHost);
             picker.Visible = false;
             toolView.Visible = true;
             toolView.BringToFront();
@@ -162,13 +188,41 @@ namespace MissionPlanner.GCSViews
         {
             ClosePopOut();
             GiveBack(toolHost);
+            DisposeNative();
             ShowPicker();
+        }
+
+        private void DisposeNative()
+        {
+            var page = nativePage;
+            nativePage = null;
+            if (page != null && !page.IsDisposed)
+            {
+                toolHost.Controls.Remove(page);
+                page.Dispose();
+            }
+        }
+
+        /// <summary>Refresh the drawn pages (in place and in their own window); called from the Fly screen's timer.</summary>
+        public void Tick(CurrentState cs, bool connected)
+        {
+            try
+            {
+                if (nativePage != null && !nativePage.IsDisposed && Visible)
+                    nativePage.UpdateView(cs, connected);
+                if (windowPage != null && !windowPage.IsDisposed)
+                    windowPage.UpdateView(cs, connected);
+            }
+            catch (Exception ex)
+            {
+                log.Debug(ex);
+            }
         }
 
         /// <summary>Classic Fly takes its tools back when it is shown; follow that here.</summary>
         public void SyncWithClassic()
         {
-            if (OpenToolKey == null)
+            if (OpenToolKey == null || nativePage != null)
                 return;
             if (MainV2.instance?.FlightData?.BorrowedToolKey != OpenToolKey)
             {
@@ -197,6 +251,9 @@ namespace MissionPlanner.GCSViews
         {
             var classic = MainV2.instance?.FlightData;
             if (classic == null || classic.BorrowedToolKey == null)
+                return;
+            // nothing borrowed here (empty, or one of the drawn pages): leave Classic Fly's tool where it is
+            if (host.Controls.Count == 0 || host.Controls.Cast<Control>().All(c => c is FlyToolPage))
                 return;
             var children = new Control[host.Controls.Count];
             host.Controls.CopyTo(children, 0);
@@ -236,6 +293,29 @@ namespace MissionPlanner.GCSViews
             };
             var host = new Panel { Dock = DockStyle.Fill, BackColor = p.Surface, Padding = new Padding(T.Space2) };
             form.Controls.Add(host);
+            if (nativePage != null)
+            {
+                // a drawn page simply moves into the window and keeps being refreshed there
+                var page = nativePage;
+                nativePage = null;
+                toolHost.Controls.Remove(page);
+                host.Controls.Add(page);
+                windowPage = page;
+                toolWindow = form;
+                form.FormClosing += (s, e) =>
+                {
+                    if (toolWindow == form)
+                        toolWindow = null;
+                    if (windowPage == page)
+                        windowPage = null;
+                };
+                OpenToolKey = null;
+                toolView.Visible = false;
+                picker.Visible = true;
+                form.Show(FindForm());
+                return;
+            }
+
             if (!classic.BorrowTool(key, host))
             {
                 form.Dispose();
@@ -267,6 +347,7 @@ namespace MissionPlanner.GCSViews
             if (form == null)
                 return;
             toolWindow = null;
+            windowPage = null;
             // hand the controls back first so closing the window can't dispose them
             foreach (Control c in form.Controls)
                 GiveBack(c);

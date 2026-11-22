@@ -159,9 +159,10 @@ class LinuxSmokeTest
         var fly = MainV2.instance.FlyView;
         fly.ShowTools(true);
         Shot(dir, "0-fly-tools");
-        foreach (var key in new[] { "quick", "status", "servo" })
+        foreach (var key in new[] { "quick", "status", "gauges", "servo" })
         {
             Console.WriteLine($"fly tool {key} opened: {fly.Tools.OpenTool(key)}");
+            Pause(600);
             Shot(dir, "0-fly-tool-" + key);
         }
         fly.Tools.CloseTool();
