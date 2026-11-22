@@ -377,7 +377,7 @@ namespace MissionPlanner.GCSViews
                     g.DrawPath(pen, path);
                 }
 
-                var flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
+                var flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
                 int half = Height / 2;
                 DrawText(g, Title, T.BodyStrong, p.TextPrimary, new Rectangle(T.Space3, 6, Width - T.Space3 * 2, half - 4), flags);
                 DrawText(g, Detail, T.Detail, p.TextMuted, new Rectangle(T.Space3, half, Width - T.Space3 * 2, half - 6), flags);
