@@ -1208,8 +1208,12 @@ namespace MissionPlanner
                 ? Properties.Resources.Briech_logo
                 : Properties.Resources.Briech_logo_light;
             brandLogoSource = logoImage;
-            MenuArduPilot.Image = BrandLogoFor(0);
-            MenuArduPilot.Width = MenuArduPilot.Image.Width;
+            brandLogoCache.Clear();
+            // the toolbar may already have been fitted before the logo existed: size the logo for the current width
+            toolbarCompactLevel = -1;
+            FitToolbarToWidth();
+            if (toolbarCompactLevel == -1)
+                MenuArduPilot.Image = BrandLogoFor(0);
 
             Application.DoEvents();
 
