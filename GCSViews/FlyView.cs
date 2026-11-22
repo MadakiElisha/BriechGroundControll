@@ -311,7 +311,7 @@ namespace MissionPlanner.GCSViews
 
             // messages
             messagesCard = new TokenCard { Title = "Messages", Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, T.Space3) };
-            var msgList = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, BackColor = Color.Transparent };
+            var msgList = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 1, RowCount = 6, BackColor = Color.Transparent };
             messageLines = new Label[6];
             for (int i = 0; i < messageLines.Length; i++)
             {
@@ -324,7 +324,13 @@ namespace MissionPlanner.GCSViews
             allMessages.LinkClicked += (s, e) => ShowAllMessages();
             messagesCard.Controls.Add(msgList);
             messagesCard.Controls.Add(allMessages);
-            messagesCard.Resize += (s, e) => allMessages.Location = new Point(messagesCard.Width - allMessages.Width - 14, 12);
+            messagesCard.Resize += (s, e) =>
+            {
+                allMessages.Location = new Point(messagesCard.Width - allMessages.Width - 14, 12);
+                // whole lines only: no half-cut message at the bottom of a short card
+                var room = messagesCard.ClientSize.Height - messagesCard.Padding.Vertical;
+                msgList.Height = Math.Max(24, Math.Min(messageLines.Length, room / 24) * 24);
+            };
 
             // emergency
             btnDisarm = new TokenButton { Dock = DockStyle.Fill, Text = "Disarm (hold) · Emergency", Style = TokenButton.Kind.Danger, Height = 52 };
