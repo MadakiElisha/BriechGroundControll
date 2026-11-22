@@ -1486,6 +1486,7 @@ namespace MissionPlanner.Controls
         private int _flightPlanLinesCount = -1;
         private int _flightPlanLinesHash = 0;
         private readonly FpsOverlay _fpsOverlay = new FpsOverlay();
+        private bool _fpsOverlayFailed;
         private DateTime _centerTime;
 
         // Kalman filters for smooth position and rotation interpolation
@@ -2112,7 +2113,19 @@ namespace MissionPlanner.Controls
                     }
                 }
 
-                _fpsOverlay.UpdateAndDraw();
+                // the FPS counter is a nicety: a driver that rejects its shader must not take the 3D view down
+                if (!_fpsOverlayFailed)
+                {
+                    try
+                    {
+                        _fpsOverlay.UpdateAndDraw();
+                    }
+                    catch (Exception ex)
+                    {
+                        _fpsOverlayFailed = true;
+                        Debug.WriteLine("FPS overlay disabled: " + ex.Message);
+                    }
+                }
                 var beforeswapbuffer = DateTime.Now;
                 try
                 {
@@ -3257,7 +3270,9 @@ void main(void) {
 
                 int fShader = GL.CreateShader(ShaderType.FragmentShader);
                 GL.ShaderSource(fShader, @"
+#ifdef GL_ES
 precision mediump float;
+#endif
 varying vec2 TexCoord;
 uniform sampler2D Texture;
 void main(void) {
