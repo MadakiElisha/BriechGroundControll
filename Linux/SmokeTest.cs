@@ -132,7 +132,7 @@ class LinuxSmokeTest
                      ("alt", 118f), ("verticalspeed", 1.2f), ("battery_remaining", 31), ("battery_voltage", 22.1),
                      ("current", 18.5), ("DistToHome", 2400f), ("AZToMAV", 292f), ("wpno", 6f), ("wp_dist", 410f),
                      ("timeInAir", 872f), ("wind_vel", 6f), ("wind_dir", 250f), ("gpsstatus", 6f), ("satcount", 21f),
-                     ("ekfstatus", 0.2f), ("armed", true), ("mode", "AUTO"), ("linkqualitygcs", (ushort)98)
+                     ("ekfstatus", 0.2f), ("armed", true), ("mode", "AUTO"), ("linkqualitygcs", (ushort)98), ("lat", 8.89331), ("lng", 7.26416)
                  })
             Set(cs, kv.Item1, kv.Item2);
         cs.messages.Add((DateTime.Now.AddMinutes(-1), "Reached waypoint #5", (byte)6));
@@ -143,6 +143,11 @@ class LinuxSmokeTest
         DesignTokens.Current = DesignTokens.Sunlight;
         Shot(dir, "0-fly-sunlight");
         DesignTokens.Current = DesignTokens.Night;
+        // the Map / 3D switch: 3D replaces the map in the centre, and the choice is not saved by the test
+        MainV2.instance.FlyView.SetCentreView(true, false);
+        Pause(1500);
+        Shot(dir, "0-fly-3d");
+        MainV2.instance.FlyView.SetCentreView(false, false);
         MainV2.instance.FlyView.ShowPreview(null, MissionPlanner.ArduPilot.FlightCommandProfile.Family.Unknown);
     }
 
