@@ -46,9 +46,10 @@ namespace MissionPlanner.GCSViews
         public const string CentreViewKey = "fly_view_centre"; // "map" (default) or "3d"
         private PanelMap3DDeck map;
         private Fly3DPanel view3d;
+        private FlyToolsPanel tools;
         private Panel centre, centreBody;
-        private TokenButton btnShowMap, btnShow3D;
-        private bool showing3D, screenActive;
+        private TokenButton btnShowMap, btnShow3D, btnShowTools;
+        private bool showing3D, showingTools, screenActive;
 
         // right
         private TokenCard modesCard, missionCard, messagesCard;
@@ -361,15 +362,20 @@ namespace MissionPlanner.GCSViews
                 BackColor = Color.Transparent
             };
             btnShowMap = new TokenButton { Text = "Map", Width = 96, Height = 40, Margin = new Padding(0, 0, T.Space2, 0) };
-            btnShow3D = new TokenButton { Text = "3D", Width = 96, Height = 40, Margin = new Padding(0) };
+            btnShow3D = new TokenButton { Text = "3D", Width = 96, Height = 40, Margin = new Padding(0, 0, T.Space2, 0) };
+            btnShowTools = new TokenButton { Text = "Tools", Width = 96, Height = 40, Margin = new Padding(0) };
             btnShowMap.Click += (s, e) => SetCentreView(false, true);
             btnShow3D.Click += (s, e) => SetCentreView(true, true);
+            btnShowTools.Click += (s, e) => ShowTools(true);
             switchBar.Controls.Add(btnShowMap);
             switchBar.Controls.Add(btnShow3D);
+            switchBar.Controls.Add(btnShowTools);
 
             centreBody = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0), BackColor = Color.Transparent };
             map = new PanelMap3DDeck { Dock = DockStyle.Fill, Margin = new Padding(0), Padding = new Padding(0) };
             view3d = new Fly3DPanel { Dock = DockStyle.Fill, Visible = false };
+            tools = new FlyToolsPanel { Dock = DockStyle.Fill, Visible = false };
+            centreBody.Controls.Add(tools);
             centreBody.Controls.Add(view3d);
             centreBody.Controls.Add(map);
 
@@ -393,6 +399,8 @@ namespace MissionPlanner.GCSViews
         public void SetCentreView(bool show3D, bool remember)
         {
             showing3D = show3D;
+            showingTools = false;
+            tools.Visible = false;
             if (remember)
             {
                 try
@@ -406,6 +414,8 @@ namespace MissionPlanner.GCSViews
 
             btnShowMap.Style = show3D ? TokenButton.Kind.Normal : TokenButton.Kind.Current;
             btnShow3D.Style = show3D ? TokenButton.Kind.Current : TokenButton.Kind.Normal;
+            btnShowTools.Style = TokenButton.Kind.Normal;
+            btnShowTools.AccessibleName = "Tools";
             btnShowMap.AccessibleName = show3D ? "Map" : "Map (showing)";
             btnShow3D.AccessibleName = show3D ? "3D (showing)" : "3D";
 
@@ -426,6 +436,47 @@ namespace MissionPlanner.GCSViews
 
             UpdateUi();
         }
+
+        /// <summary>
+        /// Show (true) or hide (false) the Tools grid in the centre. The map or 3D view picked before comes back
+        /// when Tools is closed. A tool left open stays open while you look at the map and back.
+        /// </summary>
+        public void ShowTools(bool show)
+        {
+            if (!show)
+            {
+                SetCentreView(showing3D, false);
+                return;
+            }
+
+            if (showingTools)
+            {
+                // pressing Tools again goes back to the grid
+                tools.CloseTool();
+                return;
+            }
+
+            showingTools = true;
+            btnShowMap.Style = TokenButton.Kind.Normal;
+            btnShow3D.Style = TokenButton.Kind.Normal;
+            btnShowTools.Style = TokenButton.Kind.Current;
+            btnShowMap.AccessibleName = "Map";
+            btnShow3D.AccessibleName = "3D";
+            btnShowTools.AccessibleName = "Tools (showing)";
+            tools.SyncWithClassic();
+            tools.Visible = true;
+            tools.BringToFront();
+            map.Visible = false;
+            view3d.Visible = false;
+            if (screenActive)
+            {
+                map.DeactivateView();
+                view3d.Stop();
+            }
+        }
+
+        /// <summary>The Tools view, for tests and other screens.</summary>
+        public FlyToolsPanel Tools => tools;
 
         private static TokenButton MakeConsoleButton(string text)
         {
@@ -449,6 +500,7 @@ namespace MissionPlanner.GCSViews
             speedInput.ForeColor = p.TextPrimary;
             map?.ApplyChromePalette(p.AppBackground, p.Surface, p.BorderControl, p.TextPrimary);
             view3d?.ApplyTokens();
+            tools?.ApplyTokens();
             allMessages.LinkColor = p.Brand;
             allMessages.ActiveLinkColor = p.Brand;
             foreach (var m in messageLines)
@@ -463,9 +515,10 @@ namespace MissionPlanner.GCSViews
         public void Activate()
         {
             screenActive = true;
-            if (showing3D)
+            tools.SyncWithClassic();
+            if (!showingTools && showing3D)
                 view3d.Start();
-            else
+            else if (!showingTools)
                 map.ActivateView();
             UpdateUi();
             uiTimer.Start();
