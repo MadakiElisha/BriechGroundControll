@@ -111,7 +111,7 @@ class LinuxSmokeTest
         var menu = (MenuStrip)typeof(MainV2).GetField("MainMenu", flags).GetValue(MainV2.instance);
         Console.WriteLine($"toolbar {when}: width {menu.ClientSize.Width}, padding {menu.Padding.Horizontal}, level {typeof(MainV2).GetField("toolbarCompactLevel", flags).GetValue(MainV2.instance)}");
         foreach (ToolStripItem item in menu.Items)
-            Console.WriteLine($"  {item.Name,-28} avail={item.Available} placement={item.Placement} x={item.Bounds.X} w={item.Width} auto={item.AutoSize} img={(item.Image == null ? "-" : item.Image.Width.ToString())} margin={item.Margin.Horizontal}");
+            Console.WriteLine($"  {item.Name,-28} avail={item.Available} placement={item.Placement} x={item.Bounds.X} w={item.Width} align={item.Alignment} auto={item.AutoSize} img={(item.Image == null ? "-" : item.Image.Width.ToString())} margin={item.Margin.Horizontal}");
     }
 
     static void NewFlyView(string dir)
@@ -122,6 +122,8 @@ class LinuxSmokeTest
         MainV2.instance.Refresh();
         Pause(800);
         DumpToolbar("before fly");
+        { var f = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public; ((MenuStrip)typeof(MainV2).GetField("MainMenu", f).GetValue(MainV2.instance)).PerformLayout(); }
+        DumpToolbar("after relayout");
         if (MainV2.instance.FlyView == null)
             throw new Exception("The redesigned Fly screen failed to initialise.");
         MainV2.View.ShowScreen("FlyView");
