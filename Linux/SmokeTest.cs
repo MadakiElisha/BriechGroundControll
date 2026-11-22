@@ -155,6 +155,18 @@ class LinuxSmokeTest
         Pause(1500);
         Shot(dir, "0-fly-3d");
         MainV2.instance.FlyView.SetCentreView(false, false);
+        // Tools: the grid, then two classic pages shown in place, then handed back to Classic Fly
+        var fly = MainV2.instance.FlyView;
+        fly.ShowTools(true);
+        Shot(dir, "0-fly-tools");
+        foreach (var key in new[] { "quick", "status", "servo" })
+        {
+            Console.WriteLine($"fly tool {key} opened: {fly.Tools.OpenTool(key)}");
+            Shot(dir, "0-fly-tool-" + key);
+        }
+        fly.Tools.CloseTool();
+        Console.WriteLine("fly tools returned to classic: " + (MainV2.instance.FlightData.BorrowedToolKey == null));
+        fly.ShowTools(false);
         MainV2.instance.FlyView.ShowPreview(null, MissionPlanner.ArduPilot.FlightCommandProfile.Family.Unknown);
     }
 
