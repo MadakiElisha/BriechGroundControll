@@ -105,13 +105,24 @@ class LinuxSmokeTest
         }
     }
 
+    static void DumpToolbar(string when)
+    {
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var menu = (MenuStrip)typeof(MainV2).GetField("MainMenu", flags).GetValue(MainV2.instance);
+        Console.WriteLine($"toolbar {when}: width {menu.ClientSize.Width}, padding {menu.Padding.Horizontal}");
+        foreach (ToolStripItem item in menu.Items)
+            Console.WriteLine($"  {item.Name,-28} avail={item.Available} placement={item.Placement} x={item.Bounds.X} w={item.Width} margin={item.Margin.Horizontal}");
+    }
+
     static void NewFlyView(string dir)
     {
+        DumpToolbar("before fly");
         if (MainV2.instance.FlyView == null)
             throw new Exception("The redesigned Fly screen failed to initialise.");
         MainV2.View.ShowScreen("FlyView");
         DesignTokens.Current = DesignTokens.Night;
         Shot(dir, "0-fly-night-offline");
+        DumpToolbar("fly offline");
 
         // the board's example flight: a quadplane in AUTO, battery getting low
         var cs = new CurrentState();
