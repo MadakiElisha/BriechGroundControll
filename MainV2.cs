@@ -1207,7 +1207,8 @@ namespace MissionPlanner
             var logoImage = ThemeManager.IsDarkTheme
                 ? Properties.Resources.Briech_logo
                 : Properties.Resources.Briech_logo_light;
-            MenuArduPilot.Image = new Bitmap(logoImage, (int)(200), 31);
+            brandLogoSource = logoImage;
+            MenuArduPilot.Image = BrandLogoFor(0);
             MenuArduPilot.Width = MenuArduPilot.Image.Width;
 
             Application.DoEvents();
@@ -1538,7 +1539,7 @@ namespace MissionPlanner
             }
         }
 
-        // level 0: full size, 1: narrower buttons + hide brand logo, 2: icons only, 3: icons only, narrowest
+        // level 0: full size, 1: narrower buttons + compact logo, 2: icons only + small logo, 3: icons only, narrowest
         private int NavWidthFor(ToolStripItem item, int level)
         {
             int baseWidth = navButtonBaseWidths[item];
@@ -1567,7 +1568,7 @@ namespace MissionPlanner
                 if (navButtonBaseWidths.ContainsKey(item))
                     width = NavWidthFor(item, level);
                 else if (item == MenuArduPilot)
-                    width = level == 0 && MenuArduPilotWanted ? 210 : 0;
+                    width = MenuArduPilotWanted ? BrandLogoItemWidth(level) : 0;
                 else if (item == toolStripConnectionControl)
                     width = level == 0 ? 241 : 200;
                 else if (item == toolStripVehicleState && toolStripVehicleState != null)
@@ -1585,6 +1586,41 @@ namespace MissionPlanner
 
         private bool MenuArduPilotWanted = true;
 
+        // Briech logo at three sizes: full (monitors), compact (14-15 inch laptops), small (narrow windows)
+        private Image brandLogoSource;
+        private readonly Dictionary<int, Image> brandLogoCache = new Dictionary<int, Image>();
+
+        private static Size BrandLogoSize(int level)
+        {
+            return level <= 0 ? new Size(200, 31) : level == 1 ? new Size(148, 23) : new Size(116, 18);
+        }
+
+        private static int BrandLogoItemWidth(int level)
+        {
+            return BrandLogoSize(level).Width + 10;
+        }
+
+        private Image BrandLogoFor(int level)
+        {
+            var key = Math.Min(Math.Max(level, 0), 2);
+            if (brandLogoCache.TryGetValue(key, out var cached))
+                return cached;
+            if (brandLogoSource == null)
+                return MenuArduPilot?.Image;
+            var size = BrandLogoSize(key);
+            var bmp = new Bitmap(size.Width, size.Height);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                g.DrawImage(brandLogoSource, new Rectangle(Point.Empty, size));
+            }
+
+            brandLogoCache[key] = bmp;
+            return bmp;
+        }
+
         private void ApplyToolbarCompactLevel(int level)
         {
             foreach (var kvp in navButtonBaseWidths)
@@ -1600,7 +1636,12 @@ namespace MissionPlanner
             }
 
             if (MenuArduPilot != null)
-                MenuArduPilot.Available = level == 0 && MenuArduPilotWanted;
+            {
+                // the brand stays on every screen size; it gets smaller instead of disappearing
+                MenuArduPilot.Available = MenuArduPilotWanted;
+                MenuArduPilot.Image = BrandLogoFor(level);
+                MenuArduPilot.Size = new Size(BrandLogoItemWidth(level), MenuArduPilot.Height);
+            }
 
             if (toolStripConnectionControl != null)
                 toolStripConnectionControl.Width = level == 0 ? 241 : 200;
