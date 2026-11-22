@@ -1532,7 +1532,7 @@ namespace MissionPlanner
                 // estimate first (with slack for the strip's own gaps), then let the real layout have the last word:
                 // if WinForms still pushes the logo or Connect into the hidden overflow, step down a level
                 int level = 0;
-                for (; level < 3; level++)
+                for (; level < MaxToolbarLevel; level++)
                 {
                     if (MeasureToolbar(level) + ToolbarSlack <= available)
                         break;
@@ -1542,7 +1542,7 @@ namespace MissionPlanner
                 if (level == toolbarCompactLevel && !ToolbarOverflowed())
                     return; // nothing to change, and the last layout placed everything
 
-                for (; level <= 3; level++)
+                for (; level <= MaxToolbarLevel; level++)
                 {
                     if (level != toolbarCompactLevel || level != start)
                     {
@@ -1557,8 +1557,8 @@ namespace MissionPlanner
                         break;
                 }
 
-                if (level > 3)
-                    level = 3;
+                if (level > MaxToolbarLevel)
+                    level = MaxToolbarLevel;
                 if (level != previous)
                     log.InfoFormat("Toolbar compact level {0} for width {1}", level, available);
             }
@@ -1572,7 +1572,6 @@ namespace MissionPlanner
             }
         }
 
-        // level 0: full size, 1: narrower buttons + compact logo, 2: icons only + small logo, 3: icons only, narrowest
         private int NavWidthFor(ToolStripItem item, int level)
         {
             int baseWidth = navButtonBaseWidths[item];
@@ -1583,11 +1582,18 @@ namespace MissionPlanner
                 case 1:
                     return Math.Max(48, baseWidth - 10);
                 case 2:
+                    return Math.Max(44, baseWidth - 20); // still words, just tighter
+                case 3:
                     return 52;
                 default:
                     return 44;
             }
         }
+
+        // levels: 0 full, 1 tighter + compact logo, 2 tightest words + small logo, 3 icon tabs, 4 narrowest icons.
+        // Words are kept as long as anything fits; icons are the last resort for very narrow windows.
+        private const int MaxToolbarLevel = 4;
+        private const int IconTabsLevel = 3;
 
         private int MeasureToolbar(int level)
         {
@@ -1658,7 +1664,9 @@ namespace MissionPlanner
             using (var g = Graphics.FromImage(bmp))
             {
                 g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+#if !LIB // not in the Android/Mac drawing shim
                 g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+#endif
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
                 g.DrawImage(brandLogoSource, new Rectangle(Point.Empty, size));
             }
@@ -1674,10 +1682,10 @@ namespace MissionPlanner
                 var button = kvp.Key;
                 button.Width = NavWidthFor(button, level);
                 // text tabs; on very narrow windows they fall back to icons
-                button.DisplayStyle = level >= 2
+                button.DisplayStyle = level >= IconTabsLevel
                     ? ToolStripItemDisplayStyle.Image
                     : ToolStripItemDisplayStyle.Text;
-                button.Padding = level >= 2 ? new Padding(2) : new Padding(4, 0, 4, 0);
+                button.Padding = level >= IconTabsLevel ? new Padding(2) : new Padding(4, 0, 4, 0);
                 button.ToolTipText = button.Text;
             }
 
