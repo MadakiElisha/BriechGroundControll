@@ -167,6 +167,14 @@ class LinuxSmokeTest
         fly.Tools.CloseTool();
         Console.WriteLine("fly tools returned to classic: " + (MainV2.instance.FlightData.BorrowedToolKey == null));
         fly.ShowTools(false);
+        // Onboard: companion computer, components, custom telemetry (sample data from the preview)
+        fly.ShowOnboard(true);
+        Pause(800);
+        Shot(dir, "0-fly-onboard");
+        fly.Onboard.AutoScrollPosition = new System.Drawing.Point(0, 10000);
+        Pause(500);
+        Shot(dir, "0-fly-onboard-lower");
+        fly.ShowOnboard(false);
         MainV2.instance.FlyView.ShowPreview(null, MissionPlanner.ArduPilot.FlightCommandProfile.Family.Unknown);
     }
 
