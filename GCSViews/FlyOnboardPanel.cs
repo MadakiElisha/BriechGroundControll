@@ -328,7 +328,7 @@ namespace MissionPlanner.GCSViews
             {
                 var stale = !snap.ComputerFresh;
                 cpu.Set("CPU", s.CpuLoadPct.HasValue ? $"{s.CpuLoadPct:0}%" : "--",
-                    s.CpuCores > 0 ? $"{s.CpuCores} cores · max {s.CpuMaxPct:0}%" : "not reported",
+                    s.CpuCores > 0 ? $"{s.CpuCores} cores" : "not reported",
                     stale ? T.State.Neutral : s.CpuMaxPct >= 95 ? T.State.Caution : T.State.Neutral);
                 var t = s.TempCoreC ?? s.TempBoardC;
                 temp.Set("Core temp", t.HasValue ? $"{t} °C" : "--", t.HasValue ? (t >= 85 ? "throttling" : t >= 75 ? "near throttling" : "normal") : "not reported",

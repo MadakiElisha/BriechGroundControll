@@ -649,7 +649,11 @@ namespace MissionPlanner.GCSViews
                 if (previewState == null)
                     FlyOnboardPanel.FollowLink(MainV2.comPort);
                 if (showingOnboard)
+                {
+                    if (previewState != null)
+                        FlyOnboardPanel.LoadPreviewSample(); // keep the sample's heartbeats fresh
                     onboard.UpdateView(connected);
+                }
             }
             catch (Exception ex)
             {
