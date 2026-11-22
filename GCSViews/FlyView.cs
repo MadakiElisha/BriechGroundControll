@@ -80,8 +80,8 @@ namespace MissionPlanner.GCSViews
 
         /// <summary>
         /// Fit 14-inch laptops (about 1280 x 650 usable) up to large shared displays: side columns scale with the
-        /// width within limits, and on short screens the console drops the message list (still one tap away)
-        /// before anything is clipped.
+        /// width within limits. Messages always stay on screen: on short screens (laptops) the card shrinks to
+        /// the newest message, with "All" one tap away.
         /// </summary>
         private void ApplyResponsiveLayout()
         {
@@ -99,13 +99,25 @@ namespace MissionPlanner.GCSViews
             var modeHeight = 40 + modeRows * (T.ModeButtonHeight + T.Space2) + 30;
             var missionHeight = 176f;
             var disarmHeight = 0f; // pinned outside the scrolling column
-            var showMessages = h >= modeHeight + missionHeight + disarmHeight + 140;
-            consoleColumn.RowStyles[0].Height = modeHeight;
-            consoleColumn.RowStyles[1].Height = missionHeight;
-            consoleColumn.RowStyles[2].SizeType = showMessages ? SizeType.Percent : SizeType.Absolute;
-            consoleColumn.RowStyles[2].Height = showMessages ? 100f : 0f;
-            messagesCard.Visible = showMessages;
-            consoleColumn.RowStyles[3].Height = disarmHeight;
+            // at least the title and newest message; any spare height shows more lines
+            const float compactMessages = 92f;
+            var roomy = h >= modeHeight + missionHeight + disarmHeight + compactMessages; // fill what's left
+            var style = roomy ? SizeType.Percent : SizeType.Absolute;
+            var height = roomy ? 100f : compactMessages;
+            if (consoleColumn.RowStyles[0].Height != modeHeight)
+                consoleColumn.RowStyles[0].Height = modeHeight;
+            if (consoleColumn.RowStyles[1].Height != missionHeight)
+                consoleColumn.RowStyles[1].Height = missionHeight;
+            if (consoleColumn.RowStyles[2].SizeType != style || consoleColumn.RowStyles[2].Height != height)
+            {
+                consoleColumn.RowStyles[2].SizeType = style;
+                consoleColumn.RowStyles[2].Height = height;
+            }
+
+            if (!messagesCard.Visible)
+                messagesCard.Visible = true;
+            if (consoleColumn.RowStyles[3].Height != disarmHeight)
+                consoleColumn.RowStyles[3].Height = disarmHeight;
         }
 
         public FlyView()
@@ -244,6 +256,8 @@ namespace MissionPlanner.GCSViews
             col.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             col.RowStyles.Add(new RowStyle(SizeType.Absolute, 0f));
             col.AutoScroll = true;
+            // its height is only final after the screen's own layout (e.g. maximising): re-check it then
+            col.SizeChanged += (s, e) => ApplyResponsiveLayout();
 
             // flight modes
             modesCard = new TokenCard { Title = "Flight modes", Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, T.Space3) };
@@ -297,7 +311,7 @@ namespace MissionPlanner.GCSViews
 
             // messages
             messagesCard = new TokenCard { Title = "Messages", Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, T.Space3) };
-            var msgList = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, BackColor = Color.Transparent };
+            var msgList = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 1, RowCount = 6, BackColor = Color.Transparent };
             messageLines = new Label[6];
             for (int i = 0; i < messageLines.Length; i++)
             {
@@ -310,7 +324,13 @@ namespace MissionPlanner.GCSViews
             allMessages.LinkClicked += (s, e) => ShowAllMessages();
             messagesCard.Controls.Add(msgList);
             messagesCard.Controls.Add(allMessages);
-            messagesCard.Resize += (s, e) => allMessages.Location = new Point(messagesCard.Width - allMessages.Width - 14, 12);
+            messagesCard.Resize += (s, e) =>
+            {
+                allMessages.Location = new Point(messagesCard.Width - allMessages.Width - 14, 12);
+                // whole lines only: no half-cut message at the bottom of a short card
+                var room = messagesCard.ClientSize.Height - messagesCard.Padding.Vertical;
+                msgList.Height = Math.Max(24, Math.Min(messageLines.Length, room / 24) * 24);
+            };
 
             // emergency
             btnDisarm = new TokenButton { Dock = DockStyle.Fill, Text = "Disarm (hold) · Emergency", Style = TokenButton.Kind.Danger, Height = 52 };
