@@ -1605,7 +1605,7 @@ namespace MissionPlanner
             return total;
         }
 
-        private const int ToolbarSlack = 32;
+        private const int ToolbarSlack = 8;
 
         private bool ToolbarOverflowed()
         {
