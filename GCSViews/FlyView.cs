@@ -33,7 +33,9 @@ namespace MissionPlanner.GCSViews
         // status bar
         private Panel statusBar;
         private Label lblVehicle, lblMode, lblLink;
-        private TokenButton btnSunlight, btnPrevious;
+        private TokenButton btnSunlight, btnPrevious, btnPreflight;
+        private FlyPreflightPanel preflight;
+        private DateTime lastPreflightCheck;
 
         private AlertBanner banner;
         private string acknowledgedAlert;
@@ -150,6 +152,9 @@ namespace MissionPlanner.GCSViews
             btnSunlight.Click += (s, e) => T.ToggleMode();
             btnPrevious = new TokenButton { Width = 150, Height = 40, Text = "Previous layout", Style = TokenButton.Kind.Quiet, Margin = new Padding(0) };
             btnPrevious.Click += (s, e) => SwitchToPrevious();
+            btnPreflight = new TokenButton { Width = 170, Height = 40, Text = "Preflight", Margin = new Padding(0, 0, 8, 0) };
+            btnPreflight.Click += (s, e) => ShowPreflight(!preflight.Visible);
+            statusRight.Controls.Add(btnPreflight);
             statusRight.Controls.Add(btnSunlight);
             statusRight.Controls.Add(btnPrevious);
             statusBar.Controls.Add(statusFlow);
@@ -204,7 +209,11 @@ namespace MissionPlanner.GCSViews
             lblLogging = new Label { AutoSize = true, Font = T.Detail, Margin = new Padding(T.Space2, 8, 0, 0) };
             footer.Controls.AddRange(new Control[] { chipGps, chipEkf, chipBattery, chipFence, chipAirspeed, chipParams, lblLogging });
 
+            preflight = new FlyPreflightPanel { Dock = DockStyle.Fill, Visible = false };
+            preflight.BackRequested += (s, e) => ShowPreflight(false);
+
             Controls.Add(main);
+            Controls.Add(preflight);
             Controls.Add(footer);
             Controls.Add(banner);
             Controls.Add(statusBar);
@@ -338,8 +347,18 @@ namespace MissionPlanner.GCSViews
             btnDisarm.Click += (s, e) =>
             {
                 var cs = MainV2.comPort?.MAV?.cs;
-                if (cs != null && !cs.armed)
+                if (cs != null && !cs.armed && previewState == null)
                 {
+                    // not GO on the preflight board: the pilot sees what's outstanding and must choose to override
+                    var verdict = FlyPreflightPanel.Evaluate(null, previewFamily);
+                    if (verdict != null && verdict.Verdict != ArduPilot.PreflightChecks.Verdict.Go)
+                    {
+                        if (!FlyPreflightPanel.ConfirmArmOverride(FindForm(), null, previewFamily))
+                            return;
+                        FlightCommands.ArmOrDisarmInteractive(FindForm());
+                        return;
+                    }
+
                     // arming always asks, like the header's arm button; Cancel is first so Enter can't arm
                     var mode = string.IsNullOrEmpty(cs.mode) ? "the current mode" : cs.mode.ToUpperInvariant();
                     if (System.CustomMessageBox.Show(
@@ -534,6 +553,45 @@ namespace MissionPlanner.GCSViews
         /// <summary>The Tools view, for tests and other screens.</summary>
         public FlyToolsPanel Tools => tools;
 
+        /// <summary>Show the Go / No-Go board in place of the Fly layout (true) or go back to flying (false).</summary>
+        public void ShowPreflight(bool show)
+        {
+            preflight.SetPreview(previewState, previewFamily);
+            if (show)
+                preflight.UpdateView();
+            preflight.Visible = show;
+            main.Visible = !show;
+            if (show)
+                preflight.BringToFront();
+            UpdatePreflightButton();
+        }
+
+        /// <summary>The Preflight board, for tests.</summary>
+        public FlyPreflightPanel Preflight => preflight;
+
+        private void UpdatePreflightButton()
+        {
+            var r = FlyPreflightPanel.Latest;
+            if (preflight.Visible)
+            {
+                btnPreflight.Text = "Back to Fly";
+                btnPreflight.Style = TokenButton.Kind.Current;
+                return;
+            }
+
+            if (r == null)
+            {
+                btnPreflight.Text = "Preflight";
+                btnPreflight.Style = TokenButton.Kind.Normal;
+                return;
+            }
+
+            var word = r.Verdict == ArduPilot.PreflightChecks.Verdict.Go ? "GO" : r.Verdict == ArduPilot.PreflightChecks.Verdict.Hold ? "HOLD" : "NO-GO";
+            btnPreflight.Text = "Preflight · " + word;
+            btnPreflight.Style = r.Verdict == ArduPilot.PreflightChecks.Verdict.NoGo ? TokenButton.Kind.Danger : TokenButton.Kind.Normal;
+            btnPreflight.AccessibleDescription = r.Summary;
+        }
+
         private static TokenButton MakeConsoleButton(string text)
         {
             return new TokenButton { Text = text, Dock = DockStyle.Fill, Margin = new Padding(0, 0, T.Space2, 0), Font = T.BodyStrong };
@@ -557,6 +615,7 @@ namespace MissionPlanner.GCSViews
             map?.ApplyChromePalette(p.AppBackground, p.Surface, p.BorderControl, p.TextPrimary);
             view3d?.ApplyTokens();
             tools?.ApplyTokens();
+            preflight?.ApplyTokens();
             onboard?.ApplyTokens();
             allMessages.LinkColor = p.Brand;
             allMessages.ActiveLinkColor = p.Brand;
@@ -649,6 +708,17 @@ namespace MissionPlanner.GCSViews
                 if (previewState == null)
                     FlyOnboardPanel.FollowLink(MainV2.comPort);
                 tools.Tick(cs, connected);
+                // the board re-checks once a second (terrain lookups), whether or not it is open
+                if (DateTime.Now - lastPreflightCheck > TimeSpan.FromSeconds(1))
+                {
+                    lastPreflightCheck = DateTime.Now;
+                    preflight.SetPreview(previewState, previewFamily);
+                    if (preflight.Visible)
+                        preflight.UpdateView();
+                    else if (!(cs?.armed ?? false))
+                        FlyPreflightPanel.Evaluate(previewState, previewFamily);
+                    UpdatePreflightButton();
+                }
                 if (showingOnboard)
                 {
                     if (previewState != null)
