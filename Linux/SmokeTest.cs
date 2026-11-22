@@ -111,16 +111,19 @@ class LinuxSmokeTest
         var menu = (MenuStrip)typeof(MainV2).GetField("MainMenu", flags).GetValue(MainV2.instance);
         Console.WriteLine($"toolbar {when}: width {menu.ClientSize.Width}, padding {menu.Padding.Horizontal}, level {typeof(MainV2).GetField("toolbarCompactLevel", flags).GetValue(MainV2.instance)}");
         foreach (ToolStripItem item in menu.Items)
-            Console.WriteLine($"  {item.Name,-28} avail={item.Available} placement={item.Placement} x={item.Bounds.X} w={item.Width} auto={item.AutoSize} img={(item.Image == null ? "-" : item.Image.Width.ToString())} margin={item.Margin.Horizontal}");
+            Console.WriteLine($"  {item.Name,-28} avail={item.Available} placement={item.Placement} x={item.Bounds.X} w={item.Width} align={item.Alignment} auto={item.AutoSize} img={(item.Image == null ? "-" : item.Image.Width.ToString())} margin={item.Margin.Horizontal}");
     }
 
     static void NewFlyView(string dir)
     {
         // a 14-inch laptop at full screen is about 1280 px wide (1920 at 150% scaling, or 1366 at 100%)
         MainV2.instance.WindowState = FormWindowState.Normal;
-        MainV2.instance.Size = new System.Drawing.Size(1280, 800);
+        MainV2.instance.Bounds = new System.Drawing.Rectangle(0, 0, 1280, 800);
+        MainV2.instance.Refresh();
         Pause(800);
         DumpToolbar("before fly");
+        { var f = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public; ((MenuStrip)typeof(MainV2).GetField("MainMenu", f).GetValue(MainV2.instance)).PerformLayout(); }
+        DumpToolbar("after relayout");
         if (MainV2.instance.FlyView == null)
             throw new Exception("The redesigned Fly screen failed to initialise.");
         MainV2.View.ShowScreen("FlyView");
@@ -136,7 +139,7 @@ class LinuxSmokeTest
                      ("alt", 118f), ("verticalspeed", 1.2f), ("battery_remaining", 31), ("battery_voltage", 22.1),
                      ("current", 18.5), ("DistToHome", 2400f), ("AZToMAV", 292f), ("wpno", 6f), ("wp_dist", 410f),
                      ("timeInAir", 872f), ("wind_vel", 6f), ("wind_dir", 250f), ("gpsstatus", 6f), ("satcount", 21f),
-                     ("ekfstatus", 0.2f), ("armed", true), ("mode", "AUTO"), ("linkqualitygcs", (ushort)98)
+                     ("ekfstatus", 0.2f), ("armed", true), ("mode", "AUTO"), ("linkqualitygcs", (ushort)98), ("lat", 8.89331), ("lng", 7.26416)
                  })
             Set(cs, kv.Item1, kv.Item2);
         cs.messages.Add((DateTime.Now.AddMinutes(-1), "Reached waypoint #5", (byte)6));
@@ -147,6 +150,11 @@ class LinuxSmokeTest
         DesignTokens.Current = DesignTokens.Sunlight;
         Shot(dir, "0-fly-sunlight");
         DesignTokens.Current = DesignTokens.Night;
+        // the Map / 3D switch: 3D replaces the map in the centre, and the choice is not saved by the test
+        MainV2.instance.FlyView.SetCentreView(true, false);
+        Pause(1500);
+        Shot(dir, "0-fly-3d");
+        MainV2.instance.FlyView.SetCentreView(false, false);
         MainV2.instance.FlyView.ShowPreview(null, MissionPlanner.ArduPilot.FlightCommandProfile.Family.Unknown);
     }
 
