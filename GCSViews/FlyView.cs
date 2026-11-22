@@ -42,8 +42,13 @@ namespace MissionPlanner.GCSViews
         private AttitudeIndicator adi;
         private ReadoutCard cardBattery, cardHome, cardMission, cardTime;
 
-        // centre
+        // centre: the 2D map or the 3D view, one at a time
+        public const string CentreViewKey = "fly_view_centre"; // "map" (default) or "3d"
         private PanelMap3DDeck map;
+        private Fly3DPanel view3d;
+        private Panel centre, centreBody;
+        private TokenButton btnShowMap, btnShow3D;
+        private bool showing3D, screenActive;
 
         // right
         private TokenCard modesCard, missionCard, messagesCard;
@@ -163,8 +168,7 @@ namespace MissionPlanner.GCSViews
 
             main.Controls.Add(BuildLeftColumn(), 0, 0);
 
-            map = new PanelMap3DDeck { Dock = DockStyle.Fill, Margin = new Padding(T.Space3, 0, T.Space3, 0), Padding = new Padding(0) };
-            main.Controls.Add(map, 1, 0);
+            main.Controls.Add(BuildCentre(), 1, 0);
 
             main.Controls.Add(BuildConsole(), 2, 0);
 
@@ -342,6 +346,87 @@ namespace MissionPlanner.GCSViews
             return host;
         }
 
+        /// <summary>Centre column: a Map / 3D switch above the view it picks. The choice is remembered.</summary>
+        private Control BuildCentre()
+        {
+            centre = new Panel { Dock = DockStyle.Fill, Margin = new Padding(T.Space3, 0, T.Space3, 0), Padding = new Padding(0) };
+
+            var switchBar = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 44 + T.Space2,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Padding = new Padding(0, 0, 0, T.Space2),
+                BackColor = Color.Transparent
+            };
+            btnShowMap = new TokenButton { Text = "Map", Width = 96, Height = 40, Margin = new Padding(0, 0, T.Space2, 0) };
+            btnShow3D = new TokenButton { Text = "3D", Width = 96, Height = 40, Margin = new Padding(0) };
+            btnShowMap.Click += (s, e) => SetCentreView(false, true);
+            btnShow3D.Click += (s, e) => SetCentreView(true, true);
+            switchBar.Controls.Add(btnShowMap);
+            switchBar.Controls.Add(btnShow3D);
+
+            centreBody = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0), BackColor = Color.Transparent };
+            map = new PanelMap3DDeck { Dock = DockStyle.Fill, Margin = new Padding(0), Padding = new Padding(0) };
+            view3d = new Fly3DPanel { Dock = DockStyle.Fill, Visible = false };
+            centreBody.Controls.Add(view3d);
+            centreBody.Controls.Add(map);
+
+            centre.Controls.Add(centreBody);
+            centre.Controls.Add(switchBar);
+
+            string saved = null;
+            try
+            {
+                saved = Settings.Instance[CentreViewKey];
+            }
+            catch
+            {
+            }
+
+            SetCentreView(string.Equals(saved, "3d", StringComparison.OrdinalIgnoreCase), false);
+            return centre;
+        }
+
+        /// <summary>Show the 3D view (true) or the 2D map (false). Only the visible one draws.</summary>
+        public void SetCentreView(bool show3D, bool remember)
+        {
+            showing3D = show3D;
+            if (remember)
+            {
+                try
+                {
+                    Settings.Instance[CentreViewKey] = show3D ? "3d" : "map";
+                }
+                catch
+                {
+                }
+            }
+
+            btnShowMap.Style = show3D ? TokenButton.Kind.Normal : TokenButton.Kind.Current;
+            btnShow3D.Style = show3D ? TokenButton.Kind.Current : TokenButton.Kind.Normal;
+            btnShowMap.AccessibleName = show3D ? "Map" : "Map (showing)";
+            btnShow3D.AccessibleName = show3D ? "3D (showing)" : "3D";
+
+            map.Visible = !show3D;
+            view3d.Visible = show3D;
+            if (!screenActive)
+                return;
+            if (show3D)
+            {
+                map.DeactivateView();
+                view3d.Start();
+            }
+            else
+            {
+                view3d.Stop();
+                map.ActivateView();
+            }
+
+            UpdateUi();
+        }
+
         private static TokenButton MakeConsoleButton(string text)
         {
             return new TokenButton { Text = text, Dock = DockStyle.Fill, Margin = new Padding(0, 0, T.Space2, 0), Font = T.BodyStrong };
@@ -363,6 +448,7 @@ namespace MissionPlanner.GCSViews
             speedInput.BackColor = p.AppBackground;
             speedInput.ForeColor = p.TextPrimary;
             map?.ApplyChromePalette(p.AppBackground, p.Surface, p.BorderControl, p.TextPrimary);
+            view3d?.ApplyTokens();
             allMessages.LinkColor = p.Brand;
             allMessages.ActiveLinkColor = p.Brand;
             foreach (var m in messageLines)
@@ -376,7 +462,11 @@ namespace MissionPlanner.GCSViews
 
         public void Activate()
         {
-            map.ActivateView();
+            screenActive = true;
+            if (showing3D)
+                view3d.Start();
+            else
+                map.ActivateView();
             UpdateUi();
             uiTimer.Start();
         }
@@ -384,7 +474,9 @@ namespace MissionPlanner.GCSViews
         public void Deactivate()
         {
             uiTimer.Stop();
+            screenActive = false;
             map.DeactivateView();
+            view3d.Stop();
         }
 
         private void SwitchToPrevious()
@@ -436,8 +528,11 @@ namespace MissionPlanner.GCSViews
                 UpdateFooter(cs, connected);
                 UpdateAlert(cs, connected, family);
 
+                // the map keeps its trail up to date even while the 3D view is showing
                 map.UpdateTelemetry(cs);
                 map.SetOffline(connected);
+                if (showing3D)
+                    view3d.UpdateTelemetry(cs, connected);
             }
             catch (Exception ex)
             {

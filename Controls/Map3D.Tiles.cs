@@ -946,7 +946,9 @@ void main(void) {
 }
                 ");
                 GL.ShaderSource(FragmentShader, @"
+#ifdef GL_ES
 precision mediump float;
+#endif
 varying vec4 DestinationColor;
 varying vec2 TexCoordOut;
 varying float vDistance;
