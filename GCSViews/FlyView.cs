@@ -47,9 +47,10 @@ namespace MissionPlanner.GCSViews
         private PanelMap3DDeck map;
         private Fly3DPanel view3d;
         private FlyToolsPanel tools;
+        private FlyOnboardPanel onboard;
         private Panel centre, centreBody;
-        private TokenButton btnShowMap, btnShow3D, btnShowTools;
-        private bool showing3D, showingTools, screenActive;
+        private TokenButton btnShowMap, btnShow3D, btnShowTools, btnShowOnboard;
+        private bool showing3D, showingTools, showingOnboard, screenActive;
 
         // right
         private TokenCard modesCard, missionCard, messagesCard;
@@ -383,18 +384,23 @@ namespace MissionPlanner.GCSViews
             };
             btnShowMap = new TokenButton { Text = "Map", Width = 96, Height = 40, Margin = new Padding(0, 0, T.Space2, 0) };
             btnShow3D = new TokenButton { Text = "3D", Width = 96, Height = 40, Margin = new Padding(0, 0, T.Space2, 0) };
-            btnShowTools = new TokenButton { Text = "Tools", Width = 96, Height = 40, Margin = new Padding(0) };
+            btnShowTools = new TokenButton { Text = "Tools", Width = 96, Height = 40, Margin = new Padding(0, 0, T.Space2, 0) };
+            btnShowOnboard = new TokenButton { Text = "Onboard", Width = 108, Height = 40, Margin = new Padding(0) };
             btnShowMap.Click += (s, e) => SetCentreView(false, true);
             btnShow3D.Click += (s, e) => SetCentreView(true, true);
             btnShowTools.Click += (s, e) => ShowTools(true);
+            btnShowOnboard.Click += (s, e) => ShowOnboard(true);
             switchBar.Controls.Add(btnShowMap);
             switchBar.Controls.Add(btnShow3D);
             switchBar.Controls.Add(btnShowTools);
+            switchBar.Controls.Add(btnShowOnboard);
 
             centreBody = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0), BackColor = Color.Transparent };
             map = new PanelMap3DDeck { Dock = DockStyle.Fill, Margin = new Padding(0), Padding = new Padding(0) };
             view3d = new Fly3DPanel { Dock = DockStyle.Fill, Visible = false };
             tools = new FlyToolsPanel { Dock = DockStyle.Fill, Visible = false };
+            onboard = new FlyOnboardPanel { Dock = DockStyle.Fill, Visible = false };
+            centreBody.Controls.Add(onboard);
             centreBody.Controls.Add(tools);
             centreBody.Controls.Add(view3d);
             centreBody.Controls.Add(map);
@@ -420,7 +426,9 @@ namespace MissionPlanner.GCSViews
         {
             showing3D = show3D;
             showingTools = false;
+            showingOnboard = false;
             tools.Visible = false;
+            onboard.Visible = false;
             if (remember)
             {
                 try
@@ -436,6 +444,8 @@ namespace MissionPlanner.GCSViews
             btnShow3D.Style = show3D ? TokenButton.Kind.Current : TokenButton.Kind.Normal;
             btnShowTools.Style = TokenButton.Kind.Normal;
             btnShowTools.AccessibleName = "Tools";
+            btnShowOnboard.Style = TokenButton.Kind.Normal;
+            btnShowOnboard.AccessibleName = "Onboard";
             btnShowMap.AccessibleName = show3D ? "Map" : "Map (showing)";
             btnShow3D.AccessibleName = show3D ? "3D (showing)" : "3D";
 
@@ -476,16 +486,39 @@ namespace MissionPlanner.GCSViews
                 return;
             }
 
-            showingTools = true;
+            tools.SyncWithClassic();
+            ShowOverlay(tools);
+        }
+
+        /// <summary>Show (true) or hide (false) the Onboard view: companion computer, cameras and other components.</summary>
+        public void ShowOnboard(bool show)
+        {
+            if (!show)
+            {
+                SetCentreView(showing3D, false);
+                return;
+            }
+
+            ShowOverlay(onboard);
+            onboard.UpdateView(MainV2.comPort?.BaseStream?.IsOpen == true || previewState != null);
+        }
+
+        /// <summary>Put Tools or Onboard in the centre in place of the map / 3D view (which stop drawing).</summary>
+        private void ShowOverlay(Control panel)
+        {
+            showingTools = panel == tools;
+            showingOnboard = panel == onboard;
             btnShowMap.Style = TokenButton.Kind.Normal;
             btnShow3D.Style = TokenButton.Kind.Normal;
-            btnShowTools.Style = TokenButton.Kind.Current;
+            btnShowTools.Style = showingTools ? TokenButton.Kind.Current : TokenButton.Kind.Normal;
+            btnShowOnboard.Style = showingOnboard ? TokenButton.Kind.Current : TokenButton.Kind.Normal;
             btnShowMap.AccessibleName = "Map";
             btnShow3D.AccessibleName = "3D";
-            btnShowTools.AccessibleName = "Tools (showing)";
-            tools.SyncWithClassic();
-            tools.Visible = true;
-            tools.BringToFront();
+            btnShowTools.AccessibleName = showingTools ? "Tools (showing)" : "Tools";
+            btnShowOnboard.AccessibleName = showingOnboard ? "Onboard (showing)" : "Onboard";
+            tools.Visible = showingTools;
+            onboard.Visible = showingOnboard;
+            panel.BringToFront();
             map.Visible = false;
             view3d.Visible = false;
             if (screenActive)
@@ -494,6 +527,9 @@ namespace MissionPlanner.GCSViews
                 view3d.Stop();
             }
         }
+
+        /// <summary>The Onboard view, for tests.</summary>
+        public FlyOnboardPanel Onboard => onboard;
 
         /// <summary>The Tools view, for tests and other screens.</summary>
         public FlyToolsPanel Tools => tools;
@@ -521,6 +557,7 @@ namespace MissionPlanner.GCSViews
             map?.ApplyChromePalette(p.AppBackground, p.Surface, p.BorderControl, p.TextPrimary);
             view3d?.ApplyTokens();
             tools?.ApplyTokens();
+            onboard?.ApplyTokens();
             allMessages.LinkColor = p.Brand;
             allMessages.ActiveLinkColor = p.Brand;
             foreach (var m in messageLines)
@@ -536,9 +573,10 @@ namespace MissionPlanner.GCSViews
         {
             screenActive = true;
             tools.SyncWithClassic();
-            if (!showingTools && showing3D)
+            var overlay = showingTools || showingOnboard;
+            if (!overlay && showing3D)
                 view3d.Start();
-            else if (!showingTools)
+            else if (!overlay)
                 map.ActivateView();
             UpdateUi();
             uiTimer.Start();
@@ -574,6 +612,8 @@ namespace MissionPlanner.GCSViews
         {
             previewState = sample;
             previewFamily = family;
+            if (sample != null)
+                FlyOnboardPanel.LoadPreviewSample();
             UpdateUi();
         }
 
@@ -606,6 +646,10 @@ namespace MissionPlanner.GCSViews
                 map.SetOffline(connected);
                 if (showing3D)
                     view3d.UpdateTelemetry(cs, connected);
+                if (previewState == null)
+                    FlyOnboardPanel.FollowLink(MainV2.comPort);
+                if (showingOnboard)
+                    onboard.UpdateView(connected);
             }
             catch (Exception ex)
             {
