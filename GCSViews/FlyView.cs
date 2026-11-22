@@ -99,9 +99,9 @@ namespace MissionPlanner.GCSViews
             var modeHeight = 40 + modeRows * (T.ModeButtonHeight + T.Space2) + 30;
             var missionHeight = 176f;
             var disarmHeight = 0f; // pinned outside the scrolling column
-            // title + newest message; full list when there's room for at least a few lines
+            // at least the title and newest message; any spare height shows more lines
             const float compactMessages = 92f;
-            var roomy = h >= modeHeight + missionHeight + disarmHeight + 140;
+            var roomy = h >= modeHeight + missionHeight + disarmHeight + compactMessages; // fill what's left
             var style = roomy ? SizeType.Percent : SizeType.Absolute;
             var height = roomy ? 100f : compactMessages;
             if (consoleColumn.RowStyles[0].Height != modeHeight)
