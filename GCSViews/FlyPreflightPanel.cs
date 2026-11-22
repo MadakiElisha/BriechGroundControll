@@ -43,7 +43,7 @@ namespace MissionPlanner.GCSViews
         private readonly VerdictBox verdict;
         private readonly TokenCard vehicleCard, missionCard, crewCard;
         private readonly FlowLayoutPanel vehicleRows, missionRows, crewRows;
-        private readonly TokenButton back, save, editList, resetTicks;
+        private readonly TokenButton save, editList, resetTicks;
         private readonly Label armNote;
         private readonly TableLayoutPanel columns;
         private readonly ToolTip tips = new ToolTip();
@@ -54,34 +54,31 @@ namespace MissionPlanner.GCSViews
             DoubleBuffered = true;
             Padding = new Padding(T.Space4, T.Space3, T.Space4, T.Space3);
 
-            var header = new TableLayoutPanel { Dock = DockStyle.Top, Height = 84, ColumnCount = 3, BackColor = Color.Transparent };
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132));
+            // the header's Preflight button turns into "Back to Fly" while this board is open
+            var header = new TableLayoutPanel { Dock = DockStyle.Top, Height = 96, ColumnCount = 2, BackColor = Color.Transparent };
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 260));
-            back = new TokenButton { Text = "‹  Back to Fly", Dock = DockStyle.Top, Height = 44, Margin = new Padding(0, 12, T.Space3, 0) };
-            back.Click += (s, e) => BackRequested?.Invoke(this, EventArgs.Empty);
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 280));
             var titles = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
             title = new Label { Dock = DockStyle.Top, Height = 40, Font = T.Title, TextAlign = ContentAlignment.BottomLeft, AutoEllipsis = true, UseMnemonic = false };
             subtitle = new Label { Dock = DockStyle.Top, Height = 26, Font = T.Detail, TextAlign = ContentAlignment.TopLeft, AutoEllipsis = true, UseMnemonic = false };
             titles.Controls.Add(subtitle);
             titles.Controls.Add(title);
             verdict = new VerdictBox { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 4) };
-            header.Controls.Add(back, 0, 0);
-            header.Controls.Add(titles, 1, 0);
-            header.Controls.Add(verdict, 2, 0);
+            header.Controls.Add(titles, 0, 0);
+            header.Controls.Add(verdict, 1, 0);
 
             columns = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, BackColor = Color.Transparent, Padding = new Padding(0, T.Space3, 0, 0) };
             for (int i = 0; i < 3; i++)
                 columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
 
             vehicleCard = MakeColumn("Automatic: from the vehicle", out vehicleRows);
-            missionCard = MakeColumn("Mission & airspace", out missionRows);
+            missionCard = MakeColumn("Mission and airspace", out missionRows);
             crewCard = MakeColumn("Crew sign-off", out crewRows);
 
-            var crewButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 2 * (48 + T.Space2) + 30, BackColor = Color.Transparent, FlowDirection = FlowDirection.LeftToRight, WrapContents = true };
-            editList = new TokenButton { Text = "Edit list…", Width = 120, Height = 44, Margin = new Padding(0, 0, T.Space2, T.Space2) };
-            resetTicks = new TokenButton { Text = "Untick all", Width = 120, Height = 44, Margin = new Padding(0, 0, T.Space2, T.Space2) };
-            save = new TokenButton { Text = "Save report", Width = 140, Height = 44, Margin = new Padding(0, 0, 0, T.Space2) };
+            var crewButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 44 + T.Space2 + 36, BackColor = Color.Transparent, FlowDirection = FlowDirection.LeftToRight, WrapContents = true };
+            editList = new TokenButton { Text = "Edit list…", Width = 104, Height = 44, Margin = new Padding(0, 0, T.Space2, T.Space2) };
+            resetTicks = new TokenButton { Text = "Untick all", Width = 104, Height = 44, Margin = new Padding(0, 0, T.Space2, T.Space2) };
+            save = new TokenButton { Text = "Save report", Width = 124, Height = 44, Margin = new Padding(0, 0, 0, T.Space2) };
             editList.Click += (s, e) => EditList();
             resetTicks.Click += (s, e) =>
             {
@@ -120,13 +117,22 @@ namespace MissionPlanner.GCSViews
                 BackColor = Color.Transparent
             };
             var r = rows;
-            rows.Resize += (s, e) =>
-            {
-                foreach (Control c in r.Controls)
-                    c.Width = Math.Max(120, r.ClientSize.Width - 2);
-            };
+            rows.Resize += (s, e) => FitRows(r);
             card.Controls.Add(rows);
             return card;
+        }
+
+        /// <summary>Rows fill the column's width, leaving room for the scroll bar so there's never a sideways one.</summary>
+        private static void FitRows(FlowLayoutPanel rows)
+        {
+            var w = rows.ClientSize.Width - 2;
+            var needsBar = rows.Controls.Cast<Control>().Sum(c => c.Height + c.Margin.Vertical) > rows.ClientSize.Height;
+            if (needsBar && !rows.VerticalScroll.Visible)
+                w -= SystemInformation.VerticalScrollBarWidth;
+            w = Math.Max(120, w);
+            foreach (Control c in rows.Controls)
+                if (c.Width != w)
+                    c.Width = w;
         }
 
         public void ApplyTokens()
@@ -339,6 +345,9 @@ namespace MissionPlanner.GCSViews
 
             for (int i = 0; i < crew.Count && i < crewRows.Controls.Count; i++)
                 ((CrewRow)crewRows.Controls[i]).Checked = crew[i].Status == PreflightChecks.Status.Pass;
+            FitRows(vehicleRows);
+            FitRows(missionRows);
+            FitRows(crewRows);
         }
 
         private void Fill(FlowLayoutPanel rows, List<PreflightChecks.Item> items)
@@ -460,8 +469,8 @@ namespace MissionPlanner.GCSViews
                     else g.FillRectangle(b, cx - 8, cy - 8, 16, 16);
                 }
 
-                DrawText(g, word, T.Readout, mark, new Rectangle(50, 4, Width - 60, Height / 2 + 6));
-                DrawText(g, summary, T.Detail, T.Current.TextPrimary, new Rectangle(16, Height / 2 + 8, Width - 28, Height / 2 - 12));
+                DrawText(g, word, T.Readout, mark, new Rectangle(50, 6, Width - 60, Height / 2 + 2));
+                DrawText(g, summary, T.Detail, T.Current.TextPrimary, new Rectangle(18, Height / 2 + 8, Width - 30, Height / 2 - 14));
             }
         }
 
