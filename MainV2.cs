@@ -1497,10 +1497,19 @@ namespace MissionPlanner
             FitToolbarToWidth();
         }
 
+        private bool toolbarFitQueued;
+
         private void VehicleState_WidthAdjusted(object sender, EventArgs e)
         {
-            if (IsHandleCreated && !IsDisposed)
-                BeginInvoke((Action)FitToolbarToWidth);
+            // ignore changes caused by our own fitting, and queue at most one refit, so layout can't feed back on itself
+            if (fittingToolbar || toolbarFitQueued || !IsHandleCreated || IsDisposed)
+                return;
+            toolbarFitQueued = true;
+            BeginInvoke((Action)(() =>
+            {
+                toolbarFitQueued = false;
+                FitToolbarToWidth();
+            }));
         }
 
         /// <summary>
@@ -1530,6 +1539,9 @@ namespace MissionPlanner
                 }
 
                 int start = level, previous = toolbarCompactLevel;
+                if (level == toolbarCompactLevel && !ToolbarOverflowed())
+                    return; // nothing to change, and the last layout placed everything
+
                 for (; level <= 3; level++)
                 {
                     if (level != toolbarCompactLevel || level != start)
