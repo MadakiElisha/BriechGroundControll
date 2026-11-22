@@ -1403,6 +1403,9 @@ namespace MissionPlanner
                 // a longer mode name or pinned modes change the strip's width without resizing the toolbar
                 toolStripVehicleState.WidthAdjusted -= VehicleState_WidthAdjusted;
                 toolStripVehicleState.WidthAdjusted += VehicleState_WidthAdjusted;
+                // showing/hiding the strip on connect/disconnect frees or takes space the logo needs
+                toolStripVehicleState.AvailableChanged -= VehicleState_WidthAdjusted;
+                toolStripVehicleState.AvailableChanged += VehicleState_WidthAdjusted;
             }
             if (toolbarCompactLevel == -1 && MenuArduPilot != null)
                 MenuArduPilotWanted = MenuArduPilot.Available;
@@ -1513,21 +1516,35 @@ namespace MissionPlanner
             fittingToolbar = true;
             try
             {
+                // estimate first (with slack for the strip's own gaps), then let the real layout have the last word:
+                // if WinForms still pushes the logo or Connect into the hidden overflow, step down a level
                 int level = 0;
                 for (; level < 3; level++)
                 {
-                    if (MeasureToolbar(level) <= available)
+                    if (MeasureToolbar(level) + ToolbarSlack <= available)
                         break;
                 }
 
-                if (level == toolbarCompactLevel)
-                    return;
+                int start = level, previous = toolbarCompactLevel;
+                for (; level <= 3; level++)
+                {
+                    if (level != toolbarCompactLevel || level != start)
+                    {
+                        MainMenu.SuspendLayout();
+                        ApplyToolbarCompactLevel(level);
+                        MainMenu.ResumeLayout(false);
+                    }
 
-                toolbarCompactLevel = level;
-                MainMenu.SuspendLayout();
-                ApplyToolbarCompactLevel(level);
-                MainMenu.ResumeLayout();
-                log.InfoFormat("Toolbar compact level {0} for width {1}", level, available);
+                    toolbarCompactLevel = level;
+                    MainMenu.PerformLayout();
+                    if (!ToolbarOverflowed())
+                        break;
+                }
+
+                if (level > 3)
+                    level = 3;
+                if (level != previous)
+                    log.InfoFormat("Toolbar compact level {0} for width {1}", level, available);
             }
             catch (Exception ex)
             {
@@ -1582,6 +1599,19 @@ namespace MissionPlanner
             }
 
             return total;
+        }
+
+        private const int ToolbarSlack = 32;
+
+        private bool ToolbarOverflowed()
+        {
+            foreach (ToolStripItem item in new ToolStripItem[] { MenuArduPilot, MenuConnect, toolStripConnectionControl })
+            {
+                if (item != null && item.Available && item.Placement == ToolStripItemPlacement.Overflow)
+                    return true;
+            }
+
+            return false;
         }
 
         private bool MenuArduPilotWanted = true;
