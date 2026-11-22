@@ -309,7 +309,23 @@ namespace MissionPlanner.GCSViews
 
             // emergency
             btnDisarm = new TokenButton { Dock = DockStyle.Fill, Text = "Disarm (hold) · Emergency", Style = TokenButton.Kind.Danger, Height = 52 };
-            btnDisarm.Click += (s, e) => FlightCommands.ArmOrDisarmInteractive(FindForm());
+            btnDisarm.Click += (s, e) =>
+            {
+                var cs = MainV2.comPort?.MAV?.cs;
+                if (cs != null && !cs.armed)
+                {
+                    // arming always asks, like the header's arm button; Cancel is first so Enter can't arm
+                    var mode = string.IsNullOrEmpty(cs.mode) ? "the current mode" : cs.mode.ToUpperInvariant();
+                    if (System.CustomMessageBox.Show(
+                            $"Arm the vehicle in {mode}?\n\nMotors and propellers may start. Make sure the area is clear.",
+                            "Arm", System.CustomMessageBox.MessageBoxButtons.YesNo,
+                            System.CustomMessageBox.MessageBoxIcon.Warning, "Cancel", "Arm") !=
+                        System.CustomMessageBox.DialogResult.No)
+                        return;
+                }
+
+                FlightCommands.ArmOrDisarmInteractive(FindForm());
+            };
 
             col.Controls.Add(modesCard, 0, 0);
             col.Controls.Add(missionCard, 0, 1);

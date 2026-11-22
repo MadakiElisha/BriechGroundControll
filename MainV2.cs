@@ -1207,8 +1207,13 @@ namespace MissionPlanner
             var logoImage = ThemeManager.IsDarkTheme
                 ? Properties.Resources.Briech_logo
                 : Properties.Resources.Briech_logo_light;
-            MenuArduPilot.Image = new Bitmap(logoImage, (int)(200), 31);
-            MenuArduPilot.Width = MenuArduPilot.Image.Width;
+            brandLogoSource = logoImage;
+            brandLogoCache.Clear();
+            // the toolbar may already have been fitted before the logo existed: size the logo for the current width
+            toolbarCompactLevel = -1;
+            FitToolbarToWidth();
+            if (toolbarCompactLevel == -1)
+                MenuArduPilot.Image = BrandLogoFor(0);
 
             Application.DoEvents();
 
@@ -1402,6 +1407,9 @@ namespace MissionPlanner
                 // a longer mode name or pinned modes change the strip's width without resizing the toolbar
                 toolStripVehicleState.WidthAdjusted -= VehicleState_WidthAdjusted;
                 toolStripVehicleState.WidthAdjusted += VehicleState_WidthAdjusted;
+                // showing/hiding the strip on connect/disconnect frees or takes space the logo needs
+                toolStripVehicleState.AvailableChanged -= VehicleState_WidthAdjusted;
+                toolStripVehicleState.AvailableChanged += VehicleState_WidthAdjusted;
             }
             if (toolbarCompactLevel == -1 && MenuArduPilot != null)
                 MenuArduPilotWanted = MenuArduPilot.Available;
@@ -1489,10 +1497,19 @@ namespace MissionPlanner
             FitToolbarToWidth();
         }
 
+        private bool toolbarFitQueued, toolbarSettleQueued;
+
         private void VehicleState_WidthAdjusted(object sender, EventArgs e)
         {
-            if (IsHandleCreated && !IsDisposed)
-                BeginInvoke((Action)FitToolbarToWidth);
+            // ignore changes caused by our own fitting, and queue at most one refit, so layout can't feed back on itself
+            if (fittingToolbar || toolbarFitQueued || !IsHandleCreated || IsDisposed)
+                return;
+            toolbarFitQueued = true;
+            BeginInvoke((Action)(() =>
+            {
+                toolbarFitQueued = false;
+                FitToolbarToWidth();
+            }));
         }
 
         /// <summary>
@@ -1512,21 +1529,55 @@ namespace MissionPlanner
             fittingToolbar = true;
             try
             {
+                // estimate first (with slack for the strip's own gaps), then let the real layout have the last word:
+                // if WinForms still pushes the logo or Connect into the hidden overflow, step down a level
                 int level = 0;
-                for (; level < 3; level++)
+                for (; level < MaxToolbarLevel; level++)
                 {
-                    if (MeasureToolbar(level) <= available)
+                    if (MeasureToolbar(level) + ToolbarSlack <= available)
                         break;
                 }
 
+                int start = level, previous = toolbarCompactLevel;
                 if (level == toolbarCompactLevel)
-                    return;
+                {
+                    // same size as before: still lay out again, so nothing is left where a narrower width put it
+                    MainMenu.PerformLayout();
+                    if (!ToolbarOverflowed())
+                        return;
+                }
 
-                toolbarCompactLevel = level;
-                MainMenu.SuspendLayout();
-                ApplyToolbarCompactLevel(level);
-                MainMenu.ResumeLayout();
-                log.InfoFormat("Toolbar compact level {0} for width {1}", level, available);
+                for (; level <= MaxToolbarLevel; level++)
+                {
+                    if (level != toolbarCompactLevel || level != start)
+                    {
+                        MainMenu.SuspendLayout();
+                        ApplyToolbarCompactLevel(level);
+                        MainMenu.ResumeLayout(false);
+                    }
+
+                    toolbarCompactLevel = level;
+                    MainMenu.PerformLayout();
+                    if (!ToolbarOverflowed())
+                        break;
+                }
+
+                if (level > MaxToolbarLevel)
+                    level = MaxToolbarLevel;
+                if (level != previous)
+                    log.InfoFormat("Toolbar compact level {0} for width {1}", level, available);
+
+                // a resize can still be mid-way through layout here; settle positions once it has finished
+                if (IsHandleCreated && !toolbarSettleQueued)
+                {
+                    toolbarSettleQueued = true;
+                    BeginInvoke((Action)(() =>
+                    {
+                        toolbarSettleQueued = false;
+                        if (MainMenu != null && !MainMenu.IsDisposed)
+                            MainMenu.PerformLayout();
+                    }));
+                }
             }
             catch (Exception ex)
             {
@@ -1538,7 +1589,6 @@ namespace MissionPlanner
             }
         }
 
-        // level 0: full size, 1: narrower buttons + hide brand logo, 2: icons only, 3: icons only, narrowest
         private int NavWidthFor(ToolStripItem item, int level)
         {
             int baseWidth = navButtonBaseWidths[item];
@@ -1549,11 +1599,18 @@ namespace MissionPlanner
                 case 1:
                     return Math.Max(48, baseWidth - 10);
                 case 2:
+                    return Math.Max(44, baseWidth - 20); // still words, just tighter
+                case 3:
                     return 52;
                 default:
                     return 44;
             }
         }
+
+        // levels: 0 full, 1 tighter + compact logo, 2 tightest words + small logo, 3 icon tabs, 4 narrowest icons.
+        // Words are kept as long as anything fits; icons are the last resort for very narrow windows.
+        private const int MaxToolbarLevel = 4;
+        private const int IconTabsLevel = 3;
 
         private int MeasureToolbar(int level)
         {
@@ -1567,7 +1624,7 @@ namespace MissionPlanner
                 if (navButtonBaseWidths.ContainsKey(item))
                     width = NavWidthFor(item, level);
                 else if (item == MenuArduPilot)
-                    width = level == 0 && MenuArduPilotWanted ? 210 : 0;
+                    width = MenuArduPilotWanted ? BrandLogoItemWidth(level) : 0;
                 else if (item == toolStripConnectionControl)
                     width = level == 0 ? 241 : 200;
                 else if (item == toolStripVehicleState && toolStripVehicleState != null)
@@ -1583,7 +1640,57 @@ namespace MissionPlanner
             return total;
         }
 
+        private const int ToolbarSlack = 8;
+
+        private bool ToolbarOverflowed()
+        {
+            foreach (ToolStripItem item in new ToolStripItem[] { MenuArduPilot, MenuConnect, toolStripConnectionControl })
+            {
+                if (item != null && item.Available && item.Placement == ToolStripItemPlacement.Overflow)
+                    return true;
+            }
+
+            return false;
+        }
+
         private bool MenuArduPilotWanted = true;
+
+        // Briech logo at three sizes: full (monitors), compact (14-15 inch laptops), small (narrow windows)
+        private Image brandLogoSource;
+        private readonly Dictionary<int, Image> brandLogoCache = new Dictionary<int, Image>();
+
+        private static Size BrandLogoSize(int level)
+        {
+            return level <= 0 ? new Size(200, 31) : level == 1 ? new Size(148, 23) : new Size(116, 18);
+        }
+
+        private static int BrandLogoItemWidth(int level)
+        {
+            return BrandLogoSize(level).Width + 10;
+        }
+
+        private Image BrandLogoFor(int level)
+        {
+            var key = Math.Min(Math.Max(level, 0), 2);
+            if (brandLogoCache.TryGetValue(key, out var cached))
+                return cached;
+            if (brandLogoSource == null)
+                return MenuArduPilot?.Image;
+            var size = BrandLogoSize(key);
+            var bmp = new Bitmap(size.Width, size.Height);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+#if !LIB // not in the Android/Mac drawing shim
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+#endif
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                g.DrawImage(brandLogoSource, new Rectangle(Point.Empty, size));
+            }
+
+            brandLogoCache[key] = bmp;
+            return bmp;
+        }
 
         private void ApplyToolbarCompactLevel(int level)
         {
@@ -1592,15 +1699,20 @@ namespace MissionPlanner
                 var button = kvp.Key;
                 button.Width = NavWidthFor(button, level);
                 // text tabs; on very narrow windows they fall back to icons
-                button.DisplayStyle = level >= 2
+                button.DisplayStyle = level >= IconTabsLevel
                     ? ToolStripItemDisplayStyle.Image
                     : ToolStripItemDisplayStyle.Text;
-                button.Padding = level >= 2 ? new Padding(2) : new Padding(4, 0, 4, 0);
+                button.Padding = level >= IconTabsLevel ? new Padding(2) : new Padding(4, 0, 4, 0);
                 button.ToolTipText = button.Text;
             }
 
             if (MenuArduPilot != null)
-                MenuArduPilot.Available = level == 0 && MenuArduPilotWanted;
+            {
+                // the brand stays on every screen size; it gets smaller instead of disappearing
+                MenuArduPilot.Available = MenuArduPilotWanted;
+                MenuArduPilot.Image = BrandLogoFor(level);
+                MenuArduPilot.Size = new Size(BrandLogoItemWidth(level), MenuArduPilot.Height);
+            }
 
             if (toolStripConnectionControl != null)
                 toolStripConnectionControl.Width = level == 0 ? 241 : 200;
