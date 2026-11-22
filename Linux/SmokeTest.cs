@@ -118,7 +118,8 @@ class LinuxSmokeTest
     {
         // a 14-inch laptop at full screen is about 1280 px wide (1920 at 150% scaling, or 1366 at 100%)
         MainV2.instance.WindowState = FormWindowState.Normal;
-        MainV2.instance.Size = new System.Drawing.Size(1280, 800);
+        MainV2.instance.Bounds = new System.Drawing.Rectangle(0, 0, 1280, 800);
+        MainV2.instance.Refresh();
         Pause(800);
         DumpToolbar("before fly");
         if (MainV2.instance.FlyView == null)
