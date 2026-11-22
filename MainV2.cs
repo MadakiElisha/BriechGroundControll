@@ -1497,7 +1497,7 @@ namespace MissionPlanner
             FitToolbarToWidth();
         }
 
-        private bool toolbarFitQueued;
+        private bool toolbarFitQueued, toolbarSettleQueued;
 
         private void VehicleState_WidthAdjusted(object sender, EventArgs e)
         {
@@ -1566,6 +1566,18 @@ namespace MissionPlanner
                     level = MaxToolbarLevel;
                 if (level != previous)
                     log.InfoFormat("Toolbar compact level {0} for width {1}", level, available);
+
+                // a resize can still be mid-way through layout here; settle positions once it has finished
+                if (IsHandleCreated && !toolbarSettleQueued)
+                {
+                    toolbarSettleQueued = true;
+                    BeginInvoke((Action)(() =>
+                    {
+                        toolbarSettleQueued = false;
+                        if (MainMenu != null && !MainMenu.IsDisposed)
+                            MainMenu.PerformLayout();
+                    }));
+                }
             }
             catch (Exception ex)
             {
