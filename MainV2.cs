@@ -1539,8 +1539,13 @@ namespace MissionPlanner
                 }
 
                 int start = level, previous = toolbarCompactLevel;
-                if (level == toolbarCompactLevel && !ToolbarOverflowed())
-                    return; // nothing to change, and the last layout placed everything
+                if (level == toolbarCompactLevel)
+                {
+                    // same size as before: still lay out again, so nothing is left where a narrower width put it
+                    MainMenu.PerformLayout();
+                    if (!ToolbarOverflowed())
+                        return;
+                }
 
                 for (; level <= MaxToolbarLevel; level++)
                 {
