@@ -591,7 +591,7 @@ namespace MissionPlanner.GCSViews
                 }
 
                 if (isChecked)
-                    using (var pen = new Pen(p.OnBrand, 3) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round })
+                    using (var pen = new Pen(p.OnBrand, 3)) // no line caps: not in the Android/Mac drawing shim
                         g.DrawLines(pen, new[] { new PointF(box.X + 5, box.Y + 11), new PointF(box.X + 9.5f, box.Y + 16), new PointF(box.X + 17, box.Y + 6) });
 
                 DrawText(g, Text, T.Body, p.TextPrimary, new Rectangle(46, 0, Width - 56, Height));
