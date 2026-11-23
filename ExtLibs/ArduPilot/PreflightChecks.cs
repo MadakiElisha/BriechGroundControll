@@ -186,7 +186,7 @@ namespace MissionPlanner.ArduPilot
             {
                 var atRest = x.Groundspeed < 1;
                 if (atRest)
-                    Add(Section.Vehicle, $"Airspeed sensor near zero at rest (≤ {L.AirspeedAtRestMs:0} m/s)",
+                    Add(Section.Vehicle, "Airspeed near zero at rest",
                         Math.Abs(x.Airspeed) > L.AirspeedAtRestMs ? Status.Check : Status.Pass,
                         Math.Abs(x.Airspeed) > L.AirspeedAtRestMs ? x.Airspeed.ToString("0.0 m/s", CultureInfo.InvariantCulture) : null,
                         Math.Abs(x.Airspeed) > L.AirspeedAtRestMs ? "Check the pitot cover is off and the tube is clear, then recalibrate (preflight calibration)." : null);
