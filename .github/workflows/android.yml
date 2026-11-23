@@ -49,6 +49,13 @@ jobs:
             !jl
           key: ${{ runner.os }}-buildAAB
 
+      # JDK 11 from the runner's toolcache (Chocolatey's feed has returned 503s and failed builds)
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: '11'
+
       - name: Build
         shell: pwsh
         run: |
@@ -66,9 +73,8 @@ jobs:
           
           $manifest.Save($current.Path + "\ExtLibs\Xamarin\Xamarin.Android\Properties\AndroidManifest.xml")
 
-          choco install microsoft-openjdk --version=11.0.11.9
 
-          msbuild -v:m -restore -t:SignAndroidPackage -p:Configuration=Release "ExtLibs\Xamarin\Xamarin.Android\Xamarin.Android.csproj"
+          msbuild -v:m -restore -t:SignAndroidPackage -p:Configuration=Release -p:JavaSdkDirectory="$env:JAVA_HOME" "ExtLibs\Xamarin\Xamarin.Android\Xamarin.Android.csproj"
           
           del ExtLibs\Xamarin\Xamarin.Android\bin\Release\com.michaeloborne.MissionPlanner-Signed.aab
           
@@ -131,6 +137,13 @@ jobs:
             !**.dll
             !jl
           key: ${{ runner.os }}-buildAPK
+      # JDK 11 from the runner's toolcache (Chocolatey's feed has returned 503s and failed builds)
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: '11'
+
       - name: Build
         shell: pwsh
         run: |
@@ -152,9 +165,8 @@ jobs:
 
           Set-Content -Path ExtLibs\Xamarin\Xamarin.Android\Xamarin.Android.csproj -Value (Get-Content -Path ExtLibs\Xamarin\Xamarin.Android\Xamarin.Android.csproj -Raw).Replace("<AotAssemblies>true</AotAssemblies>","<AotAssemblies>false</AotAssemblies>")
 
-          choco install microsoft-openjdk --version=11.0.11.9
           
-          msbuild -v:m -restore -t:SignAndroidPackage -p:Configuration=Release "ExtLibs\Xamarin\Xamarin.Android\Xamarin.Android.csproj"
+          msbuild -v:m -restore -t:SignAndroidPackage -p:Configuration=Release -p:JavaSdkDirectory="$env:JAVA_HOME" "ExtLibs\Xamarin\Xamarin.Android\Xamarin.Android.csproj"
           
           del ExtLibs\Xamarin\Xamarin.Android\bin\Release\*-Signed.apk
           

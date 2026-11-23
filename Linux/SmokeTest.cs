@@ -176,6 +176,12 @@ class LinuxSmokeTest
         Pause(500);
         Shot(dir, "0-fly-onboard-lower");
         fly.ShowOnboard(false);
+        // Go / No-Go preflight board (sample: terrain clearance and the pitot item need attention)
+        fly.ShowPreflight(true);
+        Pause(1200);
+        Shot(dir, "0-fly-preflight");
+        Console.WriteLine("preflight verdict: " + MissionPlanner.GCSViews.FlyPreflightPanel.Latest?.Verdict + " / " + MissionPlanner.GCSViews.FlyPreflightPanel.Latest?.Summary);
+        fly.ShowPreflight(false);
         MainV2.instance.FlyView.ShowPreview(null, MissionPlanner.ArduPilot.FlightCommandProfile.Family.Unknown);
     }
 
