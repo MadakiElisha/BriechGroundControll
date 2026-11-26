@@ -73,7 +73,9 @@ namespace MissionPlanner.Controls
             _container = (Panel)Control;
             _container.AutoSize = false;
             _container.Height = 32;
-            _container.MinimumSize = new Size(180, 32);
+            // no minimum width: a 180 px minimum made the panel draw over the tabs and the logo whenever the
+            // toolbar gave it less (its item said 0 px, the panel still painted 180+)
+            _container.MinimumSize = new Size(0, 32);
             _container.BackColor = Color.Transparent;
 
             this.AutoSize = false;
@@ -138,28 +140,35 @@ namespace MissionPlanner.Controls
             if (_parentMenuStrip == null || _modeDropdown == null)
                 return;
 
-            // Calculate space used by other items in the menu strip
-            int otherItemsWidth = 0;
-            foreach (ToolStripItem item in _parentMenuStrip.Items)
+            int availableWidth;
+            if (WidthBudget.HasValue)
             {
-                // Available, not Visible: an item the strip could not place this pass (the logo is last in line)
-                // reports Visible = false, and ignoring it let this control take the logo's space for good.
-                if (item != this && item.Available)
+                // the header decides how much room this strip gets (MainV2 / HeaderLayoutPlanner)
+                availableWidth = WidthBudget.Value;
+            }
+            else
+            {
+                // on its own (no header planner): take what the other items leave
+                int otherItemsWidth = 0;
+                foreach (ToolStripItem item in _parentMenuStrip.Items)
                 {
-                    otherItemsWidth += item.Width + item.Margin.Horizontal;
+                    if (item != this && item.Available)
+                        otherItemsWidth += item.Width + item.Margin.Horizontal;
                 }
+
+                availableWidth = _parentMenuStrip.Width - otherItemsWidth - 20;
             }
 
-            // Available space for this control (with some padding for safety)
-            int availableWidth = _parentMenuStrip.Width - otherItemsWidth - 20;
-
-            // If no space available, hide entirely
+            // If no space available, take no width at all (with no minimum size the panel then paints nothing).
+            // Don't hide the panel itself: the toolbar ties the item's visibility to it, and the strip would
+            // stay gone after the window grows again.
             if (availableWidth <= 0)
             {
                 if (_container.Width != 0)
                 {
                     _container.Width = 0;
                     this.Size = new Size(0, _container.Height);
+                    WidthAdjusted?.Invoke(this, EventArgs.Empty);
                 }
                 return;
             }
@@ -244,12 +253,59 @@ namespace MissionPlanner.Controls
             // Update width
             int totalWidth = minRequired + pinnedWidth + (showGps ? gpsWidth : 0);
             totalWidth = Math.Max(totalWidth, Math.Min(availableWidth, minRequired)); // Don't exceed available, but at least show arm+dropdown
+            if (WidthBudget.HasValue)
+                totalWidth = Math.Min(totalWidth, WidthBudget.Value); // never past what the header gave
 
             if (_container.Width != totalWidth)
             {
                 _container.Width = totalWidth;
                 this.Size = new Size(totalWidth, _container.Height);
                 WidthAdjusted?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        /// <summary>
+        /// Width the header gives this strip. When set, the strip fits arm + mode, then GPS, then pinned modes into
+        /// it and never measures its neighbours (two things sizing against each other is how the logo got pushed
+        /// off the bar). Null: the old behaviour, take whatever is left.
+        /// </summary>
+        public int? WidthBudget
+        {
+            get { return _widthBudget; }
+            set
+            {
+                if (_widthBudget == value)
+                    return;
+                _widthBudget = value;
+                AdjustWidthToAvailableSpace();
+            }
+        }
+
+        private int? _widthBudget;
+
+        /// <summary>Width of the GPS block when shown (for the header planner).</summary>
+        public int GpsBlockWidth
+        {
+            get
+            {
+                int gpsWidth = 32;
+                if (_gpsSatsLabel != null && _gpsDopLabel != null)
+                    gpsWidth += Math.Max(TextRenderer.MeasureText(_gpsSatsLabel.Text, _gpsSatsLabel.Font).Width,
+                        TextRenderer.MeasureText(_gpsDopLabel.Text, _gpsDopLabel.Font).Width) + 8;
+                return gpsWidth;
+            }
+        }
+
+        /// <summary>Widths of the pinned mode buttons, in order (for the header planner).</summary>
+        public List<int> PinnedButtonWidths
+        {
+            get
+            {
+                var list = new List<int>();
+                using (var font = new Font("Segoe UI", 9F))
+                    foreach (var mode in _pinnedModes)
+                        list.Add(TextRenderer.MeasureText(mode, font).Width + 20);
+                return list;
             }
         }
 
@@ -663,6 +719,13 @@ namespace MissionPlanner.Controls
 
             int padding = 8; // table padding
             int totalWidth = padding + armWidth + dropdownWidth + pinnedWidth + gpsWidth + 8;
+
+            if (WidthBudget.HasValue)
+            {
+                // the header decides the width: re-fit the content into it rather than growing past it
+                AdjustWidthToAvailableSpace();
+                return;
+            }
 
             _container.Width = totalWidth;
             this.Size = new Size(totalWidth, _container.Height);

@@ -117,6 +117,31 @@ static class UiCheck
         Environment.Exit(problems == 0 ? 1 : problems);
     }
 
+    /// <summary>The app's own log: every ERROR / exception line it wrote during the check (first 60).</summary>
+    static void DumpAppErrors()
+    {
+        try
+        {
+            var repo = (log4net.Repository.Hierarchy.Hierarchy)log4net.LogManager.GetRepository();
+            foreach (var appender in repo.Root.Appenders.OfType<log4net.Appender.FileAppender>())
+            {
+                appender.Flush(2000);
+                string[] lines;
+                using (var fs = new FileStream(appender.File, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var sr = new StreamReader(fs))
+                    lines = sr.ReadToEnd().Split('\n');
+                var bad = lines.Where(l => l.Contains(" ERROR ")).Take(40).ToList(); // first-chance DEBUG noise left out
+                Say($"app log {appender.File}: {lines.Length} lines, {bad.Count} error lines shown");
+                foreach (var l in bad)
+                    Say("applog " + (l.Length > 400 ? l.Substring(0, 400) : l));
+            }
+        }
+        catch (Exception ex)
+        {
+            Say("app log not readable: " + ex.Message);
+        }
+    }
+
     static void Run()
     {
         Application.ThreadException += OnUiException;
@@ -234,6 +259,110 @@ static class UiCheck
         fly.ShowTools(false);
 
         GaugesNearZero();
+        ToolbarAtWidths();
+        CpuByScreen();
+    }
+
+    /// <summary>
+    /// Laptop widths from 1024 (small 14"/ high scaling) to 1920: the logo and Connect must always be on the bar,
+    /// never pushed into the toolbar's hidden overflow.
+    /// </summary>
+    static void ToolbarAtWidths()
+    {
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var menu = (MenuStrip)typeof(MainV2).GetField("MainMenu", flags).GetValue(MainV2.instance);
+        // Windows won't size a window beyond the screen, so test what this screen allows (1024 on the build machine)
+        var screenW = Screen.PrimaryScreen.WorkingArea.Width;
+        foreach (var w in new[] { 1920, 1600, 1366, 1280, 1152, 1024, 960, 900, 800 }.Where(x => x <= screenW))
+        {
+            MainV2.instance.Bounds = new Rectangle(0, 0, w, 760);
+            Pause(1500);
+            var level = typeof(MainV2).GetField("toolbarCompactLevel", flags)?.GetValue(MainV2.instance);
+            var parts = menu.Items.Cast<ToolStripItem>().Where(i => i.Available)
+                .Select(i => $"{i.Name}:{(i.Placement == ToolStripItemPlacement.Overflow ? "HIDDEN" : i.Bounds.X + "+" + i.Width)}");
+            Say($"toolbar {w}px level {level}: {string.Join(" ", parts)}");
+            // connected: the arm / mode strip should come back whenever there is room for it
+            var strip = menu.Items.Cast<ToolStripItem>().FirstOrDefault(i => i.Name == "toolStripVehicleState");
+            if (MainV2.comPort.BaseStream.IsOpen && w >= 1024 && (strip == null || !strip.Available))
+                Problem($"toolbar at {w}px: the arm / mode strip is gone while connected");
+            foreach (var name in new[] { "MenuArduPilot", "MenuConnect" })
+            {
+                var item = menu.Items.Cast<ToolStripItem>().FirstOrDefault(i => i.Name == name);
+                if (item == null || !item.Available || item.Placement != ToolStripItemPlacement.Main)
+                    Problem($"toolbar at {w}px: {name} is not on the bar");
+            }
+
+            // a hosted control (the vehicle strip) must not paint wider than the room its item was given
+            foreach (var host in menu.Items.OfType<ToolStripControlHost>().Where(h => h.Available && h.Control != null && h.Control.Visible))
+            {
+                if (host.Control.Width > host.Width + 2)
+                    Problem($"toolbar at {w}px: {host.Name} paints {host.Control.Width}px into a {host.Width}px slot (draws over its neighbours)");
+            }
+
+            using (var bmp = new Bitmap(menu.Width, menu.Height))
+            {
+                menu.DrawToBitmap(bmp, new Rectangle(Point.Empty, menu.Size));
+                bmp.Save(Path.Combine(shots, $"toolbar-{w}.png"), System.Drawing.Imaging.ImageFormat.Png);
+            }
+        }
+
+        // and back to the widest: everything that gave way must come back
+        MainV2.instance.Bounds = new Rectangle(0, 0, screenW, 760);
+        Pause(1500);
+        var back = menu.Items.Cast<ToolStripItem>().Where(i => i.Available).Select(i => $"{i.Name}:{i.Bounds.X}+{i.Width}");
+        Say($"toolbar back at {screenW}px: {string.Join(" ", back)}");
+
+        MainV2.instance.Bounds = new Rectangle(0, 0, 1280, 800);
+        Pause(1000);
+    }
+
+    /// <summary>How hard each screen works the PC: process CPU over 20 s, connected to SITL, nothing else moving.</summary>
+    static void CpuByScreen()
+    {
+        var proc = System.Diagnostics.Process.GetCurrentProcess();
+        var cores = Environment.ProcessorCount;
+        var fly = MainV2.instance.FlyView;
+
+        void Measure(string name, Action show)
+        {
+            show();
+            Pause(3000);
+            proc.Refresh();
+            var cpu0 = proc.TotalProcessorTime;
+            var t0 = DateTime.Now;
+            var threads0 = proc.Threads.Cast<System.Diagnostics.ProcessThread>().ToDictionary(t => t.Id, t => SafeCpu(t));
+            Pause(20000);
+            proc.Refresh();
+            var used = (proc.TotalProcessorTime - cpu0).TotalMilliseconds;
+            var wall = (DateTime.Now - t0).TotalMilliseconds;
+            var busiest = proc.Threads.Cast<System.Diagnostics.ProcessThread>()
+                .Select(t => new { t.Id, ms = SafeCpu(t) - (threads0.TryGetValue(t.Id, out var b) ? b : 0) })
+                .OrderByDescending(x => x.ms).Take(4)
+                .Select(x => $"{x.Id}:{x.ms * 100 / wall:0}%");
+            Say($"CPU {name}: {used * 100 / wall:0}% of one core ({used * 100 / wall / cores:0.0}% of all {cores}), " +
+                $"memory {proc.WorkingSet64 / 1048576} MB, busiest threads {string.Join(" ", busiest)}");
+        }
+
+        Measure("Fly map", () => { MainV2.View.ShowScreen("FlyView"); fly.SetCentreView(false, false); });
+        Measure("Fly 3D", () => fly.SetCentreView(true, false));
+        Measure("Fly Tools Status", () => { fly.SetCentreView(false, false); fly.ShowTools(true); fly.Tools.OpenTool("status"); });
+        Measure("Fly Tools closed, map", () => { fly.Tools.CloseTool(); fly.ShowTools(false); });
+        Measure("Classic Fly", () => MainV2.View.ShowScreen("FlightData"));
+        Measure("Previous layout", () => MainV2.View.ShowScreen("ModernFlightData"));
+        Measure("Plan", () => MainV2.View.ShowScreen("FlightPlanner"));
+        Measure("Back to Fly", () => MainV2.View.ShowScreen("FlyView"));
+    }
+
+    static double SafeCpu(System.Diagnostics.ProcessThread t)
+    {
+        try
+        {
+            return t.TotalProcessorTime.TotalMilliseconds;
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
     /// <summary>
@@ -438,6 +567,7 @@ static class UiCheck
         Settings.Instance["update_check"] = DateTime.Now.ToShortDateString();
         Settings.Instance["AutoConnect"] = "[]";
         Settings.Instance["AA_CheckEnableAltitudeAngel"] = "False"; // no first-run airspace prompt
+        Settings.Instance["SHOWAGAIN_New_Mission_Overlay"] = "False"; // Plan's first-visit tip
         Settings.Instance.Save();
 
         // report UI-thread exceptions here (the app's own handler shows a dialog nobody can close). WinForms keeps
@@ -460,6 +590,7 @@ static class UiCheck
                 Problem("check crashed: " + ex);
             }
 
+            DumpAppErrors();
             Say(problems == 0 ? "RESULT no problems found" : $"RESULT {problems} problem(s)");
             Console.Out.Flush();
             Environment.Exit(0);

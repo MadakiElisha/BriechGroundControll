@@ -313,7 +313,10 @@ namespace MissionPlanner.Controls
                 }
 
                 if (positionChanged)
+                {
+                    Touch();
                     this.Invalidate();
+                }
             }
         }
 
@@ -326,10 +329,16 @@ namespace MissionPlanner.Controls
             get { return _rpy; }
             set
             {
+                // sensor noise on the ground is not movement: only a real attitude change wakes the view up
+                bool moved = Math.Abs(_rpy.X - value.X) > 0.2 || Math.Abs(_rpy.Y - value.Y) > 0.2 || Math.Abs(_rpy.Z - value.Z) > 0.2;
                 _rpy.X = (float) Math.Round(value.X, 2);
                 _rpy.Y = (float) Math.Round(value.Y, 2);
                 _rpy.Z = (float) Math.Round(value.Z, 2);
-                this.Invalidate();
+                if (moved)
+                {
+                    Touch();
+                    this.Invalidate();
+                }
             }
         }
 
@@ -370,6 +379,11 @@ namespace MissionPlanner.Controls
             MouseUp += OnMouseUp;
             MouseWheel += OnMouseWheel;
             MouseDoubleClick += OnMouseDoubleClick;
+            // the pilot moving the camera keeps the full frame rate
+            MouseMove += (s, e) => { if (e.Button != MouseButtons.None) Touch(); };
+            MouseWheel += (s, e) => Touch();
+            MouseDown += (s, e) => Touch();
+            Resize += (s, e) => Touch();
 
             // Initialize ADSB tooltip
             _adsbToolTip = new ToolTip();
@@ -1536,13 +1550,30 @@ namespace MissionPlanner.Controls
                 return;
             }
 
+            if (!glCapable.HasValue && Context != null && IsHandleCreated)
+            {
+                try
+                {
+                    if (!Context.IsCurrent)
+                        Context.MakeCurrent(this.WindowInfo);
+                    GlCapable();
+                }
+                catch
+                {
+                    glCapable = false;
+                }
+            }
+
+            if (glCapable == false)
+                return;
+
             Utilities.Extensions.ProtectReentry(doPaint);
         }
 
         public void doPaint()
         {
             DateTime start = DateTime.Now;
-            if (this.DesignMode)
+            if (this.DesignMode || glCapable == false)
                 return;
             var beforewait = DateTime.Now;
             if (textureSemaphore.Wait(1) == false)
@@ -2352,6 +2383,12 @@ namespace MissionPlanner.Controls
                     if (!Context.IsCurrent)
                         Context.MakeCurrent(this.WindowInfo);
 
+                    if (!GlCapable())
+                    {
+                        Context.MakeCurrent(null);
+                        return;
+                    }
+
                     _imageloaderThread = new Thread(imageLoader)
                     {
                         IsBackground = true,
@@ -2623,10 +2660,35 @@ namespace MissionPlanner.Controls
             }
         }
 
+        /// <summary>
+        /// Frame pacing. The view used to redraw as fast as it could (a 12 ms timer with VSync off, 60-80 frames a
+        /// second) for as long as it was on screen, which keeps a laptop's GPU and CPU flat out: hot, loud and
+        /// draining the battery. Now it draws at most <see cref="ActiveFps"/> while something is changing (the
+        /// aircraft moving or turning, the pilot moving the camera, tiles arriving) and <see cref="IdleFps"/> when
+        /// nothing is. Both can be set with map3d_max_fps / map3d_idle_fps.
+        /// </summary>
+        public int ActiveFps { get; set; } = Math.Max(5, Math.Min(120, Settings.Instance.GetInt32("map3d_max_fps", 30)));
+
+        public int IdleFps { get; set; } = Math.Max(1, Math.Min(30, Settings.Instance.GetInt32("map3d_idle_fps", 4)));
+
+        private DateTime lastActivity = DateTime.Now;
+        private DateTime lastFrame = DateTime.MinValue;
+
+        /// <summary>Something visible changed: draw at the full frame rate for a moment.</summary>
+        public void Touch()
+        {
+            lastActivity = DateTime.Now;
+        }
+
         private void timer1_Tick(object sender, EventArgs e)
         {
             if (onpaintrun == true && IsHandleCreated && !IsDisposed && !Disposing)
             {
+                var now = DateTime.Now;
+                var fps = now - lastActivity < TimeSpan.FromSeconds(1.5) ? ActiveFps : IdleFps;
+                if ((now - lastFrame).TotalMilliseconds < 1000.0 / fps)
+                    return;
+                lastFrame = now;
                 this.Invalidate();
                 onpaintrun = false;
             }
@@ -2659,6 +2721,40 @@ namespace MissionPlanner.Controls
             return true;
         }
 
+        private bool? glCapable;
+
+        /// <summary>
+        /// False when the graphics driver can't run this view: it needs OpenGL 2.0 shaders, and Windows' built-in
+        /// fallback driver (no GPU driver installed, some remote desktops and virtual machines) only offers
+        /// OpenGL 1.1. Calling the missing functions there doesn't throw a normal error, it crashes the whole
+        /// app (access violation), so nothing in this view touches GL once this is known to be false.
+        /// </summary>
+        public bool Unsupported => glCapable == false;
+
+        public string GlVersion { get; private set; }
+
+        /// <summary>Checks once, with this view's context current.</summary>
+        private bool GlCapable()
+        {
+            if (glCapable.HasValue)
+                return glCapable.Value;
+            try
+            {
+                GlVersion = GL.GetString(StringName.Version) ?? "";
+                var m = System.Text.RegularExpressions.Regex.Match(GlVersion, @"(\d+)\.(\d+)");
+                glCapable = m.Success && int.Parse(m.Groups[1].Value) >= 2;
+            }
+            catch (Exception ex)
+            {
+                GlVersion = "unknown (" + ex.Message + ")";
+                glCapable = false;
+            }
+
+            if (glCapable == false)
+                Debug.WriteLine("3D view disabled: OpenGL " + GlVersion + " has no shader support");
+            return glCapable.Value;
+        }
+
         private void test_Resize(object sender, EventArgs e)
         {
             if (!IsHandleCreated || IsDisposed || Disposing || Context == null)
@@ -2674,6 +2770,12 @@ namespace MissionPlanner.Controls
             {
                 if (!Context.IsCurrent)
                     Context.MakeCurrent(this.WindowInfo);
+
+                if (!GlCapable())
+                {
+                    Context.MakeCurrent(null);
+                    return;
+                }
 
                 GL.Viewport(0, 0, safeWidth, safeHeight);
                 float renderDistance = _center.Alt > 500 ? 100000f : 50000f;

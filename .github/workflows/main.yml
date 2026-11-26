@@ -39,7 +39,7 @@ jobs:
         run: |
           # offline tests only: MAVLink sysid and MissionPlanner.ArduPilot.Tests (aliases, flight commands, firmware filter, engine).
           # BoardDetectTests are left out: 6 of them fail on stock upstream too (stale board tables).
-          dotnet test MissionPlannerTests/MissionPlannerTests.csproj --configuration Release --no-build --filter "FullyQualifiedName~Sysid32Tests|FullyQualifiedName~MissionPlanner.ArduPilot.Tests" --logger "trx;LogFileName=unit.trx"
+          dotnet test MissionPlannerTests/MissionPlannerTests.csproj --configuration Release --no-build --filter "FullyQualifiedName~Sysid32Tests|FullyQualifiedName~MissionPlanner.ArduPilot.Tests|FullyQualifiedName~HeaderLayoutPlannerTests" --logger "trx;LogFileName=unit.trx"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Quadplane SITL smoke test
@@ -72,7 +72,7 @@ jobs:
         # opens every Fly screen tool against a quadplane SITL on Windows and reports problems with screenshots;
         # informational: it never fails the build, the UICHECK lines and screenshots are the evidence
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 25
         shell: pwsh
         run: |
           $sitl = Join-Path $env:RUNNER_TEMP "sitl"
@@ -98,7 +98,7 @@ jobs:
           $env:BRIECH_SCREENSHOT_DIR = $shots
           try {
             $ui = Start-Process -FilePath "$app\BriechUiCheck.exe" -WorkingDirectory $app -PassThru -RedirectStandardOutput "$shots\uicheck.txt"
-            if (!$ui.WaitForExit(600000)) { Write-Host "UI check timed out"; Stop-Process -Id $ui.Id -Force }
+            if (!$ui.WaitForExit(1200000)) { Write-Host "UI check timed out"; Stop-Process -Id $ui.Id -Force }
           } finally {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           }

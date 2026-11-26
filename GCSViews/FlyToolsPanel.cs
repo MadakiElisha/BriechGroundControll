@@ -193,22 +193,35 @@ namespace MissionPlanner.GCSViews
         {
             if (!IsHandleCreated)
                 return;
-            BeginInvoke((Action)(() =>
+            BeginInvoke((Action)FocusToolNow);
+            // pages that refresh themselves just after opening (Parameters filters its list) can take focus
+            // away again; check once more when that has settled
+            var again = new Timer { Interval = 900 };
+            again.Tick += (s, e) =>
             {
-                try
-                {
-                    var target = Descendants(toolHost).FirstOrDefault(c => c is DataGridView && c.Visible && c.CanFocus)
-                                 ?? Descendants(toolHost).FirstOrDefault(c => c.Visible && c.CanFocus && c.TabStop && !(c is ButtonBase));
-                    if (target != null)
-                        target.Focus();
-                    else
-                        toolHost.SelectNextControl(null, true, true, true, true);
-                }
-                catch (Exception ex)
-                {
-                    log.Debug(ex);
-                }
-            }));
+                again.Stop();
+                again.Dispose();
+                if (!IsDisposed && toolView.Visible && !toolHost.ContainsFocus)
+                    FocusToolNow();
+            };
+            again.Start();
+        }
+
+        private void FocusToolNow()
+        {
+            try
+            {
+                var target = Descendants(toolHost).FirstOrDefault(c => c is DataGridView && c.Visible && c.CanFocus)
+                             ?? Descendants(toolHost).FirstOrDefault(c => c.Visible && c.CanFocus && c.TabStop && !(c is ButtonBase));
+                if (target != null)
+                    target.Focus();
+                else
+                    toolHost.SelectNextControl(null, true, true, true, true);
+            }
+            catch (Exception ex)
+            {
+                log.Debug(ex);
+            }
         }
 
         private static IEnumerable<Control> Descendants(Control root)

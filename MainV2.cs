@@ -1211,9 +1211,10 @@ namespace MissionPlanner
             brandLogoCache.Clear();
             // the toolbar may already have been fitted before the logo existed: size the logo for the current width
             toolbarCompactLevel = -1;
+            lastHeaderPlan = null;
             FitToolbarToWidth();
             if (toolbarCompactLevel == -1)
-                MenuArduPilot.Image = BrandLogoFor(0);
+                MenuArduPilot.Image = BrandLogoFor(HeaderLayoutPlanner.LogoStyle.Full);
 
             Application.DoEvents();
 
@@ -1411,9 +1412,8 @@ namespace MissionPlanner
                 toolStripVehicleState.AvailableChanged -= VehicleState_WidthAdjusted;
                 toolStripVehicleState.AvailableChanged += VehicleState_WidthAdjusted;
             }
-            if (toolbarCompactLevel == -1 && MenuArduPilot != null)
-                MenuArduPilotWanted = MenuArduPilot.Available;
             toolbarCompactLevel = -1; // sizes were just reset to full, re-evaluate
+            lastHeaderPlan = null;
             FitToolbarToWidth();
         }
 
@@ -1513,59 +1513,50 @@ namespace MissionPlanner
         }
 
         /// <summary>
-        /// Keeps every toolbar item on screen. The toolbar does not overflow, so on narrower or
-        /// high-DPI displays the right-hand items (Connect, link selector) used to be dropped.
-        /// Steps down through progressively more compact layouts until everything fits.
+        /// Fits the header bar to its width. <see cref="HeaderLayoutPlanner"/> decides, in one place and in a fixed
+        /// order of what gives way first, how every item is shown (tab style, logo size, how much room the
+        /// vehicle-state strip gets, compact connection controls); this method only measures and applies. The
+        /// real layout is then checked, and if WinForms still overflows anything the plan is made again with
+        /// less room. Items never size themselves against each other.
         /// </summary>
         private void FitToolbarToWidth()
         {
             if (fittingToolbar || MainMenu == null || MainMenu.IsDisposed || navButtonBaseWidths.Count == 0)
                 return;
 
-            int available = MainMenu.ClientSize.Width - MainMenu.Padding.Horizontal - 8;
+            int available = MainMenu.ClientSize.Width - MainMenu.Padding.Horizontal;
             if (available <= 0)
                 return;
 
             fittingToolbar = true;
             try
             {
-                // estimate first (with slack for the strip's own gaps), then let the real layout have the last word:
-                // if WinForms still pushes the logo or Connect into the hidden overflow, step down a level
-                int level = 0;
-                for (; level < MaxToolbarLevel; level++)
+                var inputs = HeaderInputs(available);
+                var plan = HeaderLayoutPlanner.Decide(inputs);
+                for (int attempt = 0; attempt < 6; attempt++)
                 {
-                    if (MeasureToolbar(level) + ToolbarSlack <= available)
-                        break;
-                }
-
-                int start = level, previous = toolbarCompactLevel;
-                if (level == toolbarCompactLevel)
-                {
-                    // same size as before: still lay out again, so nothing is left where a narrower width put it
-                    MainMenu.PerformLayout();
-                    if (!ToolbarOverflowed())
-                        return;
-                }
-
-                for (; level <= MaxToolbarLevel; level++)
-                {
-                    if (level != toolbarCompactLevel || level != start)
+                    if (lastHeaderPlan == null || plan.ToString() != lastHeaderPlan.ToString())
                     {
                         MainMenu.SuspendLayout();
-                        ApplyToolbarCompactLevel(level);
+                        ApplyHeaderPlan(plan);
                         MainMenu.ResumeLayout(false);
                     }
 
-                    toolbarCompactLevel = level;
+                    lastHeaderPlan = plan;
+                    toolbarCompactLevel = plan.Step;
                     MainMenu.PerformLayout();
                     if (!ToolbarOverflowed())
                         break;
+                    // WinForms needs more than the estimate (fonts, DPI): plan again with less room
+                    inputs.Available -= 32;
+                    plan = HeaderLayoutPlanner.Decide(inputs);
                 }
 
-                if (level > MaxToolbarLevel)
-                    level = MaxToolbarLevel;
-                if (level != previous)
-                    log.InfoFormat("Toolbar compact level {0} for width {1}", level, available);
+                if (lastLoggedHeaderPlan != lastHeaderPlan.ToString())
+                {
+                    lastLoggedHeaderPlan = lastHeaderPlan.ToString();
+                    log.InfoFormat("Header at {0}px: {1}", available, lastLoggedHeaderPlan);
+                }
 
                 // a resize can still be mid-way through layout here; settle positions once it has finished
                 if (IsHandleCreated && !toolbarSettleQueued)
@@ -1589,58 +1580,96 @@ namespace MissionPlanner
             }
         }
 
-        private int NavWidthFor(ToolStripItem item, int level)
-        {
-            int baseWidth = navButtonBaseWidths[item];
-            switch (level)
-            {
-                case 0:
-                    return baseWidth;
-                case 1:
-                    return Math.Max(48, baseWidth - 10);
-                case 2:
-                    return Math.Max(44, baseWidth - 20); // still words, just tighter
-                case 3:
-                    return 52;
-                default:
-                    return 44;
-            }
-        }
+        private HeaderLayoutPlanner.Plan lastHeaderPlan;
+        private string lastLoggedHeaderPlan;
 
-        // levels: 0 full, 1 tighter + compact logo, 2 tightest words + small logo, 3 icon tabs, 4 narrowest icons.
-        // Words are kept as long as anything fits; icons are the last resort for very narrow windows.
-        private const int MaxToolbarLevel = 4;
-        private const int IconTabsLevel = 3;
-
-        private int MeasureToolbar(int level)
+        /// <summary>Measure what the header holds, for the planner.</summary>
+        private HeaderLayoutPlanner.Inputs HeaderInputs(int available)
         {
-            int total = 0;
+            var x = new HeaderLayoutPlanner.Inputs { Available = available };
             foreach (ToolStripItem item in MainMenu.Items)
             {
-                if (!item.Available && item != MenuArduPilot)
-                    continue;
-
-                int width;
-                if (navButtonBaseWidths.ContainsKey(item))
-                    width = NavWidthFor(item, level);
-                else if (item == MenuArduPilot)
-                    width = MenuArduPilotWanted ? BrandLogoItemWidth(level) : 0;
-                else if (item == toolStripConnectionControl)
-                    width = level == 0 ? 241 : 200;
-                else if (item == toolStripVehicleState && toolStripVehicleState != null)
-                    // it shrinks itself to fit, so only its arm + mode minimum competes with the logo
-                    width = Math.Min(item.Width, toolStripVehicleState.MinimumRequiredWidth);
-                else
-                    width = item.Width;
-
-                if (width > 0)
-                    total += width + item.Margin.Horizontal;
+                if (navButtonBaseWidths.TryGetValue(item, out var w) && item.Available)
+                {
+                    x.NavWordWidths.Add(w);
+                    x.NavMargin = item.Margin.Horizontal;
+                }
             }
 
-            return total;
+            if (toolStripVehicleState != null)
+            {
+                x.VehicleStateWanted = toolStripVehicleState.Available;
+                x.VehicleMinimal = toolStripVehicleState.MinimumRequiredWidth;
+                x.VehicleGps = toolStripVehicleState.GpsBlockWidth;
+                x.VehiclePinned = toolStripVehicleState.PinnedButtonWidths;
+                x.VehicleMargin = toolStripVehicleState.Margin.Horizontal;
+            }
+            else
+            {
+                x.VehicleStateWanted = false;
+            }
+
+            if (MenuArduPilot != null)
+                x.LogoMargin = MenuArduPilot.Margin.Horizontal;
+            if (toolStripConnectionControl != null)
+                x.ConnectionMargin = toolStripConnectionControl.Margin.Horizontal;
+            if (MenuConnect != null)
+            {
+                x.ConnectMargin = MenuConnect.Margin.Horizontal;
+                x.ConnectFull = Math.Max(x.ConnectFull, connectFullWidth > 0 ? connectFullWidth : MenuConnect.Width);
+            }
+
+            // other items on the bar we don't plan (e.g. a plugin's button) still take their room
+            foreach (ToolStripItem item in MainMenu.Items)
+            {
+                if (!item.Available || navButtonBaseWidths.ContainsKey(item) || item == toolStripVehicleState ||
+                    item == MenuArduPilot || item == toolStripConnectionControl || item == MenuConnect)
+                    continue;
+                x.Available -= item.Width + item.Margin.Horizontal;
+            }
+
+            return x;
         }
 
-        private const int ToolbarSlack = 8;
+        private int connectFullWidth;
+
+        private void ApplyHeaderPlan(HeaderLayoutPlanner.Plan plan)
+        {
+            foreach (var kvp in navButtonBaseWidths)
+            {
+                var button = kvp.Key;
+                var icons = plan.Nav == HeaderLayoutPlanner.NavStyle.Icons || plan.Nav == HeaderLayoutPlanner.NavStyle.NarrowIcons;
+                button.Width = HeaderLayoutPlanner.NavWidth(kvp.Value, plan.Nav);
+                button.DisplayStyle = icons ? ToolStripItemDisplayStyle.Image : ToolStripItemDisplayStyle.Text;
+                button.Padding = icons ? new Padding(2) : new Padding(4, 0, 4, 0);
+                button.ToolTipText = button.Text;
+            }
+
+            if (MenuArduPilot != null)
+            {
+                // the brand is always on the bar: it gets smaller, down to the shield mark, instead of disappearing
+                MenuArduPilot.Available = true;
+                MenuArduPilot.Image = BrandLogoFor(plan.Logo);
+                MenuArduPilot.Size = new Size(HeaderLayoutPlanner.LogoWidth(plan.Logo), MenuArduPilot.Height);
+                MenuArduPilot.ToolTipText = plan.Logo == HeaderLayoutPlanner.LogoStyle.Mark ? "Briech UAS" : null;
+            }
+
+            if (toolStripConnectionControl != null)
+                toolStripConnectionControl.Width = plan.ConnectionCompact ? 200 : 241;
+
+            if (MenuConnect != null)
+            {
+                if (connectFullWidth == 0)
+                    connectFullWidth = MenuConnect.Width;
+                MenuConnect.DisplayStyle = plan.ConnectCompact ? ToolStripItemDisplayStyle.Image : ToolStripItemDisplayStyle.ImageAndText;
+                MenuConnect.Size = new Size(plan.ConnectCompact ? 48 : connectFullWidth, MenuConnect.Height);
+                MenuConnect.ToolTipText = plan.ConnectCompact ? MenuConnect.Text : null;
+            }
+
+            // the strip fits arm + mode, then GPS, then pinned modes into exactly the room it was given
+            if (toolStripVehicleState != null)
+                toolStripVehicleState.WidthBudget = plan.VehicleBudget;
+        }
 
         private bool ToolbarOverflowed()
         {
@@ -1653,30 +1682,32 @@ namespace MissionPlanner
             return false;
         }
 
-        private bool MenuArduPilotWanted = true;
-
-        // Briech logo at three sizes: full (monitors), compact (14-15 inch laptops), small (narrow windows)
+        // Briech logo: full (monitors), compact (laptops), small (narrow windows) and the shield mark on its own
         private Image brandLogoSource;
-        private readonly Dictionary<int, Image> brandLogoCache = new Dictionary<int, Image>();
+        private readonly Dictionary<HeaderLayoutPlanner.LogoStyle, Image> brandLogoCache = new Dictionary<HeaderLayoutPlanner.LogoStyle, Image>();
 
-        private static Size BrandLogoSize(int level)
+        private Image BrandLogoFor(HeaderLayoutPlanner.LogoStyle style)
         {
-            return level <= 0 ? new Size(200, 31) : level == 1 ? new Size(148, 23) : new Size(116, 18);
-        }
-
-        private static int BrandLogoItemWidth(int level)
-        {
-            return BrandLogoSize(level).Width + 10;
-        }
-
-        private Image BrandLogoFor(int level)
-        {
-            var key = Math.Min(Math.Max(level, 0), 2);
-            if (brandLogoCache.TryGetValue(key, out var cached))
+            if (brandLogoCache.TryGetValue(style, out var cached))
                 return cached;
             if (brandLogoSource == null)
                 return MenuArduPilot?.Image;
-            var size = BrandLogoSize(key);
+
+            Size size;
+            Rectangle from;
+            switch (style)
+            {
+                case HeaderLayoutPlanner.LogoStyle.Full: size = new Size(200, 31); from = new Rectangle(Point.Empty, brandLogoSource.Size); break;
+                case HeaderLayoutPlanner.LogoStyle.Compact: size = new Size(148, 23); from = new Rectangle(Point.Empty, brandLogoSource.Size); break;
+                case HeaderLayoutPlanner.LogoStyle.Small: size = new Size(116, 18); from = new Rectangle(Point.Empty, brandLogoSource.Size); break;
+                default:
+                    // the shield between "Briech" and "UAS": the middle fifth of the 260 x 64 artwork
+                    var w = brandLogoSource.Width;
+                    from = new Rectangle(w * 102 / 260, 0, w * 52 / 260, brandLogoSource.Height);
+                    size = new Size(26, 32);
+                    break;
+            }
+
             var bmp = new Bitmap(size.Width, size.Height);
             using (var g = Graphics.FromImage(bmp))
             {
@@ -1685,40 +1716,11 @@ namespace MissionPlanner
                 g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
 #endif
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
-                g.DrawImage(brandLogoSource, new Rectangle(Point.Empty, size));
+                g.DrawImage(brandLogoSource, new Rectangle(Point.Empty, size), from, GraphicsUnit.Pixel);
             }
 
-            brandLogoCache[key] = bmp;
+            brandLogoCache[style] = bmp;
             return bmp;
-        }
-
-        private void ApplyToolbarCompactLevel(int level)
-        {
-            foreach (var kvp in navButtonBaseWidths)
-            {
-                var button = kvp.Key;
-                button.Width = NavWidthFor(button, level);
-                // text tabs; on very narrow windows they fall back to icons
-                button.DisplayStyle = level >= IconTabsLevel
-                    ? ToolStripItemDisplayStyle.Image
-                    : ToolStripItemDisplayStyle.Text;
-                button.Padding = level >= IconTabsLevel ? new Padding(2) : new Padding(4, 0, 4, 0);
-                button.ToolTipText = button.Text;
-            }
-
-            if (MenuArduPilot != null)
-            {
-                // the brand stays on every screen size; it gets smaller instead of disappearing
-                MenuArduPilot.Available = MenuArduPilotWanted;
-                MenuArduPilot.Image = BrandLogoFor(level);
-                MenuArduPilot.Size = new Size(BrandLogoItemWidth(level), MenuArduPilot.Height);
-            }
-
-            if (toolStripConnectionControl != null)
-                toolStripConnectionControl.Width = level == 0 ? 241 : 200;
-
-            // the logo may have just come back or gone: let the mode strip take only what is left
-            toolStripVehicleState?.RefitToToolbar();
         }
 
         private void ConfigureNavigationButton(ToolStripButton button, int width, int height, Color textColor)

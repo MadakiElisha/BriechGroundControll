@@ -720,6 +720,8 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             txt_search.SetAutoCompleteSource(list);
 
             Params.SuspendLayout();
+            // hiding the list while it refills takes the keyboard/wheel focus away from it: give it back after
+            var paramsHadFocus = Params.ContainsFocus;
             Params.Visible = false;
 
             Params.Rows.AddRange(rowlist.ToArray());
@@ -732,6 +734,8 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             Params.Sort(Params.Columns[Command.Index], ListSortDirection.Ascending);
 
             Params.Visible = true;
+            if (paramsHadFocus)
+                Params.Focus();
             Params.ResumeLayout();
 
             shownParamCount = rowlist.Count;
@@ -980,6 +984,8 @@ namespace MissionPlanner.GCSViews.ConfigurationView
         void filterList(string searchfor)
         {
             DateTime start = DateTime.Now;
+            // hiding the list while it refills takes the keyboard/wheel focus away from it: give it back after
+            var paramsHadFocus = Params.ContainsFocus;
             Params.Visible = false;
             if (searchfor.Length >= 2 || searchfor.Length == 0)
             {
@@ -1030,6 +1036,8 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             }
 
             Params.Visible = true;
+            if (paramsHadFocus)
+                Params.Focus();
 
             log.InfoFormat("Filter: {0}ms", (DateTime.Now - start).TotalMilliseconds);
         }
