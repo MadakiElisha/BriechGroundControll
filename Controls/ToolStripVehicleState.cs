@@ -138,20 +138,24 @@ namespace MissionPlanner.Controls
             if (_parentMenuStrip == null || _modeDropdown == null)
                 return;
 
-            // Calculate space used by other items in the menu strip
-            int otherItemsWidth = 0;
-            foreach (ToolStripItem item in _parentMenuStrip.Items)
+            int availableWidth;
+            if (WidthBudget.HasValue)
             {
-                // Available, not Visible: an item the strip could not place this pass (the logo is last in line)
-                // reports Visible = false, and ignoring it let this control take the logo's space for good.
-                if (item != this && item.Available)
-                {
-                    otherItemsWidth += item.Width + item.Margin.Horizontal;
-                }
+                // the header decides how much room this strip gets (MainV2 / HeaderLayoutPlanner)
+                availableWidth = WidthBudget.Value;
             }
+            else
+            {
+                // on its own (no header planner): take what the other items leave
+                int otherItemsWidth = 0;
+                foreach (ToolStripItem item in _parentMenuStrip.Items)
+                {
+                    if (item != this && item.Available)
+                        otherItemsWidth += item.Width + item.Margin.Horizontal;
+                }
 
-            // Available space for this control (with some padding for safety)
-            int availableWidth = _parentMenuStrip.Width - otherItemsWidth - 20;
+                availableWidth = _parentMenuStrip.Width - otherItemsWidth - 20;
+            }
 
             // If no space available, hide entirely
             if (availableWidth <= 0)
@@ -250,6 +254,51 @@ namespace MissionPlanner.Controls
                 _container.Width = totalWidth;
                 this.Size = new Size(totalWidth, _container.Height);
                 WidthAdjusted?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        /// <summary>
+        /// Width the header gives this strip. When set, the strip fits arm + mode, then GPS, then pinned modes into
+        /// it and never measures its neighbours (two things sizing against each other is how the logo got pushed
+        /// off the bar). Null: the old behaviour, take whatever is left.
+        /// </summary>
+        public int? WidthBudget
+        {
+            get { return _widthBudget; }
+            set
+            {
+                if (_widthBudget == value)
+                    return;
+                _widthBudget = value;
+                AdjustWidthToAvailableSpace();
+            }
+        }
+
+        private int? _widthBudget;
+
+        /// <summary>Width of the GPS block when shown (for the header planner).</summary>
+        public int GpsBlockWidth
+        {
+            get
+            {
+                int gpsWidth = 32;
+                if (_gpsSatsLabel != null && _gpsDopLabel != null)
+                    gpsWidth += Math.Max(TextRenderer.MeasureText(_gpsSatsLabel.Text, _gpsSatsLabel.Font).Width,
+                        TextRenderer.MeasureText(_gpsDopLabel.Text, _gpsDopLabel.Font).Width) + 8;
+                return gpsWidth;
+            }
+        }
+
+        /// <summary>Widths of the pinned mode buttons, in order (for the header planner).</summary>
+        public List<int> PinnedButtonWidths
+        {
+            get
+            {
+                var list = new List<int>();
+                using (var font = new Font("Segoe UI", 9F))
+                    foreach (var mode in _pinnedModes)
+                        list.Add(TextRenderer.MeasureText(mode, font).Width + 20);
+                return list;
             }
         }
 
