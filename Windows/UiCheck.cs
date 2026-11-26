@@ -117,6 +117,28 @@ static class UiCheck
         Environment.Exit(problems == 0 ? 1 : problems);
     }
 
+    /// <summary>The app's own log: every ERROR / exception line it wrote during the check (first 60).</summary>
+    static void DumpAppErrors()
+    {
+        try
+        {
+            var repo = (log4net.Repository.Hierarchy.Hierarchy)log4net.LogManager.GetRepository();
+            foreach (var appender in repo.Root.Appenders.OfType<log4net.Appender.FileAppender>())
+            {
+                appender.Flush(2000);
+                var lines = File.ReadAllLines(appender.File);
+                var bad = lines.Where(l => l.Contains(" ERROR ") || l.Contains("Exception")).Take(60).ToList();
+                Say($"app log {appender.File}: {lines.Length} lines, {bad.Count} error lines shown");
+                foreach (var l in bad)
+                    Say("applog " + (l.Length > 400 ? l.Substring(0, 400) : l));
+            }
+        }
+        catch (Exception ex)
+        {
+            Say("app log not readable: " + ex.Message);
+        }
+    }
+
     static void Run()
     {
         Application.ThreadException += OnUiException;
@@ -555,6 +577,7 @@ static class UiCheck
                 Problem("check crashed: " + ex);
             }
 
+            DumpAppErrors();
             Say(problems == 0 ? "RESULT no problems found" : $"RESULT {problems} problem(s)");
             Console.Out.Flush();
             Environment.Exit(0);
