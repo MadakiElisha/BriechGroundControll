@@ -142,11 +142,26 @@ static class UiCheck
             return;
         }
 
+        // a pilot often opens Parameters while the list is still downloading: open it now, check it once loaded
+        MainV2.View.ShowScreen("FlyView");
+        Pause(1500);
+        var early = MainV2.instance.FlyView;
+        early.ShowTools(true);
+        early.Tools.OpenTool("params");
+        Say($"Parameters opened early: {MainV2.comPort.MAV.param.Count}/{MainV2.comPort.MAV.param.TotalReported} loaded");
+
         // let parameters finish and telemetry settle
         var deadline = DateTime.Now.AddSeconds(120);
         while (DateTime.Now < deadline && (MainV2.comPort.MAV.param.TotalReported == 0 || MainV2.comPort.MAV.param.Count < MainV2.comPort.MAV.param.TotalReported))
             Pause(500);
         Pause(3000);
+        Pause(2000);
+        Say("Parameters opened early, after loading:");
+        CheckParamsScroll(early.Tools);
+        Shot("w-params-early");
+        early.Tools.CloseTool();
+        early.ShowTools(false);
+
         var cs = MainV2.comPort.MAV.cs;
         Say($"connected: sysid {MainV2.comPort.MAV.sysid}, {MainV2.comPort.MAV.param.Count}/{MainV2.comPort.MAV.param.TotalReported} params, mode {cs.mode}, " +
             $"airspeed {cs.airspeed:0.0}, alt {cs.alt:0.0}, climb {cs.climbrate:0.00}, yaw {cs.yaw:0}");
@@ -198,6 +213,58 @@ static class UiCheck
 
         fly.Tools.CloseTool();
         fly.ShowTools(false);
+
+        GaugesNearZero();
+    }
+
+    /// <summary>
+    /// On the ground the climb rate and airspeed hover around zero. Paint the Gauges page with tiny values
+    /// (tiny arcs) the way the timer would, and report a paint exception (Windows shows a red X and stops drawing).
+    /// </summary>
+    static void GaugesNearZero()
+    {
+        using (var form = new Form { Width = 900, Height = 700, ShowInTaskbar = false, StartPosition = FormStartPosition.Manual, Location = new Point(0, 0) })
+        {
+            var page = FlightDataToolPage("gauges");
+            if (page == null)
+            {
+                Problem("Gauges: page could not be created");
+                return;
+            }
+
+            page.Dock = DockStyle.Fill;
+            form.Controls.Add(page);
+            form.Show();
+            Pause(300);
+            var cs = new CurrentState();
+            var values = new[] { 0.0, 1e-7, -1e-7, 1e-5, 0.0004, -0.0004, 0.004, 0.02, -0.02, 0.3 };
+            var failures = 0;
+            foreach (var v in values)
+            {
+                cs.climbrate = (float)v;
+                cs.airspeed = (float)Math.Abs(v);
+                cs.alt = (float)v;
+                page.UpdateView(cs, true);
+                if (!PaintCheck(page, $"Gauges at {v}"))
+                    failures++;
+            }
+
+            Say($"Gauges near zero: {values.Length - failures}/{values.Length} values painted");
+            form.Close();
+        }
+    }
+
+    static FlyToolPage FlightDataToolPage(string key)
+    {
+        try
+        {
+            return FlyToolPage.Create(key);
+        }
+        catch (Exception ex)
+        {
+            Say("create " + key + ": " + ex.Message);
+            return null;
+        }
     }
 
     /// <summary>The parameter grid must be scrollable straight away when it has more rows than fit.</summary>
