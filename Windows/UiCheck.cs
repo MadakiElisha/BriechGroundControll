@@ -49,15 +49,8 @@ static class UiCheck
         var form = MainV2.instance;
         using (var bmp = new Bitmap(Math.Max(1, form.Width), Math.Max(1, form.Height)))
         {
-            try
-            {
-                using (var g = Graphics.FromImage(bmp))
-                    g.CopyFromScreen(form.Left, form.Top, 0, 0, form.Size);
-            }
-            catch
-            {
-                form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size));
-            }
+            // the form itself, not the screen: the build machine's desktop has other windows on top
+            form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size));
 
             bmp.Save(Path.Combine(shots, name + ".png"), System.Drawing.Imaging.ImageFormat.Png);
         }
@@ -259,6 +252,7 @@ static class UiCheck
         Directory.CreateDirectory(Settings.GetUserDataDirectory());
         Settings.Instance["update_check"] = DateTime.Now.ToShortDateString();
         Settings.Instance["AutoConnect"] = "[]";
+        Settings.Instance["AA_CheckEnableAltitudeAngel"] = "False"; // no first-run airspace prompt
         Settings.Instance.Save();
 
         // report UI-thread exceptions here first (the app's own handler shows a dialog nobody can close)
