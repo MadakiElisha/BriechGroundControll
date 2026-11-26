@@ -214,7 +214,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
         {
             base.OnParentChanged(e);
             // moved to another host (Fly screen Tools or back): the grid's size changes without a layout of its bars
-            if (Params != null && Params.IsHandleCreated)
+            if (Params != null && Params.IsHandleCreated && IsHandleCreated && !IsDisposed)
                 BeginInvoke((Action)RefreshScrollBars);
         }
 
