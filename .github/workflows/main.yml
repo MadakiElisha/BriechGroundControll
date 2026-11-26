@@ -80,8 +80,9 @@ jobs:
           $p = Start-Process -FilePath "$sitl\ArduPlane.exe" -WorkingDirectory $sitl -PassThru -NoNewWindow `
                -ArgumentList "-Mquadplane","-O8.89331,7.26416,300,0","-s1","--serial0","tcp:0","--defaults","quadplane.parm"
           $app = Resolve-Path "bin\Release\net461"
-          $msbuildPath = Split-Path (& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.Component.MSBuild -find MSBuild\Current\Bin\amd64\MSBuild.exe | Select-Object -First 1) -Parent
-          $csc = Join-Path $msbuildPath "Roslyn\csc.exe"
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $csc = (Get-ChildItem "$vs\MSBuild" -Recurse -Filter csc.exe | Where-Object { $_.FullName -match 'Roslyn\\csc\.exe$' } | Select-Object -First 1).FullName
+          Write-Host "compiler: $csc"
           $refs = @("BriechGroundControl.exe","MissionPlanner.Controls.dll","MissionPlanner.Utilities.dll","MissionPlanner.ArduPilot.dll","MAVLink.dll","MissionPlanner.Comms.dll","Interfaces.dll") | ForEach-Object { "-r:$app\$_" }
           & $csc -nologo -target:winexe -platform:anycpu -out:"$app\BriechUiCheck.exe" -r:System.Windows.Forms.dll -r:System.Drawing.dll -r:"$app\netstandard.dll" @refs "Windows\UiCheck.cs"
           if ($LASTEXITCODE -ne 0) { Write-Host "UI check did not compile"; Stop-Process -Id $p.Id -Force; exit 0 }
