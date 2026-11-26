@@ -73,7 +73,9 @@ namespace MissionPlanner.Controls
             _container = (Panel)Control;
             _container.AutoSize = false;
             _container.Height = 32;
-            _container.MinimumSize = new Size(180, 32);
+            // no minimum width: a 180 px minimum made the panel draw over the tabs and the logo whenever the
+            // toolbar gave it less (its item said 0 px, the panel still painted 180+)
+            _container.MinimumSize = new Size(0, 32);
             _container.BackColor = Color.Transparent;
 
             this.AutoSize = false;
@@ -157,16 +159,21 @@ namespace MissionPlanner.Controls
                 availableWidth = _parentMenuStrip.Width - otherItemsWidth - 20;
             }
 
-            // If no space available, hide entirely
+            // If no space available, hide entirely (the panel too, so nothing paints over its neighbours)
             if (availableWidth <= 0)
             {
-                if (_container.Width != 0)
+                if (_container.Width != 0 || _container.Visible)
                 {
                     _container.Width = 0;
+                    _container.Visible = false;
                     this.Size = new Size(0, _container.Height);
+                    WidthAdjusted?.Invoke(this, EventArgs.Empty);
                 }
                 return;
             }
+
+            if (!_container.Visible)
+                _container.Visible = true;
 
             // Calculate arm button width
             int armWidth = TextRenderer.MeasureText(_armButton.Text, _armButton.Font).Width + 24;
@@ -248,6 +255,8 @@ namespace MissionPlanner.Controls
             // Update width
             int totalWidth = minRequired + pinnedWidth + (showGps ? gpsWidth : 0);
             totalWidth = Math.Max(totalWidth, Math.Min(availableWidth, minRequired)); // Don't exceed available, but at least show arm+dropdown
+            if (WidthBudget.HasValue)
+                totalWidth = Math.Min(totalWidth, WidthBudget.Value); // never past what the header gave
 
             if (_container.Width != totalWidth)
             {
@@ -712,6 +721,13 @@ namespace MissionPlanner.Controls
 
             int padding = 8; // table padding
             int totalWidth = padding + armWidth + dropdownWidth + pinnedWidth + gpsWidth + 8;
+
+            if (WidthBudget.HasValue)
+            {
+                // the header decides the width: re-fit the content into it rather than growing past it
+                AdjustWidthToAvailableSpace();
+                return;
+            }
 
             _container.Width = totalWidth;
             this.Size = new Size(totalWidth, _container.Height);
