@@ -1,0 +1,269 @@
+using System;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using MissionPlanner;
+using MissionPlanner.Comms;
+using MissionPlanner.GCSViews;
+using MissionPlanner.Utilities;
+using Timer = System.Windows.Forms.Timer;
+
+// Windows UI check, run by CI after the build with a quadplane SITL listening on BRIECH_SITL_TCP.
+// It starts the real app, connects it to the simulator, opens Fly screen tools the way a pilot does and
+// reports what it finds (UICHECK lines), with screenshots in BRIECH_SCREENSHOT_DIR. It never fails the build:
+// the lines and screenshots are the evidence for review.
+static class UiCheck
+{
+    static Timer timer;
+    static string shots;
+    static int problems;
+
+    static void Say(string text)
+    {
+        Console.WriteLine("UICHECK " + text);
+        Console.Out.Flush();
+    }
+
+    static void Problem(string text)
+    {
+        problems++;
+        Say("PROBLEM " + text);
+    }
+
+    static void Pause(int ms)
+    {
+        var until = DateTime.Now.AddMilliseconds(ms);
+        while (DateTime.Now < until)
+        {
+            Application.DoEvents();
+            Thread.Sleep(20);
+        }
+    }
+
+    static void Shot(string name)
+    {
+        Pause(800);
+        var form = MainV2.instance;
+        using (var bmp = new Bitmap(Math.Max(1, form.Width), Math.Max(1, form.Height)))
+        {
+            try
+            {
+                using (var g = Graphics.FromImage(bmp))
+                    g.CopyFromScreen(form.Left, form.Top, 0, 0, form.Size);
+            }
+            catch
+            {
+                form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size));
+            }
+
+            bmp.Save(Path.Combine(shots, name + ".png"), System.Drawing.Imaging.ImageFormat.Png);
+        }
+
+        Say("screenshot " + name);
+    }
+
+    /// <summary>Paint a control into a bitmap, as Windows would on screen, and report any exception.</summary>
+    static bool PaintCheck(Control c, string what)
+    {
+        try
+        {
+            using (var bmp = new Bitmap(Math.Max(1, c.Width), Math.Max(1, c.Height)))
+                c.DrawToBitmap(bmp, new Rectangle(Point.Empty, c.Size));
+            foreach (Control child in c.Controls)
+                if (child.Visible && child.Width > 0 && child.Height > 0)
+                    using (var bmp = new Bitmap(child.Width, child.Height))
+                        child.DrawToBitmap(bmp, new Rectangle(Point.Empty, child.Size));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Problem($"{what} failed to paint: {ex.GetType().Name}: {ex.Message}");
+            Say(ex.ToString().Replace("\r", "").Replace("\n", " | "));
+            return false;
+        }
+    }
+
+    static System.Collections.Generic.IEnumerable<Control> Descendants(Control root)
+    {
+        foreach (Control child in root.Controls)
+        {
+            yield return child;
+            foreach (var g in Descendants(child))
+                yield return g;
+        }
+    }
+
+    static void Run()
+    {
+        var target = Environment.GetEnvironmentVariable("BRIECH_SITL_TCP") ?? "127.0.0.1:5760";
+        var i = target.LastIndexOf(':');
+        MainV2.instance.WindowState = FormWindowState.Normal;
+        MainV2.instance.Bounds = new Rectangle(0, 0, 1280, 800);
+
+        // connect like a pilot picking TCP, without the host/port prompts
+        var connected = false;
+        for (int attempt = 0; attempt < 20 && !connected; attempt++)
+        {
+            var port = MainV2.comPort;
+            try
+            {
+                port.BaseStream = new TcpSerial { Host = target.Substring(0, i), Port = target.Substring(i + 1) };
+                var t = Task.Run(() => MainV2.instance.doConnect(port, "preset", "0", true, false));
+                var until = DateTime.Now.AddSeconds(90);
+                while (!t.IsCompleted && DateTime.Now < until)
+                    Pause(200);
+                connected = port.BaseStream.IsOpen && port.MAV.sysid != 0;
+            }
+            catch (Exception ex)
+            {
+                Say("waiting for SITL: " + ex.Message);
+            }
+
+            if (!connected)
+                Pause(3000);
+        }
+
+        if (!connected)
+        {
+            Problem("could not connect to SITL at " + target);
+            return;
+        }
+
+        // let parameters finish and telemetry settle
+        var deadline = DateTime.Now.AddSeconds(120);
+        while (DateTime.Now < deadline && (MainV2.comPort.MAV.param.TotalReported == 0 || MainV2.comPort.MAV.param.Count < MainV2.comPort.MAV.param.TotalReported))
+            Pause(500);
+        Pause(3000);
+        var cs = MainV2.comPort.MAV.cs;
+        Say($"connected: sysid {MainV2.comPort.MAV.sysid}, {MainV2.comPort.MAV.param.Count}/{MainV2.comPort.MAV.param.TotalReported} params, mode {cs.mode}, " +
+            $"airspeed {cs.airspeed:0.0}, alt {cs.alt:0.0}, climb {cs.climbrate:0.00}, yaw {cs.yaw:0}");
+
+        // the new Fly screen
+        MainV2.View.ShowScreen("FlyView");
+        Pause(2000);
+        var fly = MainV2.instance.FlyView;
+        Shot("w-fly");
+
+        // the Tools grid: every classic tool should be listed
+        fly.ShowTools(true);
+        Pause(1000);
+        Shot("w-tools");
+        var listed = FlightData.ModernTools.Select(t => t.Title).ToList();
+        Say("tools listed: " + string.Join(", ", listed));
+        var classicTabs = Descendants(MainV2.instance.FlightData).OfType<TabPage>().Select(p => p.Text).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList();
+        Say("classic Fly tabs: " + string.Join(", ", classicTabs));
+        if (!listed.Any(t => t.IndexOf("log", StringComparison.OrdinalIgnoreCase) >= 0))
+            Problem("Tools has no Logs entry (Classic Fly has a Telemetry Logs tab)");
+
+        // each tool: open it, let it run, paint it, screenshot it
+        foreach (var tool in FlightData.ModernTools)
+        {
+            bool opened;
+            try
+            {
+                opened = fly.Tools.OpenTool(tool.Key);
+            }
+            catch (Exception ex)
+            {
+                Problem($"{tool.Title} threw when opened: {ex.GetType().Name}: {ex.Message}");
+                continue;
+            }
+
+            if (!opened)
+            {
+                Problem(tool.Title + " did not open");
+                continue;
+            }
+
+            Pause(2500);
+            PaintCheck(fly.Tools, tool.Title);
+            Shot("w-tool-" + tool.Key);
+
+            if (tool.Key == "params")
+                CheckParamsScroll(fly.Tools);
+        }
+
+        fly.Tools.CloseTool();
+        fly.ShowTools(false);
+    }
+
+    /// <summary>The parameter grid must be scrollable straight away when it has more rows than fit.</summary>
+    static void CheckParamsScroll(Control host)
+    {
+        var grid = Descendants(host).OfType<DataGridView>().FirstOrDefault(g => g.Name == "Params");
+        if (grid == null)
+        {
+            Problem("Parameters: no parameter grid found");
+            return;
+        }
+
+        var vbar = grid.Controls.OfType<VScrollBar>().FirstOrDefault();
+        var visibleRows = grid.DisplayedRowCount(false);
+        Say($"Parameters: {grid.Rows.Count} rows, {visibleRows} visible, grid {grid.Width}x{grid.Height}, scroll bar visible {vbar?.Visible}");
+        if (grid.Rows.Count > visibleRows + 1 && (vbar == null || !vbar.Visible))
+            Problem("Parameters: more rows than fit but no vertical scroll bar");
+
+        // the mouse wheel must move the list too
+        var before = grid.FirstDisplayedScrollingRowIndex;
+        try
+        {
+            grid.Focus();
+            var wheel = typeof(DataGridView).GetMethod("OnMouseWheel", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            wheel.Invoke(grid, new object[] { new MouseEventArgs(MouseButtons.None, 0, 10, 10, -360) });
+            Pause(300);
+        }
+        catch (Exception ex)
+        {
+            Say("wheel: " + ex.Message);
+        }
+
+        var after = grid.FirstDisplayedScrollingRowIndex;
+        Say($"Parameters: wheel scroll moved first row {before} -> {after}");
+        if (grid.Rows.Count > visibleRows + 1 && after == before)
+            Problem("Parameters: mouse wheel does not scroll the list");
+    }
+
+    [STAThread]
+    static void Main()
+    {
+        shots = Environment.GetEnvironmentVariable("BRIECH_SCREENSHOT_DIR") ?? Path.Combine(Path.GetTempPath(), "briech-uicheck");
+        Directory.CreateDirectory(shots);
+        Settings.CustomUserDataDirectory = Path.Combine(Path.GetTempPath(), "briech-uicheck-" + Guid.NewGuid());
+        Directory.CreateDirectory(Settings.GetUserDataDirectory());
+        Settings.Instance["update_check"] = DateTime.Now.ToShortDateString();
+        Settings.Instance["AutoConnect"] = "[]";
+        Settings.Instance.Save();
+
+        // report UI-thread exceptions here first (the app's own handler shows a dialog nobody can close)
+        Application.ThreadException += (s, e) =>
+        {
+            Problem("unhandled UI exception: " + e.Exception.GetType().Name + ": " + e.Exception.Message);
+            Say(e.Exception.ToString().Replace("\r", "").Replace("\n", " | "));
+            Console.Out.Flush();
+            Environment.Exit(problems == 0 ? 1 : problems);
+        };
+
+        timer = new Timer { Interval = 8000 };
+        timer.Tick += (s, e) =>
+        {
+            timer.Stop();
+            try
+            {
+                Run();
+            }
+            catch (Exception ex)
+            {
+                Problem("check crashed: " + ex);
+            }
+
+            Say(problems == 0 ? "RESULT no problems found" : $"RESULT {problems} problem(s)");
+            Console.Out.Flush();
+            Environment.Exit(0);
+        };
+        timer.Start();
+        Program.Main(new string[0]);
+    }
+}
