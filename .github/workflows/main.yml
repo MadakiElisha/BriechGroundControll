@@ -103,6 +103,13 @@ jobs:
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           }
           if (Test-Path "$shots\uicheck.txt") { Get-Content "$shots\uicheck.txt" | Select-String "UICHECK" | ForEach-Object { Write-Host $_ } }
+          # screenshots also go into the log (base64), so they can be reviewed where artifacts can't be downloaded
+          foreach ($png in Get-ChildItem "$shots\*.png") {
+            Write-Host "SHOT_BEGIN $($png.Name)"
+            $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($png.FullName))
+            for ($i = 0; $i -lt $b64.Length; $i += 4000) { Write-Host $b64.Substring($i, [Math]::Min(4000, $b64.Length - $i)) }
+            Write-Host "SHOT_END"
+          }
 
       - name: Upload UI check screenshots
         if: always()
