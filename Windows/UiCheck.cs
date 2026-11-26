@@ -246,7 +246,9 @@ static class UiCheck
     {
         var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
         var menu = (MenuStrip)typeof(MainV2).GetField("MainMenu", flags).GetValue(MainV2.instance);
-        foreach (var w in new[] { 1920, 1600, 1366, 1280, 1152, 1024, 900 })
+        // Windows won't size a window beyond the screen, so test what this screen allows (1024 on the build machine)
+        var screenW = Screen.PrimaryScreen.WorkingArea.Width;
+        foreach (var w in new[] { 1920, 1600, 1366, 1280, 1152, 1024, 960, 900, 800 }.Where(x => x <= screenW))
         {
             MainV2.instance.Bounds = new Rectangle(0, 0, w, 760);
             Pause(1500);

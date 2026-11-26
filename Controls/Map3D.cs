@@ -1536,13 +1536,30 @@ namespace MissionPlanner.Controls
                 return;
             }
 
+            if (!glCapable.HasValue && Context != null && IsHandleCreated)
+            {
+                try
+                {
+                    if (!Context.IsCurrent)
+                        Context.MakeCurrent(this.WindowInfo);
+                    GlCapable();
+                }
+                catch
+                {
+                    glCapable = false;
+                }
+            }
+
+            if (glCapable == false)
+                return;
+
             Utilities.Extensions.ProtectReentry(doPaint);
         }
 
         public void doPaint()
         {
             DateTime start = DateTime.Now;
-            if (this.DesignMode)
+            if (this.DesignMode || glCapable == false)
                 return;
             var beforewait = DateTime.Now;
             if (textureSemaphore.Wait(1) == false)
@@ -2352,6 +2369,12 @@ namespace MissionPlanner.Controls
                     if (!Context.IsCurrent)
                         Context.MakeCurrent(this.WindowInfo);
 
+                    if (!GlCapable())
+                    {
+                        Context.MakeCurrent(null);
+                        return;
+                    }
+
                     _imageloaderThread = new Thread(imageLoader)
                     {
                         IsBackground = true,
@@ -2659,6 +2682,40 @@ namespace MissionPlanner.Controls
             return true;
         }
 
+        private bool? glCapable;
+
+        /// <summary>
+        /// False when the graphics driver can't run this view: it needs OpenGL 2.0 shaders, and Windows' built-in
+        /// fallback driver (no GPU driver installed, some remote desktops and virtual machines) only offers
+        /// OpenGL 1.1. Calling the missing functions there doesn't throw a normal error, it crashes the whole
+        /// app (access violation), so nothing in this view touches GL once this is known to be false.
+        /// </summary>
+        public bool Unsupported => glCapable == false;
+
+        public string GlVersion { get; private set; }
+
+        /// <summary>Checks once, with this view's context current.</summary>
+        private bool GlCapable()
+        {
+            if (glCapable.HasValue)
+                return glCapable.Value;
+            try
+            {
+                GlVersion = GL.GetString(StringName.Version) ?? "";
+                var m = System.Text.RegularExpressions.Regex.Match(GlVersion, @"(\d+)\.(\d+)");
+                glCapable = m.Success && int.Parse(m.Groups[1].Value) >= 2;
+            }
+            catch (Exception ex)
+            {
+                GlVersion = "unknown (" + ex.Message + ")";
+                glCapable = false;
+            }
+
+            if (glCapable == false)
+                Debug.WriteLine("3D view disabled: OpenGL " + GlVersion + " has no shader support");
+            return glCapable.Value;
+        }
+
         private void test_Resize(object sender, EventArgs e)
         {
             if (!IsHandleCreated || IsDisposed || Disposing || Context == null)
@@ -2674,6 +2731,12 @@ namespace MissionPlanner.Controls
             {
                 if (!Context.IsCurrent)
                     Context.MakeCurrent(this.WindowInfo);
+
+                if (!GlCapable())
+                {
+                    Context.MakeCurrent(null);
+                    return;
+                }
 
                 GL.Viewport(0, 0, safeWidth, safeHeight);
                 float renderDistance = _center.Alt > 500 ? 100000f : 50000f;

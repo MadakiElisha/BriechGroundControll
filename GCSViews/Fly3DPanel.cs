@@ -111,6 +111,16 @@ namespace MissionPlanner.GCSViews
                                && Math.Abs(cs.lat) <= 90 && Math.Abs(cs.lng) <= 180;
             bool live = view != null && connected && hasPosition;
 
+            if (view != null && view.Unsupported)
+            {
+                // the driver can't run the 3D view (no GPU driver, remote desktop): say so, and stop drawing it
+                message.Text = "3D view needs a graphics driver with OpenGL 2.0 or newer.\r\nThis computer offers OpenGL " +
+                               view.GlVersion + ". Install the graphics driver from the PC maker.\r\nThe 2D map still works.";
+                message.Visible = true;
+                view.Visible = false;
+                return;
+            }
+
             message.Text = view == null && triedCreate
                 ? "3D view isn't available on this computer (no OpenGL)." +
                   (string.IsNullOrEmpty(createError) ? "" : "\r\n" + createError) + "\r\nThe 2D map still works."
