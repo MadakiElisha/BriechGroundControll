@@ -125,6 +125,10 @@ static class UiCheck
         var i = target.LastIndexOf(':');
         MainV2.instance.WindowState = FormWindowState.Normal;
         MainV2.instance.Bounds = new Rectangle(0, 0, 1280, 800);
+        // be the active window, as the app is for a pilot (the build machine's console is otherwise in front)
+        MainV2.instance.TopMost = true;
+        SetForegroundWindow(MainV2.instance.Handle);
+        MainV2.instance.Activate();
 
         // connect like a pilot picking TCP, without the host/port prompts
         var connected = false;
@@ -312,6 +316,7 @@ static class UiCheck
             Pause(500);
             var focused = GetFocus();
             var focusedControl = Control.FromHandle(focused);
+            Say($"Parameters: app is the active window {GetForegroundWindow() == MainV2.instance.Handle}");
             Say($"Parameters: focus is on {(focusedControl == null ? "nothing in the app" : focusedControl.GetType().Name + " '" + focusedControl.Name + "'")}, grid has focus {grid.ContainsFocus}");
             var centre = grid.PointToScreen(new Point(grid.Width / 2, grid.Height / 2));
             if (focused != IntPtr.Zero)
@@ -331,6 +336,12 @@ static class UiCheck
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr GetFocus();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern IntPtr GetForegroundWindow();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern bool SetForegroundWindow(IntPtr hWnd);
 
     delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
