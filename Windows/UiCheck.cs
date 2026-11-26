@@ -117,6 +117,7 @@ static class UiCheck
     static void Run()
     {
         Application.ThreadException += OnUiException;
+        Say("app started, connecting");
         var target = Environment.GetEnvironmentVariable("BRIECH_SITL_TCP") ?? "127.0.0.1:5760";
         var i = target.LastIndexOf(':');
         MainV2.instance.WindowState = FormWindowState.Normal;
@@ -127,6 +128,7 @@ static class UiCheck
         for (int attempt = 0; attempt < 20 && !connected; attempt++)
         {
             var port = MainV2.comPort;
+            Say("connect attempt " + (attempt + 1));
             try
             {
                 port.BaseStream = new TcpSerial { Host = target.Substring(0, i), Port = target.Substring(i + 1) };
@@ -151,6 +153,7 @@ static class UiCheck
             return;
         }
 
+        Say($"link open, {MainV2.comPort.MAV.param.Count}/{MainV2.comPort.MAV.param.TotalReported} params so far");
         // a pilot often opens Parameters while the list is still downloading: open it now, check it once loaded
         MainV2.View.ShowScreen("FlyView");
         Pause(1500);
@@ -346,6 +349,7 @@ static class UiCheck
         Application.ThreadException += OnUiException;
 
 
+        Say("starting the app");
         timer = new Timer { Interval = 8000 };
         timer.Tick += (s, e) =>
         {
