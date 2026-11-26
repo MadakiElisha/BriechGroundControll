@@ -331,7 +331,21 @@ static class UiCheck
         var after = grid.FirstDisplayedScrollingRowIndex;
         Say($"Parameters: wheel scroll moved first row {before} -> {after}");
         if (grid.Rows.Count > visibleRows + 1 && after == before)
-            Problem("Parameters: mouse wheel does not scroll the list");
+        {
+            if (GetForegroundWindow() != MainV2.instance.Handle)
+                Say("Parameters: wheel-to-focus not measurable here (the build machine won't make the app the active window); grid focus requested: " + grid.Focused);
+            else
+                Problem("Parameters: mouse wheel does not scroll the list");
+        }
+
+        // with Windows' hover scrolling (on by default) the wheel goes to the list under the mouse: that must work
+        var hoverBefore = grid.FirstDisplayedScrollingRowIndex;
+        var at = grid.PointToScreen(new Point(grid.Width / 2, grid.Height / 2));
+        SendMessage(grid.Handle, 0x020A, (IntPtr)((-360) << 16), (IntPtr)((at.Y << 16) | (at.X & 0xFFFF)));
+        Pause(300);
+        Say($"Parameters: wheel over the list moved first row {hoverBefore} -> {grid.FirstDisplayedScrollingRowIndex}");
+        if (grid.Rows.Count > visibleRows + 1 && grid.FirstDisplayedScrollingRowIndex == hoverBefore)
+            Problem("Parameters: the list does not scroll with the wheel over it");
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
