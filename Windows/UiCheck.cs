@@ -525,6 +525,7 @@ static class UiCheck
         Settings.Instance["update_check"] = DateTime.Now.ToShortDateString();
         Settings.Instance["AutoConnect"] = "[]";
         Settings.Instance["AA_CheckEnableAltitudeAngel"] = "False"; // no first-run airspace prompt
+        Settings.Instance["SHOWAGAIN_New_Mission_Overlay"] = "False"; // Plan's first-visit tip
         Settings.Instance.Save();
 
         // report UI-thread exceptions here (the app's own handler shows a dialog nobody can close). WinForms keeps

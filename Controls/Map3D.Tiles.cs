@@ -390,6 +390,7 @@ namespace MissionPlanner.Controls
                             }
 
                             textureid[p] = ti;
+                            Touch(); // a new tile to show
                             continue;
                         }
                         catch (Exception ex)
@@ -539,6 +540,7 @@ namespace MissionPlanner.Controls
                                             }
 
                                             textureid[p] = ti;
+                                            Touch(); // a new tile to show
                                         }
                                     }
                                     catch

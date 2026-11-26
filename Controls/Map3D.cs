@@ -313,7 +313,10 @@ namespace MissionPlanner.Controls
                 }
 
                 if (positionChanged)
+                {
+                    Touch();
                     this.Invalidate();
+                }
             }
         }
 
@@ -326,10 +329,16 @@ namespace MissionPlanner.Controls
             get { return _rpy; }
             set
             {
+                // sensor noise on the ground is not movement: only a real attitude change wakes the view up
+                bool moved = Math.Abs(_rpy.X - value.X) > 0.2 || Math.Abs(_rpy.Y - value.Y) > 0.2 || Math.Abs(_rpy.Z - value.Z) > 0.2;
                 _rpy.X = (float) Math.Round(value.X, 2);
                 _rpy.Y = (float) Math.Round(value.Y, 2);
                 _rpy.Z = (float) Math.Round(value.Z, 2);
-                this.Invalidate();
+                if (moved)
+                {
+                    Touch();
+                    this.Invalidate();
+                }
             }
         }
 
@@ -370,6 +379,11 @@ namespace MissionPlanner.Controls
             MouseUp += OnMouseUp;
             MouseWheel += OnMouseWheel;
             MouseDoubleClick += OnMouseDoubleClick;
+            // the pilot moving the camera keeps the full frame rate
+            MouseMove += (s, e) => { if (e.Button != MouseButtons.None) Touch(); };
+            MouseWheel += (s, e) => Touch();
+            MouseDown += (s, e) => Touch();
+            Resize += (s, e) => Touch();
 
             // Initialize ADSB tooltip
             _adsbToolTip = new ToolTip();
@@ -2646,10 +2660,35 @@ namespace MissionPlanner.Controls
             }
         }
 
+        /// <summary>
+        /// Frame pacing. The view used to redraw as fast as it could (a 12 ms timer with VSync off, 60-80 frames a
+        /// second) for as long as it was on screen, which keeps a laptop's GPU and CPU flat out: hot, loud and
+        /// draining the battery. Now it draws at most <see cref="ActiveFps"/> while something is changing (the
+        /// aircraft moving or turning, the pilot moving the camera, tiles arriving) and <see cref="IdleFps"/> when
+        /// nothing is. Both can be set with map3d_max_fps / map3d_idle_fps.
+        /// </summary>
+        public int ActiveFps { get; set; } = Math.Max(5, Math.Min(120, Settings.Instance.GetInt32("map3d_max_fps", 30)));
+
+        public int IdleFps { get; set; } = Math.Max(1, Math.Min(30, Settings.Instance.GetInt32("map3d_idle_fps", 4)));
+
+        private DateTime lastActivity = DateTime.Now;
+        private DateTime lastFrame = DateTime.MinValue;
+
+        /// <summary>Something visible changed: draw at the full frame rate for a moment.</summary>
+        public void Touch()
+        {
+            lastActivity = DateTime.Now;
+        }
+
         private void timer1_Tick(object sender, EventArgs e)
         {
             if (onpaintrun == true && IsHandleCreated && !IsDisposed && !Disposing)
             {
+                var now = DateTime.Now;
+                var fps = now - lastActivity < TimeSpan.FromSeconds(1.5) ? ActiveFps : IdleFps;
+                if ((now - lastFrame).TotalMilliseconds < 1000.0 / fps)
+                    return;
+                lastFrame = now;
                 this.Invalidate();
                 onpaintrun = false;
             }
