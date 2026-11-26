@@ -234,6 +234,91 @@ static class UiCheck
         fly.ShowTools(false);
 
         GaugesNearZero();
+        ToolbarAtWidths();
+        CpuByScreen();
+    }
+
+    /// <summary>
+    /// Laptop widths from 1024 (small 14"/ high scaling) to 1920: the logo and Connect must always be on the bar,
+    /// never pushed into the toolbar's hidden overflow.
+    /// </summary>
+    static void ToolbarAtWidths()
+    {
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var menu = (MenuStrip)typeof(MainV2).GetField("MainMenu", flags).GetValue(MainV2.instance);
+        foreach (var w in new[] { 1920, 1600, 1366, 1280, 1152, 1024, 900 })
+        {
+            MainV2.instance.Bounds = new Rectangle(0, 0, w, 760);
+            Pause(1500);
+            var level = typeof(MainV2).GetField("toolbarCompactLevel", flags)?.GetValue(MainV2.instance);
+            var parts = menu.Items.Cast<ToolStripItem>().Where(i => i.Available)
+                .Select(i => $"{i.Name}:{(i.Placement == ToolStripItemPlacement.Overflow ? "HIDDEN" : i.Bounds.X + "+" + i.Width)}");
+            Say($"toolbar {w}px level {level}: {string.Join(" ", parts)}");
+            foreach (var name in new[] { "MenuArduPilot", "MenuConnect" })
+            {
+                var item = menu.Items.Cast<ToolStripItem>().FirstOrDefault(i => i.Name == name);
+                if (item == null || !item.Available || item.Placement != ToolStripItemPlacement.Main)
+                    Problem($"toolbar at {w}px: {name} is not on the bar");
+            }
+
+            using (var bmp = new Bitmap(menu.Width, menu.Height))
+            {
+                menu.DrawToBitmap(bmp, new Rectangle(Point.Empty, menu.Size));
+                bmp.Save(Path.Combine(shots, $"toolbar-{w}.png"), System.Drawing.Imaging.ImageFormat.Png);
+            }
+        }
+
+        MainV2.instance.Bounds = new Rectangle(0, 0, 1280, 800);
+        Pause(1000);
+    }
+
+    /// <summary>How hard each screen works the PC: process CPU over 20 s, connected to SITL, nothing else moving.</summary>
+    static void CpuByScreen()
+    {
+        var proc = System.Diagnostics.Process.GetCurrentProcess();
+        var cores = Environment.ProcessorCount;
+        var fly = MainV2.instance.FlyView;
+
+        void Measure(string name, Action show)
+        {
+            show();
+            Pause(3000);
+            proc.Refresh();
+            var cpu0 = proc.TotalProcessorTime;
+            var t0 = DateTime.Now;
+            var threads0 = proc.Threads.Cast<System.Diagnostics.ProcessThread>().ToDictionary(t => t.Id, t => SafeCpu(t));
+            Pause(20000);
+            proc.Refresh();
+            var used = (proc.TotalProcessorTime - cpu0).TotalMilliseconds;
+            var wall = (DateTime.Now - t0).TotalMilliseconds;
+            var busiest = proc.Threads.Cast<System.Diagnostics.ProcessThread>()
+                .Select(t => new { t.Id, ms = SafeCpu(t) - (threads0.TryGetValue(t.Id, out var b) ? b : 0) })
+                .OrderByDescending(x => x.ms).Take(4)
+                .Select(x => $"{x.Id}:{x.ms * 100 / wall:0}%");
+            Say($"CPU {name}: {used * 100 / wall:0}% of one core ({used * 100 / wall / cores:0.0}% of all {cores}), " +
+                $"memory {proc.WorkingSet64 / 1048576} MB, busiest threads {string.Join(" ", busiest)}");
+        }
+
+        Measure("Fly map", () => { MainV2.View.ShowScreen("FlyView"); fly.SetCentreView(false, false); });
+        Measure("Fly 3D", () => fly.SetCentreView(true, false));
+        Measure("Fly Tools Status", () => { fly.SetCentreView(false, false); fly.ShowTools(true); fly.Tools.OpenTool("status"); });
+        Measure("Fly Tools closed, map", () => { fly.Tools.CloseTool(); fly.ShowTools(false); });
+        Measure("Classic Fly", () => MainV2.View.ShowScreen("FlightData"));
+        Measure("Previous layout", () => MainV2.View.ShowScreen("ModernFlightData"));
+        Measure("Plan", () => MainV2.View.ShowScreen("FlightPlanner"));
+        Measure("Back to Fly", () => MainV2.View.ShowScreen("FlyView"));
+    }
+
+    static double SafeCpu(System.Diagnostics.ProcessThread t)
+    {
+        try
+        {
+            return t.TotalProcessorTime.TotalMilliseconds;
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
     /// <summary>
