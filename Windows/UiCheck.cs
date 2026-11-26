@@ -301,9 +301,15 @@ static class UiCheck
         try
         {
             grid.Focus();
-            // a real wheel message at the middle of the list, as Windows sends it
+            // the wheel goes to the focused window (unless Windows' hover scrolling is on): send it there, as a pilot's
+            // first scroll after opening the tool would be
+            Pause(500);
+            var focused = GetFocus();
+            var focusedControl = Control.FromHandle(focused);
+            Say($"Parameters: focus is on {(focusedControl == null ? "nothing in the app" : focusedControl.GetType().Name + " '" + focusedControl.Name + "'")}, grid has focus {grid.ContainsFocus}");
             var centre = grid.PointToScreen(new Point(grid.Width / 2, grid.Height / 2));
-            SendMessage(grid.Handle, 0x020A, (IntPtr)((-360) << 16), (IntPtr)((centre.Y << 16) | (centre.X & 0xFFFF)));
+            if (focused != IntPtr.Zero)
+                SendMessage(focused, 0x020A, (IntPtr)((-360) << 16), (IntPtr)((centre.Y << 16) | (centre.X & 0xFFFF)));
             Pause(300);
         }
         catch (Exception ex)
@@ -316,6 +322,9 @@ static class UiCheck
         if (grid.Rows.Count > visibleRows + 1 && after == before)
             Problem("Parameters: mouse wheel does not scroll the list");
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern IntPtr GetFocus();
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
