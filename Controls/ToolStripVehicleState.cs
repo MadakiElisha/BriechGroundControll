@@ -159,21 +159,19 @@ namespace MissionPlanner.Controls
                 availableWidth = _parentMenuStrip.Width - otherItemsWidth - 20;
             }
 
-            // If no space available, hide entirely (the panel too, so nothing paints over its neighbours)
+            // If no space available, take no width at all (with no minimum size the panel then paints nothing).
+            // Don't hide the panel itself: the toolbar ties the item's visibility to it, and the strip would
+            // stay gone after the window grows again.
             if (availableWidth <= 0)
             {
-                if (_container.Width != 0 || _container.Visible)
+                if (_container.Width != 0)
                 {
                     _container.Width = 0;
-                    _container.Visible = false;
                     this.Size = new Size(0, _container.Height);
                     WidthAdjusted?.Invoke(this, EventArgs.Empty);
                 }
                 return;
             }
-
-            if (!_container.Visible)
-                _container.Visible = true;
 
             // Calculate arm button width
             int armWidth = TextRenderer.MeasureText(_armButton.Text, _armButton.Font).Width + 24;

@@ -281,6 +281,10 @@ static class UiCheck
             var parts = menu.Items.Cast<ToolStripItem>().Where(i => i.Available)
                 .Select(i => $"{i.Name}:{(i.Placement == ToolStripItemPlacement.Overflow ? "HIDDEN" : i.Bounds.X + "+" + i.Width)}");
             Say($"toolbar {w}px level {level}: {string.Join(" ", parts)}");
+            // connected: the arm / mode strip should come back whenever there is room for it
+            var strip = menu.Items.Cast<ToolStripItem>().FirstOrDefault(i => i.Name == "toolStripVehicleState");
+            if (MainV2.comPort.BaseStream.IsOpen && w >= 1024 && (strip == null || !strip.Available))
+                Problem($"toolbar at {w}px: the arm / mode strip is gone while connected");
             foreach (var name in new[] { "MenuArduPilot", "MenuConnect" })
             {
                 var item = menu.Items.Cast<ToolStripItem>().FirstOrDefault(i => i.Name == name);
@@ -301,6 +305,12 @@ static class UiCheck
                 bmp.Save(Path.Combine(shots, $"toolbar-{w}.png"), System.Drawing.Imaging.ImageFormat.Png);
             }
         }
+
+        // and back to the widest: everything that gave way must come back
+        MainV2.instance.Bounds = new Rectangle(0, 0, screenW, 760);
+        Pause(1500);
+        var back = menu.Items.Cast<ToolStripItem>().Where(i => i.Available).Select(i => $"{i.Name}:{i.Bounds.X}+{i.Width}");
+        Say($"toolbar back at {screenW}px: {string.Join(" ", back)}");
 
         MainV2.instance.Bounds = new Rectangle(0, 0, 1280, 800);
         Pause(1000);
