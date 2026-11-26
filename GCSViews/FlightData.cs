@@ -7347,6 +7347,7 @@ namespace MissionPlanner.GCSViews
             ("scripts", "Scripts", "Run Python scripts"),
             ("video", "Video", "Video stream and recording"),
             ("transponder", "Transponder", "ADS-B transponder control"),
+            ("logs", "Logs", "Play back or open telemetry logs"),
         };
 
         private TabPage ToolPage(string key)
@@ -7366,6 +7367,7 @@ namespace MissionPlanner.GCSViews
                 case "scripts": return tabScripts;
                 case "video": return tabVideo;
                 case "transponder": return tabTransponder;
+                case "logs": return tabTLogs;
                 default: return null;
             }
         }

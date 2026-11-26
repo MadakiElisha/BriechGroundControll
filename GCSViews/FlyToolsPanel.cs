@@ -180,7 +180,45 @@ namespace MissionPlanner.GCSViews
             picker.Visible = false;
             toolView.Visible = true;
             toolView.BringToFront();
+            FocusTool();
             return true;
+        }
+
+        /// <summary>
+        /// Put the keyboard and mouse-wheel focus inside the opened tool. The tile that opened it is gone, and a page
+        /// activated while hidden (Parameters focuses its list in Activate) couldn't take focus then, so without
+        /// this the wheel goes nowhere until something in the page is clicked.
+        /// </summary>
+        private void FocusTool()
+        {
+            if (!IsHandleCreated)
+                return;
+            BeginInvoke((Action)(() =>
+            {
+                try
+                {
+                    var target = Descendants(toolHost).FirstOrDefault(c => c is DataGridView && c.Visible && c.CanFocus)
+                                 ?? Descendants(toolHost).FirstOrDefault(c => c.Visible && c.CanFocus && c.TabStop && !(c is ButtonBase));
+                    if (target != null)
+                        target.Focus();
+                    else
+                        toolHost.SelectNextControl(null, true, true, true, true);
+                }
+                catch (Exception ex)
+                {
+                    log.Debug(ex);
+                }
+            }));
+        }
+
+        private static IEnumerable<Control> Descendants(Control root)
+        {
+            foreach (Control child in root.Controls)
+            {
+                yield return child;
+                foreach (var g in Descendants(child))
+                    yield return g;
+            }
         }
 
         /// <summary>Hand the open tool back to Classic Fly and show the grid.</summary>

@@ -68,6 +68,59 @@ jobs:
           }
           exit $code
 
+      - name: Windows UI check (SITL)
+        # opens every Fly screen tool against a quadplane SITL on Windows and reports problems with screenshots;
+        # informational: it never fails the build, the UICHECK lines and screenshots are the evidence
+        continue-on-error: true
+        timeout-minutes: 15
+        shell: pwsh
+        run: |
+          $sitl = Join-Path $env:RUNNER_TEMP "sitl"
+          if (!(Test-Path "$sitl\ArduPlane.exe")) { Write-Host "SITL not downloaded, skipping"; exit 0 }
+          $p = Start-Process -FilePath "$sitl\ArduPlane.exe" -WorkingDirectory $sitl -PassThru -NoNewWindow `
+               -ArgumentList "-Mquadplane","-O8.89331,7.26416,300,0","-s1","--serial0","tcp:0","--defaults","quadplane.parm"
+          $app = Resolve-Path "bin\Release\net461"
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $csc = (Get-ChildItem "$vs\MSBuild" -Recurse -Filter csc.exe | Where-Object { $_.FullName -match 'Roslyn\\csc\.exe$' } | Select-Object -First 1).FullName
+          Write-Host "compiler: $csc"
+          $facades = "${env:ProgramFiles(x86)}\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.7.2\Facades"
+          if (!(Test-Path "$facades\netstandard.dll")) { $facades = (Get-ChildItem "${env:ProgramFiles(x86)}\Reference Assemblies\Microsoft\Framework\.NETFramework" -Recurse -Filter netstandard.dll | Select-Object -Last 1).DirectoryName }
+          Write-Host "facades: $facades"
+          # reference the app and every managed library next to it (System.Memory and friends included)
+          $refs = @("-r:$app\BriechGroundControl.exe")
+          foreach ($dll in Get-ChildItem "$app\*.dll" | Where-Object { $_.Name -notlike "MissionPlanner.Drawing*" }) { try { [void][Reflection.AssemblyName]::GetAssemblyName($dll.FullName); $refs += "-r:$($dll.FullName)" } catch { } }
+          & $csc -nologo -target:winexe -platform:anycpu -out:"$app\BriechUiCheck.exe" -r:System.Windows.Forms.dll -r:System.Drawing.dll -r:"$facades\netstandard.dll" @refs "Windows\UiCheck.cs"
+          if ($LASTEXITCODE -ne 0) { Write-Host "UI check did not compile"; Stop-Process -Id $p.Id -Force; exit 0 }
+          Copy-Item "$app\BriechGroundControl.exe.config" "$app\BriechUiCheck.exe.config"
+          $shots = Join-Path $env:RUNNER_TEMP "uicheck"
+          New-Item -ItemType Directory -Force -Path $shots | Out-Null
+          $env:BRIECH_SITL_TCP = "127.0.0.1:5760"
+          $env:BRIECH_SCREENSHOT_DIR = $shots
+          try {
+            $ui = Start-Process -FilePath "$app\BriechUiCheck.exe" -WorkingDirectory $app -PassThru -RedirectStandardOutput "$shots\uicheck.txt"
+            if (!$ui.WaitForExit(600000)) { Write-Host "UI check timed out"; Stop-Process -Id $ui.Id -Force }
+          } finally {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
+          if (Test-Path "$shots\uicheck.txt") { Get-Content "$shots\uicheck.txt" | Select-String "UICHECK" | ForEach-Object { Write-Host $_ } }
+          # screenshots also go into the log (base64), so they can be reviewed where artifacts can't be downloaded
+          foreach ($png in Get-ChildItem "$shots\*.png") {
+            Write-Host "SHOT_BEGIN $($png.Name)"
+            $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($png.FullName))
+            for ($i = 0; $i -lt $b64.Length; $i += 4000) { Write-Host $b64.Substring($i, [Math]::Min(4000, $b64.Length - $i)) }
+            Write-Host "SHOT_END"
+          }
+
+      - name: Upload UI check screenshots
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-check-${{ github.run_number }}
+          path: ${{ runner.temp }}/uicheck
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Cleanup
         shell: pwsh
         run: |

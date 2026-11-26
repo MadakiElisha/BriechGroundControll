@@ -83,6 +83,7 @@
     <Compile Remove="plugins\**" />
     <Compile Remove="Plugins\**" />
     <Compile Remove="Linux\**" />
+    <Compile Remove="Windows\**" />
     <Compile Remove="resedit\**" />
     <Compile Remove="SikRadio\**" />
     <Compile Remove="Updater\**" />
