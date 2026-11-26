@@ -21,8 +21,11 @@ static class UiCheck
     static string shots;
     static int problems;
 
+    static DateTime lastSay = DateTime.Now;
+
     static void Say(string text)
     {
+        lastSay = DateTime.Now;
         Console.WriteLine("UICHECK " + text);
         Console.Out.Flush();
     }
@@ -329,6 +332,74 @@ static class UiCheck
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr GetFocus();
 
+    delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int max);
+
+    /// <summary>
+    /// If the UI thread stops making progress (a dialog nobody answers, a hang), say which of our windows are open
+    /// and grab the whole screen, from a separate thread, so a hang is visible in the log rather than a silent timeout.
+    /// </summary>
+    static void StartWatchdog()
+    {
+        var t = new Thread(() =>
+        {
+            int n = 0;
+            while (true)
+            {
+                Thread.Sleep(15000);
+                if (DateTime.Now - lastSay < TimeSpan.FromSeconds(75))
+                    continue;
+                n++;
+                var me = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+                var titles = new System.Collections.Generic.List<string>();
+                EnumWindows((h, l) =>
+                {
+                    uint pid;
+                    GetWindowThreadProcessId(h, out pid);
+                    if (pid == me && IsWindowVisible(h))
+                    {
+                        var sb = new System.Text.StringBuilder(256);
+                        GetWindowText(h, sb, 256);
+                        titles.Add("'" + sb + "'");
+                    }
+
+                    return true;
+                }, IntPtr.Zero);
+                Console.WriteLine($"UICHECK STALLED {n}: no progress for {(DateTime.Now - lastSay).TotalSeconds:0} s; open windows: {string.Join(", ", titles)}");
+                try
+                {
+                    var b = Screen.PrimaryScreen.Bounds;
+                    using (var bmp = new Bitmap(b.Width, b.Height))
+                    {
+                        using (var g = Graphics.FromImage(bmp))
+                            g.CopyFromScreen(b.Location, Point.Empty, b.Size);
+                        bmp.Save(Path.Combine(shots, "stalled-" + n + ".png"), System.Drawing.Imaging.ImageFormat.Png);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("UICHECK stalled screenshot failed: " + ex.Message);
+                }
+
+                Console.Out.Flush();
+                if (n >= 3)
+                    return;
+            }
+        }) { IsBackground = true };
+        t.Start();
+    }
+
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
@@ -350,6 +421,7 @@ static class UiCheck
 
 
         Say("starting the app");
+        StartWatchdog();
         timer = new Timer { Interval = 8000 };
         timer.Tick += (s, e) =>
         {
