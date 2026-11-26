@@ -83,8 +83,11 @@ jobs:
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
           $csc = (Get-ChildItem "$vs\MSBuild" -Recurse -Filter csc.exe | Where-Object { $_.FullName -match 'Roslyn\\csc\.exe$' } | Select-Object -First 1).FullName
           Write-Host "compiler: $csc"
+          $facades = "${env:ProgramFiles(x86)}\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.7.2\Facades"
+          if (!(Test-Path "$facades\netstandard.dll")) { $facades = (Get-ChildItem "${env:ProgramFiles(x86)}\Reference Assemblies\Microsoft\Framework\.NETFramework" -Recurse -Filter netstandard.dll | Select-Object -Last 1).DirectoryName }
+          Write-Host "facades: $facades"
           $refs = @("BriechGroundControl.exe","MissionPlanner.Controls.dll","MissionPlanner.Utilities.dll","MissionPlanner.ArduPilot.dll","MAVLink.dll","MissionPlanner.Comms.dll","Interfaces.dll") | ForEach-Object { "-r:$app\$_" }
-          & $csc -nologo -target:winexe -platform:anycpu -out:"$app\BriechUiCheck.exe" -r:System.Windows.Forms.dll -r:System.Drawing.dll -r:"$app\netstandard.dll" @refs "Windows\UiCheck.cs"
+          & $csc -nologo -target:winexe -platform:anycpu -out:"$app\BriechUiCheck.exe" -r:System.Windows.Forms.dll -r:System.Drawing.dll -r:"$facades\netstandard.dll" @refs "Windows\UiCheck.cs"
           if ($LASTEXITCODE -ne 0) { Write-Host "UI check did not compile"; Stop-Process -Id $p.Id -Force; exit 0 }
           Copy-Item "$app\BriechGroundControl.exe.config" "$app\BriechUiCheck.exe.config"
           $shots = Join-Path $env:RUNNER_TEMP "uicheck"
