@@ -680,10 +680,20 @@ namespace MissionPlanner.GCSViews
                 var cx = Width / 2f;
                 var cy = 32 + size / 2f;
                 var r = size / 2f - 6;
-                if (Compass)
-                    PaintCompass(g, p, cx, cy, r);
-                else
-                    PaintArc(g, p, cx, cy, r);
+                try
+                {
+                    if (Compass)
+                        PaintCompass(g, p, cx, cy, r);
+                    else
+                        PaintArc(g, p, cx, cy, r);
+                }
+                catch (Exception ex)
+                {
+                    // never let one odd value stop the dial for good (Windows shows a red X after a paint exception)
+                    log.Debug(ex);
+                    DrawText(g, value.HasValue ? value.Value.ToString("0.0", CultureInfo.InvariantCulture) : "--", T.Readout, p.TextPrimary,
+                        new Rectangle(12, (int)cy - 24, Width - 24, 48), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+                }
                 DrawText(g, detail, T.Detail, p.TextSecondary, new Rectangle(12, Height - 26, Width - 24, 20), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
             }
 
@@ -705,8 +715,11 @@ namespace MissionPlanner.GCSViews
                 {
                     var frac = (float)Math.Max(0, Math.Min(1, (v - min) / (max - min)));
                     var zeroFrac = Symmetric ? 0.5f : 0f;
-                    using (var fillPen = new Pen(p.Brand, Math.Max(6, r / 9)))
-                        g.DrawArc(fillPen, rect, start + sweep * Math.Min(zeroFrac, frac), sweep * Math.Abs(frac - zeroFrac));
+                    // GDI+ on Windows throws on near-zero arcs (climb rate and airspeed sit around 0 on the ground)
+                    var fillSweep = sweep * Math.Abs(frac - zeroFrac);
+                    if (fillSweep >= 1f)
+                        using (var fillPen = new Pen(p.Brand, Math.Max(6, r / 9)))
+                            g.DrawArc(fillPen, rect, start + sweep * Math.Min(zeroFrac, frac), fillSweep);
                 }
 
                 // ticks and labels at each step

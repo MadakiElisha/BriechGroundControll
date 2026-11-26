@@ -181,12 +181,41 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             processToScreen();
 
             Params.Enabled = true;
+            RefreshScrollBars();
 
             startup = false;
 
             // Reset search box and filter when activating
             txt_search.Text = "";
             Params.Focus();
+        }
+
+        /// <summary>
+        /// The grid is filled while disabled and hidden; afterwards Windows leaves its scroll bars stale (no bar,
+        /// wheel does nothing) until something resizes it, e.g. opening the tree. Re-apply them so the list
+        /// scrolls straight away, including when the page is shown on the new Fly screen's Tools.
+        /// </summary>
+        private void RefreshScrollBars()
+        {
+            try
+            {
+                var bars = Params.ScrollBars;
+                Params.ScrollBars = ScrollBars.None;
+                Params.ScrollBars = bars;
+                Params.PerformLayout();
+            }
+            catch (Exception ex)
+            {
+                log.Debug(ex);
+            }
+        }
+
+        protected override void OnParentChanged(EventArgs e)
+        {
+            base.OnParentChanged(e);
+            // moved to another host (Fly screen Tools or back): the grid's size changes without a layout of its bars
+            if (Params != null && Params.IsHandleCreated)
+                BeginInvoke((Action)RefreshScrollBars);
         }
 
         public void Deactivate()
@@ -714,6 +743,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
                 BuildTree();
             }
 
+            RefreshScrollBars();
             log.Info("Done");
         }
 
