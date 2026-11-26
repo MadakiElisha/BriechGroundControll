@@ -126,7 +126,10 @@ static class UiCheck
             foreach (var appender in repo.Root.Appenders.OfType<log4net.Appender.FileAppender>())
             {
                 appender.Flush(2000);
-                var lines = File.ReadAllLines(appender.File);
+                string[] lines;
+                using (var fs = new FileStream(appender.File, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var sr = new StreamReader(fs))
+                    lines = sr.ReadToEnd().Split('\n');
                 var bad = lines.Where(l => l.Contains(" ERROR ") || l.Contains("Exception")).Take(60).ToList();
                 Say($"app log {appender.File}: {lines.Length} lines, {bad.Count} error lines shown");
                 foreach (var l in bad)
