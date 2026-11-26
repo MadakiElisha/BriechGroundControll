@@ -106,8 +106,17 @@ static class UiCheck
         }
     }
 
+    static void OnUiException(object sender, ThreadExceptionEventArgs e)
+    {
+        Problem("unhandled UI exception: " + e.Exception.GetType().Name + ": " + e.Exception.Message);
+        Say(e.Exception.ToString().Replace("\r", "").Replace("\n", " | "));
+        Console.Out.Flush();
+        Environment.Exit(problems == 0 ? 1 : problems);
+    }
+
     static void Run()
     {
+        Application.ThreadException += OnUiException;
         var target = Environment.GetEnvironmentVariable("BRIECH_SITL_TCP") ?? "127.0.0.1:5760";
         var i = target.LastIndexOf(':');
         MainV2.instance.WindowState = FormWindowState.Normal;
@@ -241,6 +250,7 @@ static class UiCheck
             var failures = 0;
             foreach (var v in values)
             {
+                Say($"Gauges: value {v}");
                 cs.climbrate = (float)v;
                 cs.airspeed = (float)Math.Abs(v);
                 cs.alt = (float)v;
@@ -322,14 +332,10 @@ static class UiCheck
         Settings.Instance["AA_CheckEnableAltitudeAngel"] = "False"; // no first-run airspace prompt
         Settings.Instance.Save();
 
-        // report UI-thread exceptions here first (the app's own handler shows a dialog nobody can close)
-        Application.ThreadException += (s, e) =>
-        {
-            Problem("unhandled UI exception: " + e.Exception.GetType().Name + ": " + e.Exception.Message);
-            Say(e.Exception.ToString().Replace("\r", "").Replace("\n", " | "));
-            Console.Out.Flush();
-            Environment.Exit(problems == 0 ? 1 : problems);
-        };
+        // report UI-thread exceptions here (the app's own handler shows a dialog nobody can close). WinForms keeps
+        // one handler per thread and the app sets its own at start-up, so ours is set again once the app runs.
+        Application.ThreadException += OnUiException;
+
 
         timer = new Timer { Interval = 8000 };
         timer.Tick += (s, e) =>
