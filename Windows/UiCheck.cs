@@ -72,10 +72,27 @@ static class UiCheck
         {
             using (var bmp = new Bitmap(Math.Max(1, c.Width), Math.Max(1, c.Height)))
                 c.DrawToBitmap(bmp, new Rectangle(Point.Empty, c.Size));
-            foreach (Control child in c.Controls)
-                if (child.Visible && child.Width > 0 && child.Height > 0)
+            // every visible control on its own: an exception in one control's paint can be hidden by its parent's
+            foreach (var child in Descendants(c).Where(x => x.Visible && x.Width > 0 && x.Height > 0))
+            {
+                try
+                {
                     using (var bmp = new Bitmap(child.Width, child.Height))
-                        child.DrawToBitmap(bmp, new Rectangle(Point.Empty, child.Size));
+                    using (var g = Graphics.FromImage(bmp))
+                    {
+                        var paint = typeof(Control).GetMethod("OnPaint", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                        paint.Invoke(child, new object[] { new PaintEventArgs(g, new Rectangle(Point.Empty, child.Size)) });
+                    }
+                }
+                catch (System.Reflection.TargetInvocationException ex)
+                {
+                    var inner = ex.InnerException ?? ex;
+                    Problem($"{what}: {child.GetType().Name} '{child.Name}' failed to paint: {inner.GetType().Name}: {inner.Message}");
+                    Say(inner.ToString().Replace("\r", "").Replace("\n", " | "));
+                    return false;
+                }
+            }
+
             return true;
         }
         catch (Exception ex)
@@ -202,7 +219,10 @@ static class UiCheck
 
         var vbar = grid.Controls.OfType<VScrollBar>().FirstOrDefault();
         var visibleRows = grid.DisplayedRowCount(false);
-        Say($"Parameters: {grid.Rows.Count} rows, {visibleRows} visible, grid {grid.Width}x{grid.Height}, scroll bar visible {vbar?.Visible}");
+        Say($"Parameters: {grid.Rows.Count} rows, {visibleRows} visible, grid {grid.Width}x{grid.Height}, grid enabled {grid.Enabled}, " +
+            $"scroll bar visible {vbar?.Visible} enabled {vbar?.Enabled} max {vbar?.Maximum}, can focus {grid.CanFocus}");
+        if (!grid.Enabled || (vbar != null && !vbar.Enabled))
+            Problem("Parameters: the list or its scroll bar is disabled");
         if (grid.Rows.Count > visibleRows + 1 && (vbar == null || !vbar.Visible))
             Problem("Parameters: more rows than fit but no vertical scroll bar");
 
@@ -211,8 +231,9 @@ static class UiCheck
         try
         {
             grid.Focus();
-            var wheel = typeof(DataGridView).GetMethod("OnMouseWheel", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            wheel.Invoke(grid, new object[] { new MouseEventArgs(MouseButtons.None, 0, 10, 10, -360) });
+            // a real wheel message at the middle of the list, as Windows sends it
+            var centre = grid.PointToScreen(new Point(grid.Width / 2, grid.Height / 2));
+            SendMessage(grid.Handle, 0x020A, (IntPtr)((-360) << 16), (IntPtr)((centre.Y << 16) | (centre.X & 0xFFFF)));
             Pause(300);
         }
         catch (Exception ex)
@@ -225,6 +246,9 @@ static class UiCheck
         if (grid.Rows.Count > visibleRows + 1 && after == before)
             Problem("Parameters: mouse wheel does not scroll the list");
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
     [STAThread]
     static void Main()
