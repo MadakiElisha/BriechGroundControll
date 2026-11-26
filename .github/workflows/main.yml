@@ -88,7 +88,7 @@ jobs:
           Write-Host "facades: $facades"
           # reference the app and every managed library next to it (System.Memory and friends included)
           $refs = @("-r:$app\BriechGroundControl.exe")
-          foreach ($dll in Get-ChildItem "$app\*.dll") { try { [void][Reflection.AssemblyName]::GetAssemblyName($dll.FullName); $refs += "-r:$($dll.FullName)" } catch { } }
+          foreach ($dll in Get-ChildItem "$app\*.dll" | Where-Object { $_.Name -notlike "MissionPlanner.Drawing*" }) { try { [void][Reflection.AssemblyName]::GetAssemblyName($dll.FullName); $refs += "-r:$($dll.FullName)" } catch { } }
           & $csc -nologo -target:winexe -platform:anycpu -out:"$app\BriechUiCheck.exe" -r:System.Windows.Forms.dll -r:System.Drawing.dll -r:"$facades\netstandard.dll" @refs "Windows\UiCheck.cs"
           if ($LASTEXITCODE -ne 0) { Write-Host "UI check did not compile"; Stop-Process -Id $p.Id -Force; exit 0 }
           Copy-Item "$app\BriechGroundControl.exe.config" "$app\BriechUiCheck.exe.config"
