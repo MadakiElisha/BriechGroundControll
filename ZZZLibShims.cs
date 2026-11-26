@@ -523,6 +523,10 @@ public class Map3D: OpenGLtest
     public void Activate() { }
     public void Deactivate() { }
 
+    // no 3D map in this build: the Fly screen says so instead of drawing
+    public bool Unsupported => true;
+    public string GlVersion => "none (Android/Mac build)";
+    public void Touch() { }
 }
 
 

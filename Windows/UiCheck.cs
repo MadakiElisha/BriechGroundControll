@@ -130,7 +130,7 @@ static class UiCheck
                 using (var fs = new FileStream(appender.File, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                 using (var sr = new StreamReader(fs))
                     lines = sr.ReadToEnd().Split('\n');
-                var bad = lines.Where(l => l.Contains(" ERROR ") || l.Contains("Exception")).Take(60).ToList();
+                var bad = lines.Where(l => l.Contains(" ERROR ")).Take(40).ToList(); // first-chance DEBUG noise left out
                 Say($"app log {appender.File}: {lines.Length} lines, {bad.Count} error lines shown");
                 foreach (var l in bad)
                     Say("applog " + (l.Length > 400 ? l.Substring(0, 400) : l));
