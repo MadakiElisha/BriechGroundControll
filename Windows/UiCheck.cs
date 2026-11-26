@@ -263,6 +263,13 @@ static class UiCheck
                     Problem($"toolbar at {w}px: {name} is not on the bar");
             }
 
+            // a hosted control (the vehicle strip) must not paint wider than the room its item was given
+            foreach (var host in menu.Items.OfType<ToolStripControlHost>().Where(h => h.Available && h.Control != null && h.Control.Visible))
+            {
+                if (host.Control.Width > host.Width + 2)
+                    Problem($"toolbar at {w}px: {host.Name} paints {host.Control.Width}px into a {host.Width}px slot (draws over its neighbours)");
+            }
+
             using (var bmp = new Bitmap(menu.Width, menu.Height))
             {
                 menu.DrawToBitmap(bmp, new Rectangle(Point.Empty, menu.Size));
